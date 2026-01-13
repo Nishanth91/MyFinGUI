@@ -1,0 +1,6 @@
+nicegui
+pandas
+gspread
+google-auth
+plotly
+python-dateutil
