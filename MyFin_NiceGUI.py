@@ -1129,4 +1129,10 @@ def main_page():
 
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), reload=False, title=APP_NAME)
+    ui.run(
+    host="0.0.0.0",
+    port=int(os.environ.get("PORT", 8080)),
+    reload=False,
+    title=APP_NAME,
+    storage_secret=os.environ.get("NICEGUI_STORAGE_SECRET", "change-me"),
+)
