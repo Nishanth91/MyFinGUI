@@ -30,6 +30,102 @@ import gspread
 from google.oauth2.service_account import Credentials
 from dateutil.relativedelta import relativedelta
 from nicegui import ui, app
+# --- Bank-style dark theme overrides (NiceGUI/Quasar) ---
+ui.add_css(r'''
+:root {
+  --mf-bg: #0b1220;
+  --mf-card: #0f1b2d;
+  --mf-card-2: #12233b;
+  --mf-border: rgba(255,255,255,0.08);
+  --mf-text: rgba(255,255,255,0.92);
+  --mf-muted: rgba(255,255,255,0.65);
+  --mf-accent: #3b82f6;
+}
+
+body, .q-layout, .q-page, .nicegui-content {
+  background: var(--mf-bg) !important;
+  color: var(--mf-text) !important;
+}
+
+.my-card, .q-card, .q-dialog__inner > .q-card {
+  background: linear-gradient(180deg, var(--mf-card), var(--mf-card-2)) !important;
+  border: 1px solid var(--mf-border) !important;
+  border-radius: 16px !important;
+  color: var(--mf-text) !important;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+}
+
+.q-toolbar, header.q-header {
+  background: rgba(15, 27, 45, 0.92) !important;
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--mf-border);
+}
+
+.q-tab, .q-toolbar__title, .q-btn__content, .q-item__label, .q-field__label, .q-field__native, .q-field__prefix, .q-field__suffix {
+  color: var(--mf-text) !important;
+}
+
+.q-field--outlined .q-field__control,
+.q-field--filled .q-field__control {
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid var(--mf-border) !important;
+  border-radius: 12px !important;
+}
+
+.q-field__bottom, .q-field__hint, .q-field__messages, .text-grey, .text-grey-7 {
+  color: var(--mf-muted) !important;
+}
+
+.q-table__container, .q-table__middle, .q-table__bottom {
+  background: transparent !important;
+  color: var(--mf-text) !important;
+}
+
+.q-table thead tr th {
+  background: rgba(255,255,255,0.03) !important;
+  color: var(--mf-muted) !important;
+  border-bottom: 1px solid var(--mf-border) !important;
+}
+
+.q-table tbody tr td {
+  border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+}
+
+.q-btn {
+  border-radius: 999px !important;
+}
+
+.q-btn--standard, .q-btn--unelevated, .q-btn--push {
+  background: rgba(59,130,246,0.18) !important;
+  border: 1px solid rgba(59,130,246,0.35) !important;
+}
+
+.q-btn--standard .q-btn__content,
+.q-btn--unelevated .q-btn__content,
+.q-btn--push .q-btn__content {
+  color: var(--mf-text) !important;
+}
+
+.q-menu, .q-list, .q-date, .q-time {
+  background: var(--mf-card) !important;
+  border: 1px solid var(--mf-border) !important;
+  color: var(--mf-text) !important;
+}
+
+.q-separator {
+  background: rgba(255,255,255,0.06) !important;
+}
+
+.tile {
+  cursor: pointer;
+  transition: transform .08s ease, border-color .15s ease, background .15s ease;
+}
+.tile:hover {
+  transform: translateY(-2px);
+  border-color: rgba(59,130,246,0.5) !important;
+}
+''')
+# --- end theme overrides ---
 
 
 # -------------------- APP CONFIG --------------------
@@ -677,7 +773,7 @@ def main_page():
                     ui.label(type_to_display(entry_type)).classes("text-lg font-bold")
 
                     d_owner = ui.select(owners, value=owners[0], label="Owner").classes("w-full")
-                    d_date = ui.date(value=dt.date.today().isoformat(), label="Date").classes("w-full")
+                    d_date = ui.input('Date', value=dt.date.today().isoformat()).props('type=date').classes("w-full")
                     d_amount = ui.number(label="Amount", value=0.0, format="%.2f").classes("w-full")
                     d_pay = ui.select(pay_opts, value=("Card" if entry_type == "Debit" else "Other"), label="Pay / Method").classes("w-full")
                     d_acct = ui.select(accounts, value=(accounts[0] if accounts else ""), label="Account").classes("w-full")
@@ -856,7 +952,7 @@ def main_page():
                         with dlg, ui.card().classes("my-card p-5 w-[680px] max-w-[95vw]"):
                             ui.label(f"Edit Row {rn}").classes("text-lg font-bold")
 
-                            d_date = ui.date(value=str(r.get("Date", ""))[:10] or dt.date.today().isoformat(), label="Date").classes("w-full")
+                            d_date = ui.input('Date', value=str(r.get("Date", ""))[:10] or dt.date.today().isoformat()).props('type=date').classes("w-full")
                             d_owner = ui.input("Owner", value=str(r.get("Owner", ""))).classes("w-full")
                             d_type = ui.input("Type", value=str(r.get("Type", ""))).classes("w-full")
                             d_amount = ui.number("Amount", value=float(r.get("Amount", 0) or 0), format="%.2f").classes("w-full")
@@ -1069,7 +1165,7 @@ def main_page():
                             dlg = ui.dialog()
                             with dlg, ui.card().classes("my-card p-5 w-[680px] max-w-[95vw]"):
                                 ui.label(f"Edit Row {rownum}").classes("text-lg font-bold")
-                                d_date = ui.date(value=str(r.get("Date", ""))[:10] or dt.date.today().isoformat(), label="Date").classes("w-full")
+                                d_date = ui.input('Date', value=str(r.get("Date", ""))[:10] or dt.date.today().isoformat()).props('type=date').classes("w-full")
                                 d_owner = ui.input("Owner", value=str(r.get("Owner", ""))).classes("w-full")
                                 d_type = ui.input("Type", value=str(r.get("Type", ""))).classes("w-full")
                                 d_amount = ui.number("Amount", value=float(r.get("Amount", 0) or 0), format="%.2f").classes("w-full")
