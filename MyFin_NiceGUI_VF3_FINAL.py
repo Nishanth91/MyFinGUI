@@ -92,7 +92,7 @@ DEFAULT_CATEGORY_RULES = {
 # -------------------- GOOGLE SHEETS --------------------
 _gclient: Optional[gspread.Client] = None
 _spreadsheet: Optional[gspread.Spreadsheet] = None
-_ws_map: Dict[str, gspread.Worksheet] = {{}}
+_ws_map: Dict[str, gspread.Worksheet] = {}
 
 def _load_service_account_info() -> dict:
     env = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
