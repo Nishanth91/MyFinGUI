@@ -1,0 +1,2 @@
+# MyFinGUI
+Nishanth Finance tracker
