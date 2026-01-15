@@ -1,7 +1,7 @@
 
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICGUI_V1HF8_STABLE.py
+File: Myfin_NICGUI_VF2_STABLE_PHASE01_HF1_FULL.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -102,6 +102,12 @@ APP_SUBTITLE = "Finance Tracker"
 ABHI_PAY_DAYS = (15, 30)              # semimonthly
 WIFE_PAY_ANCHOR = dt.date(2026, 1, 16)  # biweekly Friday anchor
 
+
+# -----------------------------
+# Data cache (prevents repeated Google Sheets reads)
+# -----------------------------
+CACHE_TTL = int(os.environ.get("CACHE_TTL_SECONDS", "60"))  # seconds
+_cache: Dict[str, Tuple[float, pd.DataFrame]] = {}
 
 # -----------------------------
 # Utilities
