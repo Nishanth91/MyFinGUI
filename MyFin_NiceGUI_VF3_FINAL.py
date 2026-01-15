@@ -1,7 +1,7 @@
 
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICGUI_V1HF7_STABLE.py
+File: Myfin_NICGUI_V1HF8_STABLE.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -73,7 +73,7 @@ def nav_to(path: str) -> None:
     try:
         # Older style (if present)
         if hasattr(ui, 'open'):
-            nav_to(path)  # type: ignore[attr-defined]
+            ui.open(path)  # type: ignore[attr-defined]
             return
     except Exception:
         pass
@@ -549,7 +549,8 @@ def shell(content_fn):
     with ui.header().classes("bg-transparent"):
         topbar()
 
-    with ui.left_drawer(value=False).classes("bg-transparent"):
+    drawer = ui.left_drawer(value=False).classes("bg-transparent")
+    with drawer:
         with ui.column().classes("p-3 gap-2"):
             with ui.card().classes("my-card p-3"):
                 ui.label("Navigation").classes("font-bold")
@@ -562,7 +563,7 @@ def shell(content_fn):
                 nav_button("Rules", "rule", "/rules")
 
     with ui.page_sticky(position="bottom-left", x_offset=18, y_offset=18):
-        ui.button(icon="menu").props("round").on("click", lambda: ui.open_drawer())
+        ui.button(icon="menu").props("round").on("click", drawer.toggle)
 
     with ui.column().classes("w-full max-w-[1100px] mx-auto p-3 gap-3"):
         content_fn()
