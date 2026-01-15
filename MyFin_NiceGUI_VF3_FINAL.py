@@ -84,7 +84,8 @@ def nav_to(path: str) -> None:
 # Config
 # -----------------------------
 TZ = os.environ.get("TIMEZONE", "America/Winnipeg")
-SPREADSHEET_NAME = os.environ.get("SPREADSHEET_NAME", "nishanthfintrack_2026")
+SPREADSHEET_NAME = os.environ.get('SPREADSHEET_NAME', 'nishanthfintrack_2026')
+SPREADSHEET_ID = os.environ.get('SPREADSHEET_ID') or os.environ.get('GOOGLE_SHEET_ID')
 SERVICE_ACCOUNT_JSON = (os.environ.get("SERVICE_ACCOUNT_JSON") or os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or os.environ.get("GOOGLE_SERVICE_ACCOUNT") or "")
 STORAGE_SECRET = os.environ.get("NICEGUI_STORAGE_SECRET")  # set on Render; will be auto-derived if empty
 PORT = int(os.environ.get("PORT", "10000"))
@@ -218,82 +219,161 @@ def get_spreadsheet():
     global _ss
     if _ss is not None:
         return _ss
-    _ss = get_client().open(SPREADSHEET_NAME)
+    gc = get_client()
+    if SPREADSHEET_ID:
+        _ss = gc.open_by_key(SPREADSHEET_ID)
+    else:
+        _ss = gc.open(SPREADSHEET_NAME)
     return _ss
 
 def ensure_tabs() -> None:
+    """Ensure required worksheets exist and map them case-insensitively.
+
+    Important: Many users already have sheets like "Transactions" with capital letters.
+    Earlier versions created new empty "transactions" tabs, which made the app look blank.
+    This function always reuses existing tabs (case-insensitive) when present.
+    """
+
     ss = get_spreadsheet()
-    existing = {w.title for w in ss.worksheets()}
+    existing = {w.title.strip().lower(): w for w in ss.worksheets()}
+
+    global _ws
+    _ws = {}
+
     for tab, headers in TABS.items():
-        if tab not in existing:
-            ws = ss.add_worksheet(title=tab, rows=2000, cols=max(16, len(headers) + 4))
-            ws.append_row(headers, value_input_option="USER_ENTERED")
-        _ws[tab] = ss.worksheet(tab)
+        key = tab.strip().lower()
+        w = existing.get(key)
+
+        if w is None:
+            # create new sheet
+            w = ss.add_worksheet(title=tab, rows=2000, cols=max(12, len(headers) + 2))
+            w.append_row(headers)
+        else:
+            values = w.get_all_values()
+            if not values:
+                w.append_row(headers)
+            else:
+                cur = [c.strip() for c in values[0]]
+                # If sheet has a different header order, don't destroy it. Only add missing columns.
+                missing = [h for h in headers if h not in cur]
+                if missing:
+                    # add columns and update header row
+                    w.add_cols(len(missing))
+                    w.update('1:1', [cur + missing])
+
+        _ws[tab] = w
+
 
 def ws(tab: str) -> gspread.Worksheet:
-    if tab not in _ws:
-        ensure_tabs()
+    ensure_tabs()
     return _ws[tab]
 
+
+def sheet_headers(tab: str) -> list[str]:
+    w = ws(tab)
+    values = w.get_all_values()
+    if not values:
+        # create headers
+        headers = TABS[tab]
+        w.append_row(headers)
+        return headers
+    headers = [c.strip() for c in values[0]]
+    if not headers or all(h == '' for h in headers):
+        headers = TABS[tab]
+        w.update('1:1', [headers])
+    return headers
+
+
 def read_df(tab: str) -> pd.DataFrame:
-    records = ws(tab).get_all_records()
-    df = pd.DataFrame(records)
-    for col in TABS[tab]:
-        if col not in df.columns:
-            df[col] = ""
+    """Read a worksheet into a DataFrame (all values as strings initially).
+
+    This is intentionally tolerant of extra columns or different header casing/order.
+    """
+    w = ws(tab)
+    values = w.get_all_values()
+    if not values or len(values) == 1:
+        return pd.DataFrame(columns=sheet_headers(tab))
+    headers = [c.strip() for c in values[0]]
+    rows = values[1:]
+    # pad rows
+    width = len(headers)
+    norm_rows = [r + [''] * (width - len(r)) if len(r) < width else r[:width] for r in rows]
+    df = pd.DataFrame(norm_rows, columns=headers)
     return df
 
-def append_row(tab: str, row: Dict[str, Any]) -> None:
-    headers = TABS[tab]
-    ws(tab).append_row([row.get(h, "") for h in headers], value_input_option="USER_ENTERED")
 
-def update_row_by_id(tab: str, id_col: str, id_value: str, updates: Dict[str, Any]) -> bool:
+def append_row(tab: str, row: dict[str, Any]) -> None:
+    w = ws(tab)
+    headers = sheet_headers(tab)
+    # allow case-insensitive matching of provided keys
+    lower_map = {h.lower(): h for h in headers}
+    values = [''] * len(headers)
+    for k, v in row.items():
+        hk = lower_map.get(str(k).lower())
+        if hk is None:
+            continue
+        i = headers.index(hk)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            values[i] = str(v)
+        elif isinstance(v, dt.date):
+            values[i] = v.isoformat()
+        else:
+            values[i] = '' if v is None else str(v)
+    w.append_row(values, value_input_option='USER_ENTERED')
+
+
+def find_row_index_by_id(tab: str, id_col: str, id_val: str) -> tuple[int, list[str]] | tuple[None, list[str]]:
     w = ws(tab)
     values = w.get_all_values()
     if not values:
-        return False
-    headers = values[0]
-    if id_col not in headers:
-        return False
-    ridx = headers.index(id_col) + 1
-    rownum = None
-    for r in range(2, len(values) + 1):
-        if w.cell(r, ridx).value == id_value:
-            rownum = r
+        return None, []
+    headers = [c.strip() for c in values[0]]
+    # locate id column case-insensitively
+    col_idx = None
+    for i, h in enumerate(headers):
+        if h.strip().lower() == id_col.strip().lower():
+            col_idx = i
             break
-    if rownum is None:
+    if col_idx is None:
+        return None, headers
+    for r_i, row in enumerate(values[1:], start=2):
+        if len(row) > col_idx and str(row[col_idx]).strip() == str(id_val).strip():
+            return r_i, headers
+    return None, headers
+
+
+def update_row_by_id(tab: str, id_col: str, id_val: str, updates: dict[str, Any]) -> bool:
+    w = ws(tab)
+    row_idx, headers = find_row_index_by_id(tab, id_col, id_val)
+    if row_idx is None:
         return False
+    lower_map = {h.lower(): (i, h) for i, h in enumerate(headers)}
+    # build updates per cell
     for k, v in updates.items():
-        if k in headers:
-            c = headers.index(k) + 1
-            w.update_cell(rownum, c, v)
+        key = str(k).lower()
+        if key not in lower_map:
+            continue
+        col_i, _ = lower_map[key]
+        # A1 notation: row_idx, col_i+1
+        cell = gspread.utils.rowcol_to_a1(row_idx, col_i + 1)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            vv = str(v)
+        elif isinstance(v, dt.date):
+            vv = v.isoformat()
+        else:
+            vv = '' if v is None else str(v)
+        w.update_acell(cell, vv)
     return True
 
-def delete_row_by_id(tab: str, id_col: str, id_value: str) -> bool:
+
+def delete_row_by_id(tab: str, id_col: str, id_val: str) -> bool:
     w = ws(tab)
-    values = w.get_all_values()
-    if not values:
+    row_idx, _ = find_row_index_by_id(tab, id_col, id_val)
+    if row_idx is None:
         return False
-    headers = values[0]
-    if id_col not in headers:
-        return False
-    ridx = headers.index(id_col) + 1
-    rownum = None
-    for r in range(2, len(values) + 1):
-        if w.cell(r, ridx).value == id_value:
-            rownum = r
-            break
-    if rownum is None:
-        return False
-    w.delete_rows(rownum)
+    w.delete_rows(row_idx)
     return True
 
-
-# -----------------------------
-# Caching (performance)
-# -----------------------------
-CACHE_TTL = 15  # seconds
-_cache: Dict[str, Tuple[float, pd.DataFrame]] = {}
 
 def cached_df(tab: str, force: bool = False) -> pd.DataFrame:
     now = time.time()
@@ -457,8 +537,8 @@ def generate_recurring_for_date(d: dt.date) -> int:
 # Auth
 # -----------------------------
 def check_login(username: str, password: str) -> bool:
-    u = os.environ.get("APP_USER", "admin")
-    p = os.environ.get("APP_PASS", "admin")
+    u = os.environ.get('APP_USER') or os.environ.get('APP_USERNAME') or 'admin'
+    p = os.environ.get('APP_PASS') or os.environ.get('APP_PASSWORD') or 'admin'
     return username == u and password == p
 
 def require_login() -> bool:
@@ -515,8 +595,65 @@ body, .q-layout, .q-page {
   border-radius: 12px !important;
 }
 
+.q-field__native, .q-field__input, .q-field__label, .q-field__prefix, .q-field__suffix, .q-select__dropdown-icon {
+  color: var(--mf-text) !important;
+}
+.q-field__control-container {
+  color: var(--mf-text) !important;
+}
+.q-field__append, .q-field__prepend {
+  color: var(--mf-muted) !important;
+}
+
 .q-field__bottom, .q-field__hint, .q-field__messages, .text-grey, .text-grey-7 {
   color: var(--mf-muted) !important;
+}
+
+/* Force dark surfaces for Quasar components that default to white */
+.q-menu, .q-dialog__inner > div, .q-card {
+  background: rgba(12, 18, 32, 0.96) !important;
+  color: var(--mf-text) !important;
+}
+.q-table__container {
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid var(--mf-border) !important;
+  border-radius: 14px !important;
+}
+.q-table__top, .q-table__bottom {
+  background: transparent !important;
+  color: var(--mf-text) !important;
+}
+.q-table thead tr th {
+  color: var(--mf-text) !important;
+  background: rgba(255,255,255,0.06) !important;
+}
+.q-table tbody td {
+  color: var(--mf-text) !important;
+}
+.q-table tbody tr:nth-child(odd) {
+  background: rgba(255,255,255,0.02) !important;
+}
+.q-table tbody tr:hover {
+  background: rgba(46,125,255,0.10) !important;
+}
+.q-btn {
+  text-transform: none !important;
+}
+
+.mf-top-menu { display: none; }
+@media (max-width: 899px) {
+  .mf-top-menu { display: inline-flex; }
+}
+
+.mf-bottom-nav {
+  position: fixed;
+  bottom: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 1000;
+}
+@media (min-width: 900px) {
+  .mf-bottom-nav { display: none; }
 }
 
 .tile {
@@ -561,12 +698,26 @@ def shell(content_fn):
                 nav_button("Cards", "credit_card", "/cards")
                 nav_button("Recurring", "autorenew", "/recurring")
                 nav_button("Rules", "rule", "/rules")
+                nav_button("Admin", "settings", "/admin")
+
+    
+    with ui.page_sticky(position="top-left", x_offset=14, y_offset=14):
+        ui.button(icon="menu").props("round").on("click", drawer.toggle).classes("mf-top-menu")
 
     with ui.page_sticky(position="bottom-left", x_offset=18, y_offset=18):
         ui.button(icon="menu").props("round").on("click", drawer.toggle)
 
+
     with ui.column().classes("w-full max-w-[1100px] mx-auto p-3 gap-3"):
         content_fn()
+
+        # Bottom navigation for mobile
+        with ui.footer().classes('my-card q-pa-xs mf-bottom-nav'):
+            with ui.row().classes('w-full justify-around items-center'):
+                ui.button('Dashboard', icon='dashboard').props('flat').on('click', lambda: nav_to('/'))
+                ui.button('Add', icon='add_circle').props('flat').on('click', lambda: nav_to('/add'))
+                ui.button('Admin', icon='settings').props('flat').on('click', lambda: nav_to('/admin'))
+
 
 
 # -----------------------------
@@ -855,7 +1006,7 @@ def add_page():
         nav_to("/login")
         return
 
-    def open_add_dialog(entry_type: str):
+    def open_add_dialog(entry_type: str, *, preset_category: str | None = None, preset_method: str | None = None, preset_account: str | None = None):
         rules = load_rules()
         owners = owners_list()
         accounts = accounts_list()
@@ -869,11 +1020,22 @@ def add_page():
             d_owner = ui.select(owners, value=owners[0], label="Owner").classes("w-full")
             d_date = ui.input("Date", value=today().isoformat()).props("type=date").classes("w-full")
             d_amount = ui.number("Amount", value=0.0, format="%.2f").classes("w-full")
-            d_method = ui.select(methods, value=("Card" if entry_type.lower() == "debit" else "Other"), label="Method").classes("w-full")
+
+            default_method = ("Card" if entry_type.lower() == "debit" else "Other")
+            d_method = ui.select(methods, value=default_method, label="Method").classes("w-full")
             d_account = ui.select(accounts or [""], value=(accounts[0] if accounts else ""), label="Account").classes("w-full")
             d_category = ui.select(categories, value="Uncategorized", label="Category").classes("w-full")
             d_notes = ui.textarea("Notes", value="").classes("w-full")
             d_rec = ui.checkbox("Mark as recurring (creates template for future cycles only)")
+
+            # Apply presets (used for special flows like LOC withdrawal/repayment)
+            if preset_method is not None:
+                d_method.value = preset_method
+                d_method.disable()
+            if preset_account is not None:
+                d_account.value = preset_account
+            if preset_category is not None:
+                d_category.value = preset_category
 
             def autofill():
                 d_category.value = infer_category(d_notes.value or "", rules)
@@ -895,8 +1057,6 @@ def add_page():
 
                 rec_id = ""
                 if d_rec.value:
-                    # IMPORTANT: template starts next cycle. Start date is the selected date, but generation is month-by-month and only on/after due date.
-                    # We set template day_of_month from selected date.
                     rec_id = create_or_update_recurring_template(
                         owner=owner,
                         type_=entry_type,
@@ -910,25 +1070,25 @@ def add_page():
                         active=True,
                     )
 
-                append_row("transactions", {
-                    "id": tx_id,
-                    "date": dd.isoformat(),
-                    "owner": owner,
-                    "type": entry_type,
-                    "amount": amt,
-                    "method": method,
-                    "account": account,
-                    "category": category,
-                    "notes": notes,
-                    "is_recurring": "FALSE",
-                    "recurring_id": rec_id,
-                    "created_at": dt.datetime.now().isoformat(timespec="seconds"),
-                })
-                invalidate("transactions")
+                append_tx(
+                    tx_id=tx_id,
+                    date_=dd,
+                    owner=owner,
+                    type_=entry_type,
+                    amount=amt,
+                    method=method,
+                    account=account,
+                    category=category,
+                    notes=notes,
+                    recurring_id=rec_id,
+                )
+
+                cached_df.invalidate('transactions')
+                cached_df.invalidate('recurring')
                 ui.notify("Saved", type="positive")
                 dlg.close()
 
-            with ui.row().classes("w-full justify-end gap-2 mt-2"):
+            with ui.row().classes("w-full justify-end gap-2"):
                 ui.button("Cancel", on_click=dlg.close).props("flat")
                 ui.button("Save", on_click=save).props("unelevated")
 
@@ -940,19 +1100,20 @@ def add_page():
             ui.label("Tap a tile to add an entry.").classes("text-sm").style("color: var(--mf-muted)")
 
             tiles = [
-                ("Debit (Expense)", "shopping_cart", "Debit"),
-                ("Credit (Income)", "payments", "Credit"),
-                ("Investment", "savings", "Investment"),
-                ("Card Repay", "credit_score", "Card Repay"),
-                ("International", "public", "International"),
+                ("Expense", "remove_shopping_cart", "Debit", {}),
+                ("Income", "payments", "Credit", {}),
+                ("Investment", "savings", "Investment", {}),
+                ("Credit Card Repayment", "credit_score", "CC Repay", {}),
+                ("LOC Withdrawal", "account_balance", "LOC Draw", {"preset_category": "LOC Utilization", "preset_method": "Card", "preset_account": "Line of Credit"}),
+                ("LOC Repayment", "swap_horiz", "LOC Repay", {"preset_category": "Repayment", "preset_method": "Bank", "preset_account": "Line of Credit"}),
             ]
 
             with ui.row().classes("w-full gap-3"):
-                for label, icon, etype in tiles:
+                for label, icon, etype, kw in tiles:
                     with ui.card().classes("my-card p-4 tile w-full"):
                         ui.label(label).classes("font-bold")
                         ui.icon(icon).classes("text-2xl")
-                        ui.button("Add", on_click=lambda e=etype: open_add_dialog(e)).props("flat").classes("mt-2")
+                        ui.button("Add", on_click=lambda e=etype, k=kw: open_add_dialog(e, **k)).props("flat").classes("mt-2")
 
         with ui.card().classes("my-card p-5"):
             ui.label("Today’s auto status").classes("text-lg font-bold")
@@ -961,6 +1122,31 @@ def add_page():
 
     shell(content)
 
+
+
+
+@ui.page("/admin")
+def admin_page() -> None:
+    if not require_login():
+        nav_to("/login")
+        return
+
+    def content() -> None:
+        with ui.card().classes("my-card p-5"):
+            ui.label("Admin").classes("text-lg font-bold")
+            ui.label("Manage rules, cards, recurring templates, and fix mistakes.").style("color: var(--mf-muted)")
+
+            with ui.column().classes("w-full gap-3 mt-3"):
+                ui.button("Keyword Rules", on_click=lambda: nav_to("/rules")).props("unelevated").classes("w-full")
+                ui.button("Cards", on_click=lambda: nav_to("/cards")).props("unelevated").classes("w-full")
+                ui.button("Recurring Templates", on_click=lambda: nav_to("/recurring")).props("unelevated").classes("w-full")
+                ui.button("Transactions (Fix Mistakes)", on_click=lambda: nav_to("/tx")).props("unelevated").classes("w-full")
+
+        with ui.card().classes("my-card p-5"):
+            ui.label("Locks").classes("text-lg font-bold")
+            ui.label("Locking is enforced by your Transactions sheet’s locked_month column (if present). Use sheet-side admin for now.").style("color: var(--mf-muted)")
+
+    shell(content)
 
 @ui.page("/tx")
 def transactions_page():
@@ -1078,47 +1264,46 @@ def transactions_page():
 
 
 @ui.page("/cards")
-def cards_page():
+def cards_page() -> None:
     if not require_login():
-        nav_to("/login")
         return
 
-    def content():
-        cards = cached_df("cards")
-        with ui.card().classes("my-card p-5"):
-            ui.label("Cards").classes("text-lg font-bold")
-            ui.label("Billing day is day-of-month.").style("color: var(--mf-muted)")
+    def content() -> None:
+        df = cached_df('cards')
+        if df.empty:
+            ui.label('No cards found. Add rows in the "cards" sheet.').classes('text-slate-200')
+            return
 
-            t = ui.table(columns=[
-                {"name": "card_name", "label": "Card", "field": "card_name"},
-                {"name": "owner", "label": "Owner", "field": "owner"},
-                {"name": "billing_day", "label": "Billing Day", "field": "billing_day"},
-                {"name": "max_limit", "label": "Max Limit", "field": "max_limit"},
-                {"name": "method_name", "label": "Method Name", "field": "method_name"},
-            ], rows=cards.to_dict(orient="records") if not cards.empty else [], row_key="card_name").classes("w-full")
+        # normalize
+        for c in ['name', 'limit', 'balance', 'notes']:
+            if c not in df.columns:
+                df[c] = ''
 
-            with ui.row().classes("w-full gap-3 mt-3"):
-                n_name = ui.input("Card name").classes("w-full")
-                n_owner = ui.input("Owner").classes("w-full")
-                n_bill = ui.number("Billing day", value=1).classes("w-full")
-                n_lim = ui.number("Max limit", value=0).classes("w-full")
-                n_meth = ui.input("Method name (optional)", value="Card").classes("w-full")
+        # Card-style list (mobile friendly)
+        with ui.column().classes('w-full gap-4'):
+            for _, r in df.fillna('').iterrows():
+                name = str(r.get('name', '')).strip() or 'Card'
+                limit_v = r.get('limit', '')
+                bal_v = r.get('balance', '')
+                notes = str(r.get('notes', '')).strip()
 
-            def add_card():
-                append_row("cards", {
-                    "card_name": n_name.value or "",
-                    "owner": n_owner.value or "",
-                    "billing_day": int(to_float(n_bill.value)),
-                    "max_limit": float(to_float(n_lim.value)),
-                    "method_name": n_meth.value or "Card",
-                })
-                invalidate("cards")
-                ui.notify("Card added", type="positive")
-                nav_to("/cards")
+                with ui.card().classes('w-full glass card-elev'):
+                    with ui.row().classes('w-full items-center justify-between'):
+                        ui.label(name).classes('text-lg font-semibold')
+                        badge = ''
+                        if str(limit_v).strip() != '':
+                            badge = f'Limit: {limit_v}'
+                        if str(bal_v).strip() != '':
+                            badge = (badge + '  •  ' if badge else '') + f'Balance: {bal_v}'
+                        if badge:
+                            ui.label(badge).classes('text-xs text-slate-300')
+                    if notes:
+                        ui.label(notes).classes('text-sm text-slate-200')
 
-            ui.button("Add card", on_click=add_card).props("unelevated")
+        ui.separator().classes('my-4')
+        ui.label('Tip: Edit the cards sheet in Google Sheets to update limits/balances.').classes('text-xs text-slate-300')
 
-    shell(content)
+    shell(content, title='Cards')
 
 
 @ui.page("/recurring")
@@ -1226,11 +1411,13 @@ def rules_page():
 
     shell(content)
 
-
 # -----------------------------
 # Boot
 # -----------------------------
-def bootstrap():
+# -----------------------------
+# Boot
+# -----------------------------
+def bootstrap() -> None:
     ensure_tabs()
 
 bootstrap()
