@@ -61,9 +61,14 @@ from nicegui import ui, app
 # -----------------------------
 TZ = os.environ.get("TIMEZONE", "America/Winnipeg")
 SPREADSHEET_NAME = os.environ.get("SPREADSHEET_NAME", "nishanthfintrack_2026")
-SERVICE_ACCOUNT_JSON = os.environ.get("SERVICE_ACCOUNT_JSON", "").strip()
-STORAGE_SECRET = os.environ.get("NICEGUI_STORAGE_SECRET", "").strip()
+SERVICE_ACCOUNT_JSON = (os.environ.get("SERVICE_ACCOUNT_JSON") or os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or os.environ.get("GOOGLE_SERVICE_ACCOUNT") or "")
+STORAGE_SECRET = os.environ.get("NICEGUI_STORAGE_SECRET")  # set on Render; will be auto-derived if empty
 PORT = int(os.environ.get("PORT", "10000"))
+
+# If no storage secret provided (e.g., local dev), derive a stable secret so sessions/login work.
+if not STORAGE_SECRET:
+    seed = SERVICE_ACCOUNT_JSON or os.environ.get("SPREADSHEET_NAME", "") or "local-dev"
+    STORAGE_SECRET = hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
 APP_TITLE = "MyFin"
 APP_SUBTITLE = "Finance Tracker"
@@ -496,7 +501,7 @@ body, .q-layout, .q-page {
 }
 .tile:hover { transform: translateY(-2px); background: rgba(255,255,255,0.07) !important; }
 """
-ui.add_head_html(f"<style>{BANK_CSS}</style>")
+ui.add_head_html(f"<style>{BANK_CSS}</style>", shared=True)
 
 
 # -----------------------------
