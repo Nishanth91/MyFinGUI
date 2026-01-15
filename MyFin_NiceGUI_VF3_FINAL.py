@@ -663,10 +663,42 @@ def dashboard_page():
                 ui.label("Go to Add to create your first entry.").style("color: var(--mf-muted)")
             return
 
+        # --- normalize expected columns (robust to sheet header variations) ---
+        def _first_col(df, candidates):
+            for c in candidates:
+                if c in df.columns:
+                    return c
+            # try case-insensitive match
+            lower_map = {str(col).strip().lower(): col for col in df.columns}
+            for c in candidates:
+                key = str(c).strip().lower()
+                if key in lower_map:
+                    return lower_map[key]
+            return None
+
+        c_date = _first_col(tx, ["date", "Date", "DATE", "transaction_date", "Transaction Date"])
+        c_amount = _first_col(tx, ["amount", "Amount", "AMOUNT", "amt", "Amt", "value", "Value"])
+        c_type = _first_col(tx, ["type", "Type", "TYPE", "transaction_type", "Transaction Type", "Type (+/-)", "type (+/-)"])
+
+        if c_date and c_date != "date":
+            tx["date"] = tx[c_date]
+        if c_amount and c_amount != "amount":
+            tx["amount"] = tx[c_amount]
+        if c_type and c_type != "type":
+            tx["type"] = tx[c_type]
+
+        # ensure columns exist even if the sheet is missing them
+        if "date" not in tx.columns:
+            tx["date"] = ""
+        if "amount" not in tx.columns:
+            tx["amount"] = 0
+        if "type" not in tx.columns:
+            tx["type"] = ""
+
         tx["date_parsed"] = tx["date"].apply(parse_date)
         tx = tx[tx["date_parsed"].notna()].copy()
         tx["amount_num"] = tx["amount"].apply(to_float)
-        tx["type_l"] = tx["type"].astype(str).str.lower()
+        tx["type_l"] = tx["type"].astype(str).str.lower().str.strip()
 
         mkey = month_key(today())
         mtx = tx[tx["date_parsed"].apply(lambda d: month_key(d) == mkey)].copy()
