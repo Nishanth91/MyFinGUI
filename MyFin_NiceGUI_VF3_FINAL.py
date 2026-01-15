@@ -1,7 +1,7 @@
 
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICGUI_V1HF3_STABLE.py
+File: Myfin_NICGUI_V1HF5_STABLE.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -34,7 +34,7 @@ Expected Google Sheet tabs (auto-created if missing)
 - rules
 
 Render start command
-- python Myfin_NICGUI_V1HF3_STABLE.py
+- python Myfin_NICGUI_V1HF5_STABLE.py
 """
 
 from __future__ import annotations
@@ -57,6 +57,30 @@ from nicegui import ui, app
 
 
 # -----------------------------
+
+# -----------------------------
+# Navigation helper (NiceGUI API compatibility)
+# -----------------------------
+def nav_to(path: str) -> None:
+    """Navigate within the app across different NiceGUI versions."""
+    try:
+        # NiceGUI v2+ style
+        if hasattr(ui, 'navigate') and hasattr(ui.navigate, 'to'):
+            ui.navigate.to(path)
+            return
+    except Exception:
+        pass
+    try:
+        # Older style (if present)
+        if hasattr(ui, 'open'):
+            nav_to(path)  # type: ignore[attr-defined]
+            return
+    except Exception:
+        pass
+    # Last resort: browser redirect
+    ui.run_javascript(f"window.location.href='{path}'")
+
+
 # Config
 # -----------------------------
 TZ = os.environ.get("TIMEZONE", "America/Winnipeg")
@@ -442,7 +466,7 @@ def require_login() -> bool:
 
 def logout() -> None:
     app.storage.user["logged_in"] = False
-    ui.open("/login")
+    nav_to("/login")
 
 
 # -----------------------------
@@ -519,7 +543,7 @@ def topbar():
             ui.button("Logout", on_click=logout).props("flat").classes("text-sm")
 
 def nav_button(label: str, icon: str, path: str):
-    ui.button(label, on_click=lambda: ui.open(path)).props(f"flat icon={icon}").classes("w-full")
+    ui.button(label, on_click=lambda: nav_to(path)).props(f"flat icon={icon}").classes("w-full")
 
 def shell(content_fn):
     with ui.header().classes("bg-transparent"):
@@ -610,7 +634,7 @@ def login_page():
                 if check_login(u_in.value or "", p_in.value or ""):
                     app.storage.user["logged_in"] = True
                     ui.notify("Welcome 👋", type="positive")
-                    ui.open("/")
+                    nav_to("/")
                 else:
                     ui.notify("Invalid login", type="negative")
 
@@ -620,7 +644,7 @@ def login_page():
 @ui.page("/")
 def dashboard_page():
     if not require_login():
-        ui.open("/login")
+        nav_to("/login")
         return
 
     def content():
@@ -729,7 +753,7 @@ def dashboard_page():
 @ui.page("/add")
 def add_page():
     if not require_login():
-        ui.open("/login")
+        nav_to("/login")
         return
 
     def open_add_dialog(entry_type: str):
@@ -842,7 +866,7 @@ def add_page():
 @ui.page("/tx")
 def transactions_page():
     if not require_login():
-        ui.open("/login")
+        nav_to("/login")
         return
 
     def content():
@@ -929,7 +953,7 @@ def transactions_page():
                             invalidate("transactions")
                             ui.notify("Updated", type="positive")
                             dlg.close()
-                            ui.open("/tx")
+                            nav_to("/tx")
                         else:
                             ui.notify("Could not update (id not found)", type="negative")
 
@@ -943,7 +967,7 @@ def transactions_page():
                 if delete_row_by_id("transactions", "id", tid):
                     invalidate("transactions")
                     ui.notify("Deleted", type="positive")
-                    ui.open("/tx")
+                    nav_to("/tx")
                 else:
                     ui.notify("Delete failed", type="negative")
 
@@ -957,7 +981,7 @@ def transactions_page():
 @ui.page("/cards")
 def cards_page():
     if not require_login():
-        ui.open("/login")
+        nav_to("/login")
         return
 
     def content():
@@ -991,7 +1015,7 @@ def cards_page():
                 })
                 invalidate("cards")
                 ui.notify("Card added", type="positive")
-                ui.open("/cards")
+                nav_to("/cards")
 
             ui.button("Add card", on_click=add_card).props("unelevated")
 
@@ -1001,7 +1025,7 @@ def cards_page():
 @ui.page("/recurring")
 def recurring_page():
     if not require_login():
-        ui.open("/login")
+        nav_to("/login")
         return
 
     def content():
@@ -1036,7 +1060,7 @@ def recurring_page():
                 cur = str(row.get("active", "TRUE")).strip().upper() in ("TRUE", "1", "YES", "Y")
                 update_row_by_id("recurring", "recurring_id", rid, {"active": "FALSE" if cur else "TRUE"})
                 invalidate("recurring")
-                ui.open("/recurring")
+                nav_to("/recurring")
 
             def delete_template():
                 if not table.selected:
@@ -1046,7 +1070,7 @@ def recurring_page():
                 if delete_row_by_id("recurring", "recurring_id", rid):
                     invalidate("recurring")
                     ui.notify("Deleted template", type="positive")
-                    ui.open("/recurring")
+                    nav_to("/recurring")
                 else:
                     ui.notify("Delete failed", type="negative")
 
@@ -1061,7 +1085,7 @@ def recurring_page():
 @ui.page("/rules")
 def rules_page():
     if not require_login():
-        ui.open("/login")
+        nav_to("/login")
         return
 
     def content():
@@ -1083,7 +1107,7 @@ def rules_page():
                 append_row("rules", {"keyword": k.value or "", "category": c.value or ""})
                 invalidate("rules")
                 ui.notify("Rule added", type="positive")
-                ui.open("/rules")
+                nav_to("/rules")
 
             def del_rule():
                 if not table.selected:
@@ -1093,7 +1117,7 @@ def rules_page():
                 if delete_row_by_id("rules", "keyword", kw):
                     invalidate("rules")
                     ui.notify("Deleted", type="positive")
-                    ui.open("/rules")
+                    nav_to("/rules")
                 else:
                     ui.notify("Delete failed", type="negative")
 
