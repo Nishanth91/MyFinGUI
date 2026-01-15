@@ -1,7 +1,7 @@
 
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICGUI_V1HF5_STABLE.py
+File: Myfin_NICGUI_V1HF7_STABLE.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -698,14 +698,80 @@ def dashboard_page():
         tx["date_parsed"] = tx["date"].apply(parse_date)
         tx = tx[tx["date_parsed"].notna()].copy()
         tx["amount_num"] = tx["amount"].apply(to_float)
+        # Normalize "type" column (sheet headers may vary in casing/spaces)
+        if "type" not in tx.columns:
+            _colmap = {str(c).strip().lower(): c for c in tx.columns}
+            _src = None
+            for _k in ("type", "txn type", "transaction type", "tx type"):
+                if _k in _colmap:
+                    _src = _colmap[_k]
+                    break
+            if _src is None:
+                for _k, _orig in _colmap.items():
+                    if "type" in _k:
+                        _src = _orig
+                        break
+            if _src is not None:
+                tx["type"] = tx[_src]
+            else:
+                tx["type"] = ""
         tx["type_l"] = tx["type"].astype(str).str.lower().str.strip()
 
         mkey = month_key(today())
         mtx = tx[tx["date_parsed"].apply(lambda d: month_key(d) == mkey)].copy()
 
-        income = mtx.loc[mtx["type_l"].isin(["credit", "income"]), "amount_num"].sum()
-        expense = mtx.loc[mtx["type_l"].isin(["debit", "expense"]), "amount_num"].sum()
-        invest = mtx.loc[mtx["type_l"].isin(["investment"]), "amount_num"].sum()
+        # Defensive normalization: some sheets may have different header casing/spacing
+        if "type_l" not in mtx.columns:
+            # try to locate a type-like column (case/space-insensitive)
+            colmap = {str(c).strip().lower(): c for c in mtx.columns}
+            src = None
+            for key in ("type", "txn type", "transaction type", "tx type", "category type"):
+                if key in colmap:
+                    src = colmap[key]
+                    break
+            if src is None:
+                # fallback: any column containing "type"
+                for k, orig in colmap.items():
+                    if "type" in k:
+                        src = orig
+                        break
+            if src is not None:
+                mtx["type_l"] = mtx[src].astype(str).str.strip().str.lower()
+            else:
+                mtx["type_l"] = ""
+        if "amount_num" not in mtx.columns:
+            # try amount-like columns
+            colmap2 = {str(c).strip().lower(): c for c in mtx.columns}
+            src_amt = None
+            for key in ("amount", "amt", "value", "cad", "amount_cad"):
+                if key in colmap2:
+                    src_amt = colmap2[key]
+                    break
+            if src_amt is not None:
+                mtx["amount_num"] = pd.to_numeric(mtx[src_amt], errors="coerce").fillna(0.0)
+            else:
+                mtx["amount_num"] = 0.0
+        typ = None
+        if "type_l" in mtx.columns:
+            typ = mtx["type_l"].astype(str).str.strip().str.lower()
+        else:
+            # fallback: use any type-like column
+            _colmap = {str(c).strip().lower(): c for c in mtx.columns}
+            _src = None
+            for _k in ("type", "txn type", "transaction type", "tx type"):
+                if _k in _colmap:
+                    _src = _colmap[_k]; break
+            if _src is None:
+                for _k, _orig in _colmap.items():
+                    if "type" in _k: _src = _orig; break
+            if _src is not None:
+                typ = mtx[_src].astype(str).str.strip().str.lower()
+            else:
+                typ = pd.Series([""] * len(mtx))
+        amt = mtx["amount_num"] if "amount_num" in mtx.columns else pd.Series([0.0] * len(mtx))
+        income = amt[typ.isin(["credit", "income"])].sum()
+        expense = amt[typ.isin(["debit", "expense"])].sum()
+        invest = amt[typ.isin(["investment"])].sum()
         net = income - expense - invest
 
         with ui.row().classes("w-full gap-3"):
