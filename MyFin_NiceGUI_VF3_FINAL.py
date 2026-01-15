@@ -1,68 +1,482 @@
-"""MyFin — NiceGUI (VF3_FINAL_CLEAN)
 
-Goal: stable, deployable NiceGUI web app with HF2 feature parity:
-- Login
-- Dashboard (monthly totals + charts)
-- Add (tile actions, no redundant dropdowns)
-- Credit Bal (basic utilization & upcoming recurring)
-- Trends
-- Transactions (filter, export, edit/update by row, delete)
-- Admin (Locks, Rules, Recurring templates, Accounts, Fix Mistakes)
+"""
+MyFin — NiceGUI Stable
+File: Myfin_NICGUI_V1HF3_STABLE.py
 
-Google Sheets:
-- Spreadsheet name: nishanthfintrack_2026
-- Tabs: transactions, cards, admin
+Purpose
+- A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
+- Focus on correctness + usability + a consistent dark “banking style” UI.
 
-Credentials:
-- Provide Google service account via env var GOOGLE_SERVICE_ACCOUNT_JSON (full JSON) OR service_account.json file next to this script.
+Key behavior changes (requested)
+1) Recurring:
+   - Marking an entry as recurring creates/updates a TEMPLATE in the "recurring" sheet.
+   - The app auto-creates the actual transaction ONLY when the due date arrives (and only once per month).
+   - No backfilling past months. No creating future months in advance.
+
+2) Pay cycles (for dashboard clarity)
+   - Abhi: semimonthly on 15th & 30th, moved to the previous Friday if it falls on weekend.
+   - Indhu: biweekly Friday from anchor date 2026-01-16.
+
+Required Render environment variables
+- SERVICE_ACCOUNT_JSON: Paste your service_account.json contents (full JSON).
+- NICEGUI_STORAGE_SECRET: Any long random string (32+ chars recommended).
+
+Optional environment variables
+- SPREADSHEET_NAME (default: nishanthfintrack_2026)
+- APP_USER (default: admin)
+- APP_PASS (default: admin)
+- TIMEZONE (default: America/Winnipeg)
+
+Expected Google Sheet tabs (auto-created if missing)
+- transactions
+- cards
+- recurring
+- rules
+
+Render start command
+- python Myfin_NICGUI_V1HF3_STABLE.py
 """
 
 from __future__ import annotations
 
-import os, json, time, random, uuid, hmac
+import os
+import json
+import math
+import time
+import calendar
+import hashlib
 import datetime as dt
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import plotly.express as px
+
 import gspread
 from google.oauth2.service_account import Credentials
-from dateutil.relativedelta import relativedelta
 from nicegui import ui, app
-# --- Bank-style dark theme overrides (NiceGUI/Quasar) ---
-ui.add_css(r'''
+
+
+# -----------------------------
+# Config
+# -----------------------------
+TZ = os.environ.get("TIMEZONE", "America/Winnipeg")
+SPREADSHEET_NAME = os.environ.get("SPREADSHEET_NAME", "nishanthfintrack_2026")
+SERVICE_ACCOUNT_JSON = os.environ.get("SERVICE_ACCOUNT_JSON", "").strip()
+STORAGE_SECRET = os.environ.get("NICEGUI_STORAGE_SECRET", "").strip()
+PORT = int(os.environ.get("PORT", "10000"))
+
+APP_TITLE = "MyFin"
+APP_SUBTITLE = "Finance Tracker"
+
+# Pay cycle config
+ABHI_PAY_DAYS = (15, 30)              # semimonthly
+WIFE_PAY_ANCHOR = dt.date(2026, 1, 16)  # biweekly Friday anchor
+
+
+# -----------------------------
+# Utilities
+# -----------------------------
+def today() -> dt.date:
+    return dt.date.today()
+
+def month_key(d: dt.date) -> str:
+    return f"{d.year:04d}-{d.month:02d}"
+
+def parse_date(x: Any) -> Optional[dt.date]:
+    if x is None:
+        return None
+    if isinstance(x, dt.datetime):
+        return x.date()
+    if isinstance(x, dt.date):
+        return x
+    s = str(x).strip()
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y", "%d/%m/%Y"):
+        try:
+            return dt.datetime.strptime(s, fmt).date()
+        except Exception:
+            pass
+    try:
+        return pd.to_datetime(s).date()
+    except Exception:
+        return None
+
+def to_float(x: Any) -> float:
+    try:
+        if x is None:
+            return 0.0
+        if isinstance(x, str):
+            x = x.replace(",", "").replace("$", "").strip()
+        return float(x)
+    except Exception:
+        return 0.0
+
+def currency(x: float) -> str:
+    return f"${x:,.2f}"
+
+def is_weekend(d: dt.date) -> bool:
+    return d.weekday() >= 5
+
+def adjust_prev_workday(d: dt.date) -> dt.date:
+    # weekends only, move backward to Friday
+    while is_weekend(d):
+        d = d - dt.timedelta(days=1)
+    return d
+
+def abhi_pay_dates_for_month(year: int, month: int) -> List[dt.date]:
+    last_day = calendar.monthrange(year, month)[1]
+    out = []
+    for day in ABHI_PAY_DAYS:
+        dd = min(day, last_day)
+        out.append(adjust_prev_workday(dt.date(year, month, dd)))
+    return sorted(set(out))
+
+def wife_pay_dates_between(start: dt.date, end: dt.date) -> List[dt.date]:
+    # biweekly from anchor
+    if end < start:
+        return []
+    anchor = WIFE_PAY_ANCHOR
+    delta = (start - anchor).days
+    if delta <= 0:
+        cur = anchor
+    else:
+        k = math.ceil(delta / 14)
+        cur = anchor + dt.timedelta(days=14 * k)
+    out: List[dt.date] = []
+    while cur <= end:
+        out.append(cur)
+        cur += dt.timedelta(days=14)
+    return out
+
+def sha16(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()[:16]
+
+
+# -----------------------------
+# Google Sheets layer
+# -----------------------------
+SCOPE = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+
+TABS = {
+    "transactions": ["id", "date", "owner", "type", "amount", "method", "account", "category", "notes",
+                     "is_recurring", "recurring_id", "created_at"],
+    "cards": ["card_name", "owner", "billing_day", "max_limit", "method_name"],
+    "recurring": ["recurring_id", "owner", "type", "amount", "method", "account", "category", "notes",
+                  "day_of_month", "start_date", "active", "last_generated_month"],
+    "rules": ["keyword", "category"],
+}
+
+_gc: Optional[gspread.Client] = None
+_ss = None
+_ws: Dict[str, gspread.Worksheet] = {}
+
+def get_client() -> gspread.Client:
+    global _gc
+    if _gc:
+        return _gc
+    if not SERVICE_ACCOUNT_JSON:
+        raise RuntimeError("Missing SERVICE_ACCOUNT_JSON env var")
+    info = json.loads(SERVICE_ACCOUNT_JSON)
+    creds = Credentials.from_service_account_info(info, scopes=SCOPE)
+    _gc = gspread.authorize(creds)
+    return _gc
+
+def get_spreadsheet():
+    global _ss
+    if _ss is not None:
+        return _ss
+    _ss = get_client().open(SPREADSHEET_NAME)
+    return _ss
+
+def ensure_tabs() -> None:
+    ss = get_spreadsheet()
+    existing = {w.title for w in ss.worksheets()}
+    for tab, headers in TABS.items():
+        if tab not in existing:
+            ws = ss.add_worksheet(title=tab, rows=2000, cols=max(16, len(headers) + 4))
+            ws.append_row(headers, value_input_option="USER_ENTERED")
+        _ws[tab] = ss.worksheet(tab)
+
+def ws(tab: str) -> gspread.Worksheet:
+    if tab not in _ws:
+        ensure_tabs()
+    return _ws[tab]
+
+def read_df(tab: str) -> pd.DataFrame:
+    records = ws(tab).get_all_records()
+    df = pd.DataFrame(records)
+    for col in TABS[tab]:
+        if col not in df.columns:
+            df[col] = ""
+    return df
+
+def append_row(tab: str, row: Dict[str, Any]) -> None:
+    headers = TABS[tab]
+    ws(tab).append_row([row.get(h, "") for h in headers], value_input_option="USER_ENTERED")
+
+def update_row_by_id(tab: str, id_col: str, id_value: str, updates: Dict[str, Any]) -> bool:
+    w = ws(tab)
+    values = w.get_all_values()
+    if not values:
+        return False
+    headers = values[0]
+    if id_col not in headers:
+        return False
+    ridx = headers.index(id_col) + 1
+    rownum = None
+    for r in range(2, len(values) + 1):
+        if w.cell(r, ridx).value == id_value:
+            rownum = r
+            break
+    if rownum is None:
+        return False
+    for k, v in updates.items():
+        if k in headers:
+            c = headers.index(k) + 1
+            w.update_cell(rownum, c, v)
+    return True
+
+def delete_row_by_id(tab: str, id_col: str, id_value: str) -> bool:
+    w = ws(tab)
+    values = w.get_all_values()
+    if not values:
+        return False
+    headers = values[0]
+    if id_col not in headers:
+        return False
+    ridx = headers.index(id_col) + 1
+    rownum = None
+    for r in range(2, len(values) + 1):
+        if w.cell(r, ridx).value == id_value:
+            rownum = r
+            break
+    if rownum is None:
+        return False
+    w.delete_rows(rownum)
+    return True
+
+
+# -----------------------------
+# Caching (performance)
+# -----------------------------
+CACHE_TTL = 15  # seconds
+_cache: Dict[str, Tuple[float, pd.DataFrame]] = {}
+
+def cached_df(tab: str, force: bool = False) -> pd.DataFrame:
+    now = time.time()
+    if (not force) and tab in _cache and (now - _cache[tab][0] < CACHE_TTL):
+        return _cache[tab][1].copy()
+    df = read_df(tab)
+    _cache[tab] = (now, df.copy())
+    return df
+
+def invalidate(*tabs: str) -> None:
+    for t in tabs:
+        _cache.pop(t, None)
+
+
+# -----------------------------
+# Rules + Category inference
+# -----------------------------
+def load_rules() -> List[Tuple[str, str]]:
+    df = cached_df("rules")
+    out: List[Tuple[str, str]] = []
+    for _, r in df.iterrows():
+        kw = str(r.get("keyword", "")).strip().lower()
+        cat = str(r.get("category", "")).strip()
+        if kw and cat:
+            out.append((kw, cat))
+    return out
+
+def infer_category(notes: str, rules: List[Tuple[str, str]]) -> str:
+    n = (notes or "").lower()
+    for kw, cat in rules:
+        if kw in n:
+            return cat
+    return "Uncategorized"
+
+
+# -----------------------------
+# Recurring logic (template -> real entries on/after due date)
+# -----------------------------
+def create_or_update_recurring_template(
+    *,
+    owner: str,
+    type_: str,
+    amount: float,
+    method: str,
+    account: str,
+    category: str,
+    notes: str,
+    day_of_month: int,
+    start_date: dt.date,
+    active: bool = True,
+) -> str:
+    rdf = cached_df("recurring", force=True)
+    # Key by owner+type+method+account+category+notes+day
+    key = f"{owner}|{type_}|{method}|{account}|{category}|{notes}|{day_of_month}"
+    rid = sha16(key)
+
+    # if exists: update core fields
+    if not rdf.empty and (rdf["recurring_id"].astype(str) == rid).any():
+        update_row_by_id("recurring", "recurring_id", rid, {
+            "owner": owner,
+            "type": type_,
+            "amount": amount,
+            "method": method,
+            "account": account,
+            "category": category,
+            "notes": notes,
+            "day_of_month": str(day_of_month),
+            "start_date": start_date.isoformat(),
+            "active": "TRUE" if active else "FALSE",
+        })
+        invalidate("recurring")
+        return rid
+
+    # new template
+    append_row("recurring", {
+        "recurring_id": rid,
+        "owner": owner,
+        "type": type_,
+        "amount": amount,
+        "method": method,
+        "account": account,
+        "category": category,
+        "notes": notes,
+        "day_of_month": str(day_of_month),
+        "start_date": start_date.isoformat(),
+        "active": "TRUE" if active else "FALSE",
+        "last_generated_month": "",
+    })
+    invalidate("recurring")
+    return rid
+
+def generate_recurring_for_date(d: dt.date) -> int:
+    rdf = cached_df("recurring", force=True)
+    if rdf.empty:
+        return 0
+
+    tx = cached_df("transactions", force=True)
+    existing = set(tx["id"].astype(str).tolist()) if not tx.empty else set()
+
+    created = 0
+    this_month = month_key(d)
+
+    for _, r in rdf.iterrows():
+        active = str(r.get("active", "TRUE")).strip().upper() in ("TRUE", "1", "YES", "Y")
+        if not active:
+            continue
+
+        rid = str(r.get("recurring_id", "")).strip()
+        if not rid:
+            continue
+
+        # already generated this month?
+        last_gen = str(r.get("last_generated_month", "")).strip()
+        if last_gen == this_month:
+            continue
+
+        dom = int(to_float(r.get("day_of_month", 0)))
+        if dom <= 0:
+            continue
+
+        last_day = calendar.monthrange(d.year, d.month)[1]
+        dd = min(dom, last_day)
+        target = dt.date(d.year, d.month, dd)
+
+        start_date = parse_date(r.get("start_date")) or target
+        if d < start_date:
+            continue
+
+        if d < target:
+            continue  # only when date arrives
+
+        tx_id = f"R-{rid}-{this_month}"
+        if tx_id in existing:
+            # mark generated
+            update_row_by_id("recurring", "recurring_id", rid, {"last_generated_month": this_month})
+            invalidate("recurring")
+            continue
+
+        append_row("transactions", {
+            "id": tx_id,
+            "date": target.isoformat(),
+            "owner": str(r.get("owner", "")).strip(),
+            "type": str(r.get("type", "Debit")).strip(),
+            "amount": float(to_float(r.get("amount", 0))),
+            "method": str(r.get("method", "Other")).strip(),
+            "account": str(r.get("account", "")).strip(),
+            "category": str(r.get("category", "Uncategorized")).strip(),
+            "notes": str(r.get("notes", "")).strip(),
+            "is_recurring": "TRUE",
+            "recurring_id": rid,
+            "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+        })
+        created += 1
+        update_row_by_id("recurring", "recurring_id", rid, {"last_generated_month": this_month})
+        invalidate("transactions", "recurring")
+
+    return created
+
+
+# -----------------------------
+# Auth
+# -----------------------------
+def check_login(username: str, password: str) -> bool:
+    u = os.environ.get("APP_USER", "admin")
+    p = os.environ.get("APP_PASS", "admin")
+    return username == u and password == p
+
+def require_login() -> bool:
+    return bool(app.storage.user.get("logged_in"))
+
+def logout() -> None:
+    app.storage.user["logged_in"] = False
+    ui.open("/login")
+
+
+# -----------------------------
+# UI Theme
+# -----------------------------
+BANK_CSS = r"""
 :root {
   --mf-bg: #0b1220;
-  --mf-card: #0f1b2d;
-  --mf-card-2: #12233b;
-  --mf-border: rgba(255,255,255,0.08);
+  --mf-surface: rgba(255,255,255,0.05);
+  --mf-surface-2: rgba(255,255,255,0.08);
+  --mf-border: rgba(255,255,255,0.12);
   --mf-text: rgba(255,255,255,0.92);
-  --mf-muted: rgba(255,255,255,0.65);
-  --mf-accent: #3b82f6;
+  --mf-muted: rgba(255,255,255,0.62);
+  --mf-accent: #2e7dff;
+  --mf-good: #22c55e;
+  --mf-bad: #ef4444;
+  --mf-warn: #fbbf24;
 }
 
-body, .q-layout, .q-page, .nicegui-content {
-  background: var(--mf-bg) !important;
+body, .q-layout, .q-page {
+  background: radial-gradient(1200px 700px at 20% 10%, rgba(46,125,255,0.18), transparent 60%),
+              radial-gradient(900px 600px at 80% 20%, rgba(34,197,94,0.12), transparent 55%),
+              radial-gradient(900px 600px at 40% 90%, rgba(251,191,36,0.08), transparent 55%),
+              var(--mf-bg) !important;
   color: var(--mf-text) !important;
 }
 
-.my-card, .q-card, .q-dialog__inner > .q-card {
-  background: linear-gradient(180deg, var(--mf-card), var(--mf-card-2)) !important;
+.my-card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04)) !important;
   border: 1px solid var(--mf-border) !important;
-  border-radius: 16px !important;
-  color: var(--mf-text) !important;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-}
-
-.q-toolbar, header.q-header {
-  background: rgba(15, 27, 45, 0.92) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.35);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--mf-border);
 }
 
-.q-tab, .q-toolbar__title, .q-btn__content, .q-item__label, .q-field__label, .q-field__native, .q-field__prefix, .q-field__suffix {
-  color: var(--mf-text) !important;
+.kpi {
+  border-radius: 16px;
+  border: 1px solid var(--mf-border);
+  background: rgba(255,255,255,0.05);
 }
 
 .q-field--outlined .q-field__control,
@@ -76,1159 +490,626 @@ body, .q-layout, .q-page, .nicegui-content {
   color: var(--mf-muted) !important;
 }
 
-.q-table__container, .q-table__middle, .q-table__bottom {
-  background: transparent !important;
-  color: var(--mf-text) !important;
-}
-
-.q-table thead tr th {
-  background: rgba(255,255,255,0.03) !important;
-  color: var(--mf-muted) !important;
-  border-bottom: 1px solid var(--mf-border) !important;
-}
-
-.q-table tbody tr td {
-  border-bottom: 1px solid rgba(255,255,255,0.06) !important;
-}
-
-.q-btn {
-  border-radius: 999px !important;
-}
-
-.q-btn--standard, .q-btn--unelevated, .q-btn--push {
-  background: rgba(59,130,246,0.18) !important;
-  border: 1px solid rgba(59,130,246,0.35) !important;
-}
-
-.q-btn--standard .q-btn__content,
-.q-btn--unelevated .q-btn__content,
-.q-btn--push .q-btn__content {
-  color: var(--mf-text) !important;
-}
-
-.q-menu, .q-list, .q-date, .q-time {
-  background: var(--mf-card) !important;
-  border: 1px solid var(--mf-border) !important;
-  color: var(--mf-text) !important;
-}
-
-.q-separator {
-  background: rgba(255,255,255,0.06) !important;
-}
-
 .tile {
   cursor: pointer;
-  transition: transform .08s ease, border-color .15s ease, background .15s ease;
+  transition: transform .12s ease, background .12s ease;
 }
-.tile:hover {
-  transform: translateY(-2px);
-  border-color: rgba(59,130,246,0.5) !important;
-}
-''')
-# --- end theme overrides ---
-
-
-# -------------------- APP CONFIG --------------------
-APP_NAME = "MyFin"
-APP_VERSION = "VF3_FINAL_CLEAN"
-SHEET_NAME = "nishanthfintrack_2026"
-
-TAB_TRANSACTIONS = "transactions"
-TAB_ACCOUNTS = "cards"
-TAB_ADMIN = "admin"
-
-TX_HEADERS = ["TxId", "Date", "Owner", "Type", "Amount", "Pay", "Account", "Category", "Notes", "CreatedAt", "AutoTag"]
-ACCT_HEADERS = ["Account", "Emoji", "Limit", "BillingDay"]
-ADMIN_HEADERS = ["Key", "Value"]
-
-# Simple login (same as earlier)
-AUTH_USERNAME = "Ajay"
-AUTH_PASSWORD = "1999"
-
-# Defaults
-DEFAULT_CATEGORY_RULES: Dict[str, List[str]] = {
-    "Groceries": ["walmart", "superstore", "costco", "grocery"],
-    "Dining": ["restaurant", "swiggy", "uber eats", "doordash", "tim hortons", "starbucks"],
-    "Fuel": ["gas", "petro", "shell", "esso"],
-    "Rent": ["rent"],
-    "Utilities": ["hydro", "internet", "phone"],
-    "Insurance": ["insurance", "manulife"],
-    "Travel": ["air canada", "flight", "hotel", "uber"],
-    "Shopping": ["amazon", "bestbuy", "store"],
-    "Uncategorized": [],
-}
-
-
-# -------------------- GOOGLE SHEETS --------------------
-_gclient: Optional[gspread.Client] = None
-_spreadsheet: Optional[gspread.Spreadsheet] = None
-_ws_map: Dict[str, gspread.Worksheet] = {}
-
-
-def _load_service_account_info() -> dict:
-    env = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-    if env:
-        return json.loads(env)
-    local = os.path.join(os.path.dirname(__file__), "service_account.json")
-    if os.path.exists(local):
-        with open(local, "r", encoding="utf-8") as f:
-            return json.load(f)
-    raise RuntimeError(
-        "Missing Google service account credentials. "
-        "Set GOOGLE_SERVICE_ACCOUNT_JSON env var OR place service_account.json next to this script."
-    )
-
-
-def gclient() -> gspread.Client:
-    global _gclient
-    if _gclient is None:
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ]
-        info = _load_service_account_info()
-        creds = Credentials.from_service_account_info(info, scopes=scopes)
-        _gclient = gspread.authorize(creds)
-    return _gclient
-
-
-def open_sheet() -> gspread.Spreadsheet:
-    global _spreadsheet
-    if _spreadsheet is None:
-        _spreadsheet = gclient().open(SHEET_NAME)
-    return _spreadsheet
-
-
-def gs_call(fn, *args, **kwargs):
-    last_err = None
-    for attempt in range(8):
-        try:
-            return fn(*args, **kwargs)
-        except gspread.exceptions.APIError as e:
-            last_err = e
-            s = str(e)
-            if any(x in s for x in ["429", "Quota", "Read requests", "500", "503"]):
-                time.sleep(min(30.0, (1.0 * (2 ** attempt)) + random.random()))
-                continue
-            raise
-    raise last_err
-
-
-def _ws(ss: gspread.Spreadsheet, title: str) -> gspread.Worksheet:
-    if title in _ws_map:
-        return _ws_map[title]
-    w = ss.worksheet(title)
-    _ws_map[title] = w
-    return w
-
-
-def ensure_ws(ss: gspread.Spreadsheet, title: str, headers: List[str], rows: int = 2000, cols: int = 30) -> gspread.Worksheet:
-    try:
-        ws = _ws(ss, title)
-    except Exception:
-        ws = gs_call(ss.add_worksheet, title=title, rows=rows, cols=cols)
-        _ws_map[title] = ws
-
-    values = gs_call(ws.get_all_values)
-    if not values:
-        gs_call(ws.update, "A1", [headers])
-    else:
-        hdr = values[0]
-        if [h.strip() for h in hdr] != headers:
-            gs_call(ws.update, "A1", [headers])
-    return ws
-
-
-def ensure_admin_defaults(ws_admin: gspread.Worksheet) -> None:
-    data = gs_call(ws_admin.get_all_records)
-    keys = {str(r.get("Key", "")).strip() for r in data}
-    updates = []
-    if "locked_months" not in keys:
-        updates.append(["locked_months", ""])
-    if "rules_locked" not in keys:
-        updates.append(["rules_locked", "false"])
-    if "rules_text" not in keys:
-        rules_text = "\n".join([f"{k}: {', '.join(v)}" for k, v in DEFAULT_CATEGORY_RULES.items()])
-        updates.append(["rules_text", rules_text])
-    if "recurring_prefs_json" not in keys:
-        updates.append(["recurring_prefs_json", "[]"])
-    if updates:
-        gs_call(ws_admin.append_rows, updates, value_input_option="USER_ENTERED")
-
-
-def _admin_get(ws_admin: gspread.Worksheet, key: str) -> str:
-    rows = gs_call(ws_admin.get_all_records)
-    for r in rows:
-        if str(r.get("Key", "")).strip() == key:
-            return str(r.get("Value", "") or "")
-    return ""
-
-
-def _admin_set(ws_admin: gspread.Worksheet, key: str, value: str) -> None:
-    values = gs_call(ws_admin.get_all_values)
-    if not values:
-        gs_call(ws_admin.update, "A1", [ADMIN_HEADERS])
-        values = gs_call(ws_admin.get_all_values)
-
-    for i, row in enumerate(values[1:], start=2):
-        if len(row) >= 1 and str(row[0]).strip() == key:
-            gs_call(ws_admin.update, f"B{i}", [[value]])
-            return
-    gs_call(ws_admin.append_row, [key, value], value_input_option="USER_ENTERED")
-
-
-# -------------------- HELPERS --------------------
-def money(x: float) -> str:
-    try:
-        return f"${float(x):,.2f}"
-    except Exception:
-        return "$0.00"
-
-
-def normalize_account_name(s: str) -> str:
-    return " ".join(str(s or "").strip().split())
-
-
-def type_to_display(t: str) -> str:
-    m = {
-        "Debit": "Expense (−)",
-        "Credit": "Income (+)",
-        "Investment": "Investment",
-        "CC Repay": "Pay Credit Card",
-        "International": "Remit International",
-        "LOC Draw": "LOC Draw",
-        "LOC Repay": "LOC Repay",
-    }
-    return m.get(str(t).strip(), str(t).strip() or "Debit")
-
-
-def build_month_options(past_months: int = 12, future_months: int = 0) -> List[str]:
-    base = dt.date.today().replace(day=1)
-    out = []
-    for i in range(past_months, 0, -1):
-        d = base - relativedelta(months=i)
-        out.append(f"{d.year:04d}-{d.month:02d}")
-    out.append(f"{base.year:04d}-{base.month:02d}")
-    for i in range(1, future_months + 1):
-        d = base + relativedelta(months=i)
-        out.append(f"{d.year:04d}-{d.month:02d}")
-    return out
-
-
-def parse_rules_text(text: str) -> Dict[str, List[str]]:
-    rules: Dict[str, List[str]] = {}
-    for line in (text or "").splitlines():
-        if ":" not in line:
-            continue
-        cat, rest = line.split(":", 1)
-        cat = cat.strip()
-        kws = [k.strip().lower() for k in rest.split(",") if k.strip()]
-        if cat:
-            rules[cat] = kws
-    if not rules:
-        rules = DEFAULT_CATEGORY_RULES.copy()
-    return rules
-
-
-def classify(notes: str, rules: Dict[str, List[str]]) -> str:
-    n = (notes or "").strip().lower()
-    if not n:
-        return "Uncategorized"
-    best_cat = "Uncategorized"
-    best_score = 0
-    for cat, kws in (rules or {}).items():
-        score = sum(1 for k in kws if k and k in n)
-        if score > best_score:
-            best_score = score
-            best_cat = cat
-    return best_cat or "Uncategorized"
-
-
-def _parse_date_any(v: str) -> dt.date:
-    s = (str(v or "")).strip()
-    if not s:
-        return dt.date.today()
-    try:
-        return dt.date.fromisoformat(s[:10])
-    except Exception:
-        try:
-            return pd.to_datetime(s).date()
-        except Exception:
-            return dt.date.today()
-
-
-def _month_of(d: dt.date) -> str:
-    return f"{d.year:04d}-{d.month:02d}"
-
-
-def monthly_summary(tx: pd.DataFrame, month: str) -> Dict[str, float]:
-    df = tx[tx["Month"] == month].copy()
-    if df.empty:
-        return {"Expense": 0.0, "Income": 0.0, "Investment": 0.0, "CC Repay": 0.0, "International": 0.0}
-    totals = df.groupby("Type")["Amount"].sum().to_dict()
-    return {
-        "Expense": float(totals.get("Debit", 0)),
-        "Income": float(totals.get("Credit", 0)),
-        "Investment": float(totals.get("Investment", 0)),
-        "CC Repay": float(totals.get("CC Repay", 0)),
-        "International": float(totals.get("International", 0)),
-    }
-
-
-def upcoming_recurring_total(prefs_list: List[Dict[str, Any]], month: str) -> float:
-    try:
-        return float(sum(float(p.get("Amount", 0) or 0) for p in (prefs_list or []) if bool(p.get("IsRecurring", False))))
-    except Exception:
-        return 0.0
-
-
-def utilization_table(tx: pd.DataFrame, month: str, acct_df: pd.DataFrame) -> pd.DataFrame:
-    """Simple utilization: sum of Debit by card account in month / limit."""
-    if acct_df is None or acct_df.empty:
-        return pd.DataFrame()
-    dfm = tx[tx["Month"] == month].copy()
-    if dfm.empty:
-        return pd.DataFrame()
-    spend = dfm[dfm["Type"] == "Debit"].groupby("Account")["Amount"].sum().reset_index()
-    base = acct_df.copy()
-    base["Account"] = base["Account"].astype(str).apply(normalize_account_name)
-    out = base.merge(spend, on="Account", how="left").rename(columns={"Amount": "Spend"})
-    out["Spend"] = pd.to_numeric(out["Spend"], errors="coerce").fillna(0.0)
-    out["Limit"] = pd.to_numeric(out["Limit"], errors="coerce").fillna(0.0)
-    out["Util%"] = out.apply(lambda r: (r["Spend"] / r["Limit"] * 100.0) if r["Limit"] > 0 else 0.0, axis=1)
-    return out[["Account", "Emoji", "Limit", "Spend", "Util%"]]
-
-
-# -------------------- APP STATE --------------------
-@dataclass
-class State:
-    tx_df: pd.DataFrame
-    acct_df: pd.DataFrame
-    rules: Dict[str, List[str]]
-    rules_locked: bool
-    locked_months: List[str]
-    prefs_list: List[Dict[str, Any]]
-    last_refresh: dt.datetime
-
-
-STATE: Optional[State] = None
-
-
-# -------------------- DATA LAYER --------------------
-def refresh_all() -> None:
-    global STATE
-    ss = open_sheet()
-    ws_tx = ensure_ws(ss, TAB_TRANSACTIONS, TX_HEADERS, rows=20000)
-    ws_ac = ensure_ws(ss, TAB_ACCOUNTS, ACCT_HEADERS, rows=2000)
-    ws_ad = ensure_ws(ss, TAB_ADMIN, ADMIN_HEADERS, rows=400)
-    ensure_admin_defaults(ws_ad)
-
-    locked_raw = _admin_get(ws_ad, "locked_months").strip()
-    locked_months = [x.strip() for x in locked_raw.split(",") if x.strip()]
-
-    rules_text = _admin_get(ws_ad, "rules_text")
-    rules = parse_rules_text(rules_text)
-    rules_locked = (_admin_get(ws_ad, "rules_locked").strip().lower() == "true")
-
-    prefs_raw = _admin_get(ws_ad, "recurring_prefs_json").strip() or "[]"
-    try:
-        prefs = json.loads(prefs_raw)
-        if not isinstance(prefs, list):
-            prefs = []
-    except Exception:
-        prefs = []
-
-    ac_vals = gs_call(ws_ac.get_all_values)
-    if not ac_vals or len(ac_vals) < 2:
-        acct_df = pd.DataFrame(columns=ACCT_HEADERS)
-    else:
-        hdr = ac_vals[0]
-        rows = ac_vals[1:]
-        acct_df = pd.DataFrame(rows, columns=hdr if hdr else ACCT_HEADERS)
-        for c in ACCT_HEADERS:
-            if c not in acct_df.columns:
-                acct_df[c] = ""
-        acct_df = acct_df[ACCT_HEADERS]
-        acct_df["Limit"] = pd.to_numeric(acct_df["Limit"], errors="coerce").fillna(0.0)
-
-    tx_vals = gs_call(ws_tx.get_all_values)
-    if not tx_vals or len(tx_vals) < 2:
-        tx_df = pd.DataFrame(columns=TX_HEADERS + ["_row", "DateParsed", "Month"])
-    else:
-        hdr = tx_vals[0]
-        rows = tx_vals[1:]
-        tx_df = pd.DataFrame(rows, columns=hdr if hdr else TX_HEADERS)
-        for c in TX_HEADERS:
-            if c not in tx_df.columns:
-                tx_df[c] = ""
-        tx_df = tx_df[TX_HEADERS]
-        tx_df["_row"] = list(range(2, 2 + len(tx_df)))
-        tx_df["Amount"] = pd.to_numeric(tx_df["Amount"], errors="coerce").fillna(0.0)
-        tx_df["DateParsed"] = tx_df["Date"].apply(_parse_date_any)
-        tx_df["Month"] = tx_df["DateParsed"].apply(_month_of)
-        tx_df["Account"] = tx_df["Account"].astype(str).apply(normalize_account_name)
-
-    STATE = State(
-        tx_df=tx_df,
-        acct_df=acct_df,
-        rules=rules,
-        rules_locked=rules_locked,
-        locked_months=locked_months,
-        prefs_list=prefs,
-        last_refresh=dt.datetime.now(),
-    )
-
-
-def _assert_month_unlocked(month_str: str) -> None:
-    if STATE and month_str in (STATE.locked_months or []):
-        raise ValueError(f"Month {month_str} is locked. Unlock in Admin → Locks.")
-
-
-def _append_transaction_row(row: List[Any]) -> None:
-    ss = open_sheet()
-    ws = ensure_ws(ss, TAB_TRANSACTIONS, TX_HEADERS, rows=20000)
-    gs_call(ws.append_row, row, value_input_option="USER_ENTERED")
-
-
-def add_transaction(entry_date: dt.date, owner: str, entry_type: str, amount: float, pay: str,
-                    account: str, category: str, notes: str, auto_tag: str = "") -> str:
-    if STATE is None:
-        refresh_all()
-    month_str = _month_of(entry_date)
-    _assert_month_unlocked(month_str)
-
-    txid = str(uuid.uuid4())
-    _append_transaction_row([
-        txid,
-        entry_date.isoformat(),
-        owner,
-        entry_type,
-        f"{float(amount):.2f}",
-        pay,
-        normalize_account_name(account),
-        category,
-        notes,
-        dt.datetime.now().isoformat(timespec="seconds"),
-        auto_tag or "",
-    ])
-    refresh_all()
-    return txid
-
-
-def delete_transaction(row_num: int) -> None:
-    ss = open_sheet()
-    ws = ensure_ws(ss, TAB_TRANSACTIONS, TX_HEADERS, rows=20000)
-    if int(row_num) < 2:
-        raise ValueError("Invalid row number")
-    gs_call(ws.delete_rows, int(row_num))
-    refresh_all()
-
-
-def update_transaction(row_num: int, updates: Dict[str, Any]) -> None:
-    ss = open_sheet()
-    ws = ensure_ws(ss, TAB_TRANSACTIONS, TX_HEADERS, rows=20000)
-    if int(row_num) < 2:
-        raise ValueError("Invalid row number")
-    col_index = {h: i + 1 for i, h in enumerate(TX_HEADERS)}
-    for k, v in updates.items():
-        if k in col_index:
-            cell = gspread.utils.rowcol_to_a1(int(row_num), col_index[k])
-            gs_call(ws.update_acell, cell, str(v))
-    refresh_all()
-
-
-def save_accounts(acct_df: pd.DataFrame) -> None:
-    ss = open_sheet()
-    ws = ensure_ws(ss, TAB_ACCOUNTS, ACCT_HEADERS, rows=2000)
-    rows = [ACCT_HEADERS]
-    for _, r in acct_df.iterrows():
-        rows.append([str(r.get("Account", "")), str(r.get("Emoji", "")), str(r.get("Limit", "")), str(r.get("BillingDay", ""))])
-    gs_call(ws.update, "A1", rows, value_input_option="USER_ENTERED")
-    refresh_all()
-
-
-def save_admin(locked_months: List[str], rules_text: str, rules_locked: bool, prefs_list: List[Dict[str, Any]]) -> None:
-    ss = open_sheet()
-    ws = ensure_ws(ss, TAB_ADMIN, ADMIN_HEADERS, rows=400)
-    ensure_admin_defaults(ws)
-    _admin_set(ws, "locked_months", ", ".join([m.strip() for m in locked_months if m.strip()]))
-    _admin_set(ws, "rules_text", rules_text)
-    _admin_set(ws, "rules_locked", "true" if rules_locked else "false")
-    _admin_set(ws, "recurring_prefs_json", json.dumps(prefs_list))
-    refresh_all()
-
-
-def ensure_recurring_for_month(month_str: str) -> int:
-    """Auto-add recurring items once per month using AutoTag = AUTO:<month>:<MerchantKey>."""
-    if STATE is None:
-        refresh_all()
-    tx = STATE.tx_df
-    prefs_list = STATE.prefs_list
-
-    existing_tags = set(
-        tx.loc[(tx["Month"] == month_str) & (tx["AutoTag"].astype(str).str.startswith("AUTO:")), "AutoTag"]
-        .astype(str)
-        .tolist()
-    )
-    created = 0
-    try:
-        p = pd.Period(month_str, freq="M")
-        year, month = p.year, p.month
-    except Exception:
-        return 0
-
-    for pref in (prefs_list or []):
-        if not bool(pref.get("IsRecurring", False)):
-            continue
-        mk = str(pref.get("MerchantKey", "")).strip()
-        if not mk:
-            continue
-        dom = int(float(pref.get("DayOfMonth", 1) or 1))
-        dom = max(1, min(28, dom))
-        due = dt.date(year, month, dom)
-
-        tag = f"AUTO:{month_str}:{mk}"
-        if tag in existing_tags:
-            continue
-
-        entry_type = str(pref.get("Type", "Debit")).strip() or "Debit"
-        amount = float(pref.get("Amount", 0) or 0)
-        pay = str(pref.get("Pay", "")).strip()
-        account = str(pref.get("Account", "")).strip()
-        category = str(pref.get("Category", "")).strip() or "Uncategorized"
-        notes = str(pref.get("Notes", mk)).strip() or mk
-        owner = str(pref.get("Owner", "Family")).strip() or "Family"
-
-        add_transaction(due, owner, entry_type, amount, pay, account, category, notes, auto_tag=tag)
-        created += 1
-
-    return created
-
-
-# -------------------- UI THEME --------------------
-def ui_theme() -> None:
-    css = """
-    <style>
-      :root { --bg:#070B12; --card:#0E1625; --card2:#0B1220; --text:#E9EEF7; --muted:rgba(233,238,247,.68); --border:rgba(233,238,247,.12); }
-      body{ background:var(--bg); color:var(--text); }
-      .q-page{ background:var(--bg)!important; }
-      .my-topbar{ background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0)); border:1px solid var(--border); border-radius:18px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.35); }
-      .my-card{ background: radial-gradient(1200px 600px at 0% 0%, rgba(121,132,255,.16), transparent 60%), radial-gradient(900px 400px at 100% 0%, rgba(62,255,202,.10), transparent 55%), var(--card);
-        border:1px solid var(--border); border-radius:18px; box-shadow:0 10px 28px rgba(0,0,0,.38); }
-      .my-card.flat{ background:var(--card2); }
-      .my-pill{ border-radius:999px; }
-      .my-muted{ color:var(--muted); }
-      .my-title{ font-weight:900; font-size:18px; letter-spacing:.2px; }
-      .my-sub{ font-size:13px; }
-      .kpi{ font-size:22px; font-weight:900; }
-      .chip{ display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; border:1px solid rgba(233,238,247,.14); background:rgba(255,255,255,.04); }
-      .my-grid{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:12px; }
-      @media (min-width: 980px){ .my-grid{ grid-template-columns: repeat(3, minmax(0,1fr)); } }
-      .tile{ cursor:pointer; transition:transform .08s ease, box-shadow .08s ease, border-color .08s ease; }
-      .tile:hover{ transform:translateY(-1px); box-shadow:0 14px 34px rgba(0,0,0,.44); border-color:rgba(233,238,247,.22); }
-      .my-table .q-table__container{ background:var(--card2)!important; border:1px solid var(--border); border-radius:16px; }
-      .q-table__top,.q-table__bottom{ background:var(--card2)!important; }
-      .q-field__control{ border-radius:14px!important; }
-      .q-btn{ text-transform:none!important; }
-      .q-tabs{ border-radius:16px; overflow:hidden; border:1px solid var(--border); }
-      .q-tab__label{ font-weight:700; }
-    </style>
-    """
-    ui.add_head_html(css)
-
-
-def auth_ok(u: str, p: str) -> bool:
-    return hmac.compare_digest(u or "", AUTH_USERNAME) and hmac.compare_digest(p or "", AUTH_PASSWORD)
-
-
-def notify_error(e: Exception, prefix: str = "") -> None:
-    ui.notify(f"{prefix}{e}", type="negative")
-
-
-def rules_text_from_state() -> str:
-    if STATE is None:
-        return ""
-    lines = []
-    for k, v in (STATE.rules or {}).items():
-        vv = ", ".join([str(x) for x in v if str(x).strip()])
-        lines.append(f"{k}: {vv}")
-    return "\n".join(lines)
-
-
-# -------------------- ROUTES --------------------
-@ui.page("/")
-def login_page():
-    ui_theme()
-    if app.storage.user.get("logged_in"):
-        ui.navigate.to("/app")
-        return
-
-    with ui.column().classes("w-full items-center justify-center").style("min-height: 100vh;"):
-        with ui.card().classes("my-card w-[420px] max-w-[92vw] p-6"):
-            ui.label(APP_NAME).classes("my-title")
-            ui.label("Sign in to continue").classes("my-muted my-sub")
-
-            u = ui.input("Username").classes("w-full")
-            p = ui.input("Password", password=True, password_toggle_button=True).classes("w-full")
-            msg = ui.label("").classes("text-red-400 text-sm")
-
-            def do_login():
-                if auth_ok(u.value, p.value):
-                    app.storage.user["logged_in"] = True
-                    ui.navigate.to("/app")
-                else:
-                    msg.text = "Invalid username or password"
-
-            ui.button("Login", on_click=do_login).classes("w-full my-pill")
-
-
-@ui.page("/app")
-def main_page():
-    ui_theme()
-    if not app.storage.user.get("logged_in"):
-        ui.navigate.to("/")
-        return
-
-    global STATE
-    if STATE is None:
-        try:
-            refresh_all()
-        except Exception as e:
-            ui.label(f"Error loading Google Sheet: {e}").classes("text-red-400")
-            return
-
-    with ui.row().classes("w-full items-center justify-between my-topbar"):
-        ui.label(f"{APP_NAME} • {APP_VERSION}").classes("my-title")
+.tile:hover { transform: translateY(-2px); background: rgba(255,255,255,0.07) !important; }
+"""
+ui.add_head_html(f"<style>{BANK_CSS}</style>")
+
+
+# -----------------------------
+# Layout
+# -----------------------------
+def topbar():
+    with ui.row().classes("w-full items-center justify-between px-3 py-2"):
+        with ui.row().classes("items-center gap-3"):
+            ui.label("💳").classes("text-2xl")
+            with ui.column().classes("gap-0"):
+                ui.label(APP_TITLE).classes("text-lg font-bold")
+                ui.label(APP_SUBTITLE).classes("text-xs").style("color: var(--mf-muted)")
         with ui.row().classes("items-center gap-2"):
-            ui.button("Refresh", on_click=lambda: (refresh_all(), ui.notify("Refreshed", type="positive"))).classes("my-pill")
-            ui.button("Logout", on_click=lambda: (app.storage.user.clear(), ui.navigate.to("/"))).classes("my-pill")
+            ui.button("Refresh", on_click=lambda: refresh_all()).props("flat").classes("text-sm")
+            ui.button("Logout", on_click=logout).props("flat").classes("text-sm")
 
-    tabs = ui.tabs().classes("w-full mt-3")
-    with tabs:
-        ui.tab("Dashboard")
-        ui.tab("Add")
-        ui.tab("Credit Bal")
-        ui.tab("Trends")
-        ui.tab("Transactions")
-        ui.tab("Admin")
+def nav_button(label: str, icon: str, path: str):
+    ui.button(label, on_click=lambda: ui.open(path)).props(f"flat icon={icon}").classes("w-full")
 
-    with ui.tab_panels(tabs, value="Dashboard").classes("w-full mt-3"):
+def shell(content_fn):
+    with ui.header().classes("bg-transparent"):
+        topbar()
 
-        # Dashboard
-        with ui.tab_panel("Dashboard"):
-            months = build_month_options(past_months=12, future_months=3)
-            msel = ui.select(months, value=months[-1], label="Month").classes("w-[220px]")
-            badge = ui.label("").classes("chip my-muted")
+    with ui.left_drawer(value=False).classes("bg-transparent"):
+        with ui.column().classes("p-3 gap-2"):
+            with ui.card().classes("my-card p-3"):
+                ui.label("Navigation").classes("font-bold")
+                ui.separator()
+                nav_button("Dashboard", "dashboard", "/")
+                nav_button("Add", "add_circle", "/add")
+                nav_button("Transactions", "receipt_long", "/tx")
+                nav_button("Cards", "credit_card", "/cards")
+                nav_button("Recurring", "autorenew", "/recurring")
+                nav_button("Rules", "rule", "/rules")
 
-            def render_dashboard():
-                try:
-                    created = ensure_recurring_for_month(msel.value)
-                    badge.text = f"Recurring added: {created}" if created else "Recurring: up to date"
-                except Exception:
-                    badge.text = "Recurring: skipped"
+    with ui.page_sticky(position="bottom-left", x_offset=18, y_offset=18):
+        ui.button(icon="menu").props("round").on("click", lambda: ui.open_drawer())
 
-                tx = STATE.tx_df.copy()
-                txm = tx[tx["Month"] == msel.value] if not tx.empty else tx
-                if txm.empty:
-                    ui.label("No transactions for this month.").classes("my-muted")
-                    return
+    with ui.column().classes("w-full max-w-[1100px] mx-auto p-3 gap-3"):
+        content_fn()
 
-                summ = monthly_summary(tx, msel.value)
-                with ui.row().classes("w-full gap-3"):
-                    for k, v in summ.items():
-                        with ui.card().classes("my-card p-4"):
-                            ui.label(k).classes("my-muted my-sub")
-                            ui.label(money(v)).classes("kpi")
 
-                g = txm.groupby("Type")["Amount"].sum().reset_index()
-                g["TypeLabel"] = g["Type"].apply(type_to_display)
-                fig = px.bar(g, x="TypeLabel", y="Amount", title="Totals by Type")
-                fig.update_layout(paper_bgcolor="#070B12", plot_bgcolor="#070B12", font_color="#E9EEF7")
+# -----------------------------
+# Shared actions
+# -----------------------------
+def refresh_all():
+    invalidate("transactions", "cards", "recurring", "rules")
+    ui.notify("Refreshed", type="positive")
+
+
+def owners_list() -> List[str]:
+    # Prefer owners from cards, else from transactions, else defaults
+    cards = cached_df("cards")
+    owners = set()
+    if not cards.empty:
+        owners |= set(cards["owner"].astype(str).tolist())
+    tx = cached_df("transactions")
+    if not tx.empty:
+        owners |= set(tx["owner"].astype(str).tolist())
+    owners = {o.strip() for o in owners if o and o.strip()}
+    if not owners:
+        owners = {"Abhi", "Indhu"}
+    return sorted(owners)
+
+
+def accounts_list() -> List[str]:
+    tx = cached_df("transactions")
+    accts = set()
+    if not tx.empty:
+        accts |= set(tx["account"].astype(str).tolist())
+    accts = {a.strip() for a in accts if a and a.strip()}
+    return sorted(accts)
+
+
+def categories_list() -> List[str]:
+    tx = cached_df("transactions")
+    cats = set()
+    if not tx.empty:
+        cats |= set(tx["category"].astype(str).tolist())
+    cats = {c.strip() for c in cats if c and c.strip()}
+    base = ["Uncategorized", "Groceries", "Rent", "Utilities", "Subscriptions", "Dining", "Fuel", "Shopping", "Travel", "Health", "Salary", "Transfer"]
+    return sorted(set(base) | cats)
+
+
+def methods_list() -> List[str]:
+    cards = cached_df("cards")
+    methods = set(["Debit", "Card", "Other"])
+    if not cards.empty and "method_name" in cards.columns:
+        methods |= set(cards["method_name"].astype(str).tolist())
+    return sorted({m.strip() for m in methods if m and m.strip()})
+
+
+# -----------------------------
+# Pages
+# -----------------------------
+@ui.page("/login")
+def login_page():
+    with ui.column().classes("w-full max-w-[520px] mx-auto mt-10 p-4 gap-4"):
+        with ui.card().classes("my-card p-6"):
+            ui.label("Sign in").classes("text-xl font-bold")
+            ui.label("Use your admin credentials.").classes("text-sm").style("color: var(--mf-muted)")
+            u_in = ui.input("Username").classes("w-full")
+            p_in = ui.input("Password", password=True, password_toggle_button=True).classes("w-full")
+
+            def attempt():
+                if check_login(u_in.value or "", p_in.value or ""):
+                    app.storage.user["logged_in"] = True
+                    ui.notify("Welcome 👋", type="positive")
+                    ui.open("/")
+                else:
+                    ui.notify("Invalid login", type="negative")
+
+            ui.button("Login", on_click=attempt).classes("w-full").props("unelevated")
+
+
+@ui.page("/")
+def dashboard_page():
+    if not require_login():
+        ui.open("/login")
+        return
+
+    def content():
+        # Safe: run recurring generation for today once per page load
+        try:
+            created = generate_recurring_for_date(today())
+            if created:
+                ui.notify(f"Auto-added {created} recurring entries for {today().isoformat()}", type="positive")
+        except Exception:
+            pass
+
+        tx = cached_df("transactions")
+        if tx.empty:
+            with ui.card().classes("my-card p-5"):
+                ui.label("No transactions yet").classes("text-lg font-bold")
+                ui.label("Go to Add to create your first entry.").style("color: var(--mf-muted)")
+            return
+
+        tx["date_parsed"] = tx["date"].apply(parse_date)
+        tx = tx[tx["date_parsed"].notna()].copy()
+        tx["amount_num"] = tx["amount"].apply(to_float)
+        tx["type_l"] = tx["type"].astype(str).str.lower()
+
+        mkey = month_key(today())
+        mtx = tx[tx["date_parsed"].apply(lambda d: month_key(d) == mkey)].copy()
+
+        income = mtx.loc[mtx["type_l"].isin(["credit", "income"]), "amount_num"].sum()
+        expense = mtx.loc[mtx["type_l"].isin(["debit", "expense"]), "amount_num"].sum()
+        invest = mtx.loc[mtx["type_l"].isin(["investment"]), "amount_num"].sum()
+        net = income - expense - invest
+
+        with ui.row().classes("w-full gap-3"):
+            for label, val in [
+                ("Income (this month)", income),
+                ("Expenses (this month)", expense),
+                ("Investments (this month)", invest),
+                ("Net (this month)", net),
+            ]:
+                with ui.card().classes("my-card p-4 kpi w-full"):
+                    ui.label(label).classes("text-sm").style("color: var(--mf-muted)")
+                    ui.label(currency(val)).classes("text-2xl font-bold")
+                    ui.label(mkey).classes("text-xs").style("color: var(--mf-muted)")
+
+        # Upcoming paydays
+        start = today()
+        end = start + dt.timedelta(days=45)
+        pays: List[Tuple[str, dt.date]] = []
+        y, m = start.year, start.month
+        for _ in range(3):
+            for p in abhi_pay_dates_for_month(y, m):
+                if start <= p <= end:
+                    pays.append(("Abhi", p))
+            m += 1
+            if m == 13:
+                y += 1
+                m = 1
+        for p in wife_pay_dates_between(start, end):
+            if start <= p <= end:
+                pays.append(("Indhu", p))
+        pays = sorted(set(pays), key=lambda x: x[1])
+
+        with ui.card().classes("my-card p-5"):
+            ui.label("Upcoming paydays").classes("text-lg font-bold")
+            if not pays:
+                ui.label("No paydays in the next 45 days.").style("color: var(--mf-muted)")
+            else:
+                for who, d in pays[:12]:
+                    ui.label(f"{who}: {d.strftime('%a, %b %d, %Y')}").classes("text-sm")
+
+        # Spending breakdown
+        with ui.card().classes("my-card p-5"):
+            ui.label("Spending breakdown (this month)").classes("text-lg font-bold")
+            spend = mtx[mtx["type_l"].isin(["debit", "expense"])].copy()
+            if spend.empty:
+                ui.label("No expenses this month.").style("color: var(--mf-muted)")
+            else:
+                spend["category"] = spend["category"].astype(str).replace("", "Uncategorized")
+                agg = spend.groupby("category", as_index=False)["amount_num"].sum()
+                fig = px.pie(agg, names="category", values="amount_num", hole=0.55)
+                fig.update_layout(
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font_color="rgba(255,255,255,0.88)",
+                )
                 ui.plotly(fig).classes("w-full")
 
-                # Debit categories chart
-                deb = txm[txm["Type"] == "Debit"].copy()
-                if not deb.empty:
-                    cg = deb.groupby("Category")["Amount"].sum().reset_index().sort_values("Amount", ascending=False).head(12)
-                    fig2 = px.bar(cg, x="Category", y="Amount", title="Top debit categories")
-                    fig2.update_layout(paper_bgcolor="#070B12", plot_bgcolor="#070B12", font_color="#E9EEF7")
-                    ui.plotly(fig2).classes("w-full")
+        # Trend
+        with ui.card().classes("my-card p-5"):
+            ui.label("Cashflow trend (last 90 days)").classes("text-lg font-bold")
+            recent = tx[tx["date_parsed"] >= (today() - dt.timedelta(days=90))].copy()
+            recent["day"] = recent["date_parsed"].astype(str)
+            recent["sign"] = recent["type_l"].map(lambda t: 1 if t in ("credit", "income") else (-1 if t in ("debit", "expense", "investment") else 0))
+            recent["signed_amount"] = recent["amount_num"] * recent["sign"]
+            daily = recent.groupby("day", as_index=False)["signed_amount"].sum()
+            fig2 = px.area(daily, x="day", y="signed_amount")
+            fig2.update_layout(
+                margin=dict(l=10, r=10, t=10, b=10),
+                paper_bgcolor="rgba(0,0,0,0)",
+                font_color="rgba(255,255,255,0.88)",
+            )
+            ui.plotly(fig2).classes("w-full")
 
-            render_dashboard()
+    shell(content)
 
-        # Add
-        with ui.tab_panel("Add"):
-            owners = sorted([o for o in STATE.tx_df["Owner"].astype(str).unique().tolist() if o and o != "nan"]) or ["Abhi", "Indhu"]
-            accounts = sorted([a for a in STATE.acct_df["Account"].astype(str).tolist() if a and a != "nan"]) or sorted(STATE.tx_df["Account"].astype(str).unique().tolist())
-            accounts = [normalize_account_name(a) for a in accounts if a and a != "nan"] or [""]
-            categories = sorted([c for c in STATE.tx_df["Category"].astype(str).unique().tolist() if c and c != "nan"]) or ["Uncategorized"]
-            pay_opts = ["Card", "Cash", "Interac", "Bank", "Online", "Other"]
 
-            ui.label("Add Transaction").classes("my-title")
-            ui.label("Tap a tile. Notes will auto-fill Category using Admin → Rules.").classes("my-muted my-sub")
+@ui.page("/add")
+def add_page():
+    if not require_login():
+        ui.open("/login")
+        return
 
-            def open_add_dialog(entry_type: str):
+    def open_add_dialog(entry_type: str):
+        rules = load_rules()
+        owners = owners_list()
+        accounts = accounts_list()
+        categories = categories_list()
+        methods = methods_list()
+
+        dlg = ui.dialog()
+        with dlg, ui.card().classes("my-card p-5 w-[620px] max-w-[95vw]"):
+            ui.label(f"Add: {entry_type}").classes("text-lg font-bold")
+
+            d_owner = ui.select(owners, value=owners[0], label="Owner").classes("w-full")
+            d_date = ui.input("Date", value=today().isoformat()).props("type=date").classes("w-full")
+            d_amount = ui.number("Amount", value=0.0, format="%.2f").classes("w-full")
+            d_method = ui.select(methods, value=("Card" if entry_type.lower() == "debit" else "Other"), label="Method").classes("w-full")
+            d_account = ui.select(accounts or [""], value=(accounts[0] if accounts else ""), label="Account").classes("w-full")
+            d_category = ui.select(categories, value="Uncategorized", label="Category").classes("w-full")
+            d_notes = ui.textarea("Notes", value="").classes("w-full")
+            d_rec = ui.checkbox("Mark as recurring (creates template for future cycles only)")
+
+            def autofill():
+                d_category.value = infer_category(d_notes.value or "", rules)
+                ui.notify("Category suggested", type="positive")
+
+            ui.button("Auto-category", on_click=autofill).props("flat")
+
+            def save():
+                dd = parse_date(d_date.value) or today()
+                amt = float(to_float(d_amount.value))
+                owner = str(d_owner.value or "").strip()
+                method = str(d_method.value or "Other").strip()
+                account = str(d_account.value or "").strip()
+                category = str(d_category.value or "Uncategorized").strip()
+                notes = str(d_notes.value or "").strip()
+
+                # Build tx id (unique)
+                tx_id = sha16(f"{owner}|{dd.isoformat()}|{entry_type}|{amt}|{method}|{account}|{category}|{notes}|{dt.datetime.now().isoformat()}")
+
+                rec_id = ""
+                if d_rec.value:
+                    # IMPORTANT: template starts next cycle. Start date is the selected date, but generation is month-by-month and only on/after due date.
+                    # We set template day_of_month from selected date.
+                    rec_id = create_or_update_recurring_template(
+                        owner=owner,
+                        type_=entry_type,
+                        amount=amt,
+                        method=method,
+                        account=account,
+                        category=category,
+                        notes=notes,
+                        day_of_month=dd.day,
+                        start_date=dd,
+                        active=True,
+                    )
+
+                append_row("transactions", {
+                    "id": tx_id,
+                    "date": dd.isoformat(),
+                    "owner": owner,
+                    "type": entry_type,
+                    "amount": amt,
+                    "method": method,
+                    "account": account,
+                    "category": category,
+                    "notes": notes,
+                    "is_recurring": "FALSE",
+                    "recurring_id": rec_id,
+                    "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+                })
+                invalidate("transactions")
+                ui.notify("Saved", type="positive")
+                dlg.close()
+
+            with ui.row().classes("w-full justify-end gap-2 mt-2"):
+                ui.button("Cancel", on_click=dlg.close).props("flat")
+                ui.button("Save", on_click=save).props("unelevated")
+
+        dlg.open()
+
+    def content():
+        with ui.card().classes("my-card p-5"):
+            ui.label("Quick Add").classes("text-lg font-bold")
+            ui.label("Tap a tile to add an entry.").classes("text-sm").style("color: var(--mf-muted)")
+
+            tiles = [
+                ("Debit (Expense)", "shopping_cart", "Debit"),
+                ("Credit (Income)", "payments", "Credit"),
+                ("Investment", "savings", "Investment"),
+                ("Card Repay", "credit_score", "Card Repay"),
+                ("International", "public", "International"),
+            ]
+
+            with ui.row().classes("w-full gap-3"):
+                for label, icon, etype in tiles:
+                    with ui.card().classes("my-card p-4 tile w-full"):
+                        ui.label(label).classes("font-bold")
+                        ui.icon(icon).classes("text-2xl")
+                        ui.button("Add", on_click=lambda e=etype: open_add_dialog(e)).props("flat").classes("mt-2")
+
+        with ui.card().classes("my-card p-5"):
+            ui.label("Today’s auto status").classes("text-lg font-bold")
+            ui.label("Recurring entries will be created only when the due date arrives.").style("color: var(--mf-muted)")
+            ui.button("Run recurring generation now", on_click=lambda: ui.notify(f"Created {generate_recurring_for_date(today())} entries", type="positive")).props("flat")
+
+    shell(content)
+
+
+@ui.page("/tx")
+def transactions_page():
+    if not require_login():
+        ui.open("/login")
+        return
+
+    def content():
+        tx = cached_df("transactions")
+        if tx.empty:
+            with ui.card().classes("my-card p-5"):
+                ui.label("No transactions").classes("text-lg font-bold")
+            return
+
+        tx["date_parsed"] = tx["date"].apply(parse_date)
+        tx = tx[tx["date_parsed"].notna()].copy()
+        tx = tx.sort_values("date_parsed", ascending=False)
+
+        owners = sorted({o for o in tx["owner"].astype(str).tolist() if o.strip()})
+        types = sorted({t for t in tx["type"].astype(str).tolist() if t.strip()})
+
+        with ui.card().classes("my-card p-5"):
+            ui.label("Transactions").classes("text-lg font-bold")
+            f_owner = ui.select(["All"] + owners, value="All", label="Owner").classes("w-full")
+            f_type = ui.select(["All"] + types, value="All", label="Type").classes("w-full")
+            f_text = ui.input("Search notes/category/account").classes("w-full")
+
+            table = ui.table(columns=[
+                {"name": "date", "label": "Date", "field": "date"},
+                {"name": "owner", "label": "Owner", "field": "owner"},
+                {"name": "type", "label": "Type", "field": "type"},
+                {"name": "amount", "label": "Amount", "field": "amount"},
+                {"name": "method", "label": "Method", "field": "method"},
+                {"name": "account", "label": "Account", "field": "account"},
+                {"name": "category", "label": "Category", "field": "category"},
+                {"name": "notes", "label": "Notes", "field": "notes"},
+                {"name": "id", "label": "ID", "field": "id"},
+            ], rows=[], row_key="id").classes("w-full")
+
+            def refresh_table():
+                df = tx.copy()
+                if f_owner.value != "All":
+                    df = df[df["owner"].astype(str) == f_owner.value]
+                if f_type.value != "All":
+                    df = df[df["type"].astype(str) == f_type.value]
+                q = (f_text.value or "").strip().lower()
+                if q:
+                    hay = (df["notes"].astype(str) + " " + df["category"].astype(str) + " " + df["account"].astype(str)).str.lower()
+                    df = df[hay.str.contains(q, na=False)]
+                df = df.head(250)
+                df["amount"] = df["amount"].apply(lambda x: currency(to_float(x)))
+                table.rows = df.to_dict(orient="records")
+                table.update()
+
+            f_owner.on("update:model-value", lambda e: refresh_table())
+            f_type.on("update:model-value", lambda e: refresh_table())
+            f_text.on("update:model-value", lambda e: refresh_table())
+
+            refresh_table()
+
+            # Edit/Delete
+            def open_edit(row: Dict[str, Any]):
                 dlg = ui.dialog()
-                with dlg, ui.card().classes("my-card p-5 w-[580px] max-w-[95vw]"):
-                    ui.label(type_to_display(entry_type)).classes("text-lg font-bold")
+                with dlg, ui.card().classes("my-card p-5 w-[720px] max-w-[95vw]"):
+                    ui.label("Edit transaction").classes("text-lg font-bold")
+                    tid = str(row.get("id", "")).strip()
 
-                    d_owner = ui.select(owners, value=owners[0], label="Owner").classes("w-full")
-                    d_date = ui.input('Date', value=dt.date.today().isoformat()).props('type=date').classes("w-full")
-                    d_amount = ui.number(label="Amount", value=0.0, format="%.2f").classes("w-full")
-                    d_pay = ui.select(pay_opts, value=("Card" if entry_type == "Debit" else "Other"), label="Pay / Method").classes("w-full")
-                    d_acct = ui.select(accounts, value=(accounts[0] if accounts else ""), label="Account").classes("w-full")
-                    d_cat = ui.select(categories, value="Uncategorized", label="Category").classes("w-full")
-                    d_notes = ui.textarea(label="Notes", value="").classes("w-full")
+                    e_date = ui.input("Date", value=str(row.get("date", ""))).props("type=date").classes("w-full")
+                    e_owner = ui.input("Owner", value=str(row.get("owner", ""))).classes("w-full")
+                    e_type = ui.input("Type", value=str(row.get("type", ""))).classes("w-full")
+                    e_amount = ui.number("Amount", value=to_float(row.get("amount", 0))).classes("w-full")
+                    e_method = ui.input("Method", value=str(row.get("method", ""))).classes("w-full")
+                    e_account = ui.input("Account", value=str(row.get("account", ""))).classes("w-full")
+                    e_category = ui.input("Category", value=str(row.get("category", ""))).classes("w-full")
+                    e_notes = ui.textarea("Notes", value=str(row.get("notes", ""))).classes("w-full")
 
-                    def autofill():
-                        try:
-                            d_cat.value = classify(d_notes.value or "", STATE.rules)
-                        except Exception:
-                            pass
-
-                    d_notes.on("blur", lambda e: autofill())
+                    def save_edit():
+                        ok = update_row_by_id("transactions", "id", tid, {
+                            "date": (parse_date(e_date.value) or today()).isoformat(),
+                            "owner": e_owner.value or "",
+                            "type": e_type.value or "",
+                            "amount": float(to_float(e_amount.value)),
+                            "method": e_method.value or "",
+                            "account": e_account.value or "",
+                            "category": e_category.value or "",
+                            "notes": e_notes.value or "",
+                        })
+                        if ok:
+                            invalidate("transactions")
+                            ui.notify("Updated", type="positive")
+                            dlg.close()
+                            ui.open("/tx")
+                        else:
+                            ui.notify("Could not update (id not found)", type="negative")
 
                     with ui.row().classes("w-full justify-end gap-2"):
-                        ui.button("Cancel", on_click=dlg.close).classes("my-pill")
-
-                        def save():
-                            try:
-                                date_parsed = dt.date.fromisoformat(d_date.value)
-                                amt = float(d_amount.value or 0)
-                                if amt <= 0:
-                                    raise ValueError("Amount must be > 0")
-
-                                _assert_month_unlocked(_month_of(date_parsed))
-
-                                cat = d_cat.value or "Uncategorized"
-                                if cat == "Uncategorized":
-                                    cat = classify(d_notes.value or "", STATE.rules)
-
-                                add_transaction(
-                                    entry_date=date_parsed,
-                                    owner=str(d_owner.value),
-                                    entry_type=entry_type,
-                                    amount=amt,
-                                    pay=str(d_pay.value or ""),
-                                    account=str(d_acct.value or ""),
-                                    category=str(cat),
-                                    notes=str(d_notes.value or ""),
-                                    auto_tag="",
-                                )
-                                ui.notify("Saved", type="positive")
-                                dlg.close()
-                                ui.navigate.to("/app")
-                            except Exception as e:
-                                notify_error(e, "Save failed: ")
-
-                        ui.button("Save", on_click=save).classes("my-pill")
+                        ui.button("Cancel", on_click=dlg.close).props("flat")
+                        ui.button("Save", on_click=save_edit).props("unelevated")
                 dlg.open()
 
-            with ui.element("div").classes("my-grid w-full"):
-                tiles = [
-                    ("Debit", "shopping_bag", "Expense (−)"),
-                    ("Credit", "payments", "Income (+)"),
-                    ("Investment", "trending_up", "Invest"),
-                    ("CC Repay", "credit_score", "Pay Credit Card"),
-                    ("International", "public", "Remit"),
-                    ("LOC Draw", "move_up", "LOC Draw"),
-                    ("LOC Repay", "move_down", "LOC Repay"),
-                ]
-                for t, icon, sub in tiles:
-                    with ui.card().classes("my-card p-4 tile").on("click", lambda e, tt=t: open_add_dialog(tt)):
-                        with ui.row().classes("items-center gap-3"):
-                            ui.icon(icon).classes("text-2xl")
-                            with ui.column().classes("gap-0"):
-                                ui.label(type_to_display(t)).classes("font-semibold")
-                                ui.label(sub).classes("my-muted my-sub")
-
-        # Credit Bal
-        with ui.tab_panel("Credit Bal"):
-            ui.label("Credit Balances & Utilization").classes("my-title")
-            months = build_month_options(past_months=12, future_months=0)
-            msel = ui.select(months, value=months[-1], label="Month").classes("w-[220px]")
-
-            tx = STATE.tx_df.copy()
-            if tx.empty:
-                ui.label("No data yet.").classes("my-muted")
-            else:
-                ut = utilization_table(tx, msel.value, STATE.acct_df)
-                if ut.empty:
-                    ui.label("No utilization data (check cards tab limits).").classes("my-muted")
+            def open_delete(row: Dict[str, Any]):
+                tid = str(row.get("id", "")).strip()
+                if delete_row_by_id("transactions", "id", tid):
+                    invalidate("transactions")
+                    ui.notify("Deleted", type="positive")
+                    ui.open("/tx")
                 else:
-                    ut2 = ut.copy()
-                    ut2["Limit"] = ut2["Limit"].apply(money)
-                    ut2["Spend"] = ut2["Spend"].apply(money)
-                    ut2["Util%"] = ut2["Util%"].apply(lambda x: f"{x:.1f}%")
-                    ui.table(
-                        columns=[{"name": c, "label": c, "field": c} for c in ut2.columns],
-                        rows=ut2.to_dict("records"),
-                        row_key="Account",
-                    ).classes("w-full my-table")
+                    ui.notify("Delete failed", type="negative")
 
-                upcoming = upcoming_recurring_total(STATE.prefs_list, msel.value)
-                with ui.card().classes("my-card flat p-4 mt-3"):
-                    ui.label("Upcoming recurring (month)").classes("my-muted my-sub")
-                    ui.label(money(float(upcoming))).classes("kpi")
+            with ui.row().classes("gap-2 mt-3"):
+                ui.button("Edit selected", on_click=lambda: open_edit(table.selected[0]) if table.selected else ui.notify("Select a row", type="warning")).props("flat")
+                ui.button("Delete selected", on_click=lambda: open_delete(table.selected[0]) if table.selected else ui.notify("Select a row", type="warning")).props("flat")
 
-        # Trends
-        with ui.tab_panel("Trends"):
-            ui.label("Trends").classes("my-title")
-            tx = STATE.tx_df.copy()
-            if tx.empty:
-                ui.label("No data yet.").classes("my-muted")
-            else:
-                g = tx.groupby(["Month", "Type"])["Amount"].sum().reset_index()
-                g["TypeLabel"] = g["Type"].apply(type_to_display)
-                fig = px.line(g, x="Month", y="Amount", color="TypeLabel", markers=True, title="Monthly Trends")
-                fig.update_layout(paper_bgcolor="#070B12", plot_bgcolor="#070B12", font_color="#E9EEF7")
-                ui.plotly(fig).classes("w-full")
-
-        # Transactions
-        with ui.tab_panel("Transactions"):
-            ui.label("Transactions").classes("my-title")
-            if STATE.tx_df.empty:
-                ui.label("No transactions yet.").classes("my-muted")
-            else:
-                months = build_month_options(past_months=12, future_months=3)
-                msel = ui.select(["All"] + months, value="All", label="Month").classes("w-[220px]")
-                owners = sorted([o for o in STATE.tx_df["Owner"].astype(str).unique().tolist() if o and o != "nan"])
-                osel = ui.select(["All"] + owners, value="All", label="Owner").classes("w-[220px]")
-
-                df = STATE.tx_df.copy()
-                if msel.value != "All":
-                    df = df[df["Month"] == msel.value]
-                if osel.value != "All":
-                    df = df[df["Owner"] == osel.value]
-                df = df.sort_values(["DateParsed", "CreatedAt"], ascending=[False, False])
-
-                show = df[["Date", "Owner", "Type", "Amount", "Pay", "Account", "Category", "Notes", "AutoTag", "_row"]].copy()
-                show["Type"] = show["Type"].apply(type_to_display)
-                show["Amount"] = show["Amount"].apply(money)
-
-                ui.table(
-                    columns=[{"name": c, "label": c, "field": c} for c in show.columns if c != "_row"],
-                    rows=show.drop(columns=["_row"]).to_dict("records"),
-                    row_key="Date",
-                ).classes("w-full my-table")
-
-                row_in = ui.number(label="Row # (_row)", value=0, format="%.0f").classes("w-[200px]")
-
-                def do_delete():
-                    try:
-                        rn = int(row_in.value or 0)
-                        if rn < 2:
-                            raise ValueError("Enter a valid row number")
-                        row = STATE.tx_df[STATE.tx_df["_row"] == rn]
-                        if not row.empty:
-                            d = _parse_date_any(row.iloc[0]["Date"])
-                            _assert_month_unlocked(_month_of(d))
-                        delete_transaction(rn)
-                        ui.notify(f"Deleted row {rn}", type="positive")
-                        ui.navigate.to("/app")
-                    except Exception as e:
-                        notify_error(e, "Delete failed: ")
-
-                def do_export():
-                    try:
-                        out = df.copy()
-                        out = out[TX_HEADERS] if all(c in out.columns for c in TX_HEADERS) else out
-                        csv_bytes = out.to_csv(index=False).encode("utf-8")
-                        ui.download(csv_bytes, filename=f"myfin_export_{dt.date.today().isoformat()}.csv")
-                    except Exception as e:
-                        notify_error(e, "Export failed: ")
-
-                def do_edit():
-                    try:
-                        rn = int(row_in.value or 0)
-                        if rn < 2:
-                            raise ValueError("Enter a valid row number")
-                        row = STATE.tx_df[STATE.tx_df["_row"] == rn]
-                        if row.empty:
-                            raise ValueError("Row not found. Refresh.")
-                        r = row.iloc[0].to_dict()
-
-                        dlg = ui.dialog()
-                        with dlg, ui.card().classes("my-card p-5 w-[680px] max-w-[95vw]"):
-                            ui.label(f"Edit Row {rn}").classes("text-lg font-bold")
-
-                            d_date = ui.input('Date', value=str(r.get("Date", ""))[:10] or dt.date.today().isoformat()).props('type=date').classes("w-full")
-                            d_owner = ui.input("Owner", value=str(r.get("Owner", ""))).classes("w-full")
-                            d_type = ui.input("Type", value=str(r.get("Type", ""))).classes("w-full")
-                            d_amount = ui.number("Amount", value=float(r.get("Amount", 0) or 0), format="%.2f").classes("w-full")
-                            d_pay = ui.input("Pay", value=str(r.get("Pay", ""))).classes("w-full")
-                            d_acct = ui.input("Account", value=str(r.get("Account", ""))).classes("w-full")
-                            d_cat = ui.input("Category", value=str(r.get("Category", ""))).classes("w-full")
-                            d_notes = ui.textarea("Notes", value=str(r.get("Notes", ""))).classes("w-full")
-                            d_tag = ui.input("AutoTag", value=str(r.get("AutoTag", ""))).classes("w-full")
-
-                            with ui.row().classes("w-full justify-end gap-2"):
-                                ui.button("Cancel", on_click=dlg.close).classes("my-pill")
-
-                                def save():
-                                    try:
-                                        date_parsed = dt.date.fromisoformat(d_date.value)
-                                        _assert_month_unlocked(_month_of(date_parsed))
-                                        update_transaction(rn, {
-                                            "Date": date_parsed.isoformat(),
-                                            "Owner": d_owner.value,
-                                            "Type": d_type.value,
-                                            "Amount": f"{float(d_amount.value or 0):.2f}",
-                                            "Pay": d_pay.value,
-                                            "Account": normalize_account_name(d_acct.value),
-                                            "Category": d_cat.value,
-                                            "Notes": d_notes.value,
-                                            "AutoTag": d_tag.value,
-                                        })
-                                        ui.notify("Updated", type="positive")
-                                        dlg.close()
-                                        ui.navigate.to("/app")
-                                    except Exception as e:
-                                        notify_error(e, "Update failed: ")
-
-                                ui.button("Save", on_click=save).classes("my-pill")
-                        dlg.open()
-                    except Exception as e:
-                        notify_error(e, "Edit failed: ")
-
-                with ui.row().classes("w-full gap-2 items-end mt-2"):
-                    ui.button("Edit", on_click=do_edit).classes("my-pill")
-                    ui.button("Delete", on_click=do_delete).classes("my-pill")
-                    ui.button("Export CSV", on_click=do_export).classes("my-pill")
-
-        # Admin
-        with ui.tab_panel("Admin"):
-            ui.label("Admin").classes("my-title")
-            ui.label("Locks • Rules • Recurring • Accounts • Fix Mistakes").classes("my-muted my-sub")
-
-            sub = ui.tabs().classes("w-full mt-2")
-            with sub:
-                ui.tab("Locks")
-                ui.tab("Rules")
-                ui.tab("Recurring")
-                ui.tab("Accounts")
-                ui.tab("Fix Mistakes")
-
-            with ui.tab_panels(sub, value="Locks").classes("w-full mt-3"):
-                with ui.tab_panel("Locks"):
-                    lock_in = ui.input("Locked months (comma separated YYYY-MM)", value=", ".join(STATE.locked_months)).classes("w-full")
-
-                    def save_locks():
-                        try:
-                            locks = [x.strip() for x in (lock_in.value or "").split(",") if x.strip()]
-                            save_admin(locks, rules_text_from_state(), STATE.rules_locked, STATE.prefs_list)
-                            ui.notify("Saved locks", type="positive")
-                            ui.navigate.to("/app")
-                        except Exception as e:
-                            notify_error(e, "Save locks failed: ")
-
-                    ui.button("Save locks", on_click=save_locks).classes("my-pill")
-
-                with ui.tab_panel("Rules"):
-                    ta = ui.textarea("Rules (Category: keyword1, keyword2)", value=rules_text_from_state()).classes("w-full")
-                    lock_sw = ui.switch("Lock rules editing", value=STATE.rules_locked)
-
-                    def save_rules():
-                        try:
-                            save_admin(STATE.locked_months, ta.value or "", bool(lock_sw.value), STATE.prefs_list)
-                            ui.notify("Saved rules", type="positive")
-                            ui.navigate.to("/app")
-                        except Exception as e:
-                            notify_error(e, "Save rules failed: ")
-
-                    ui.button("Save rules", on_click=save_rules).classes("my-pill")
-
-                with ui.tab_panel("Recurring"):
-                    dfp = pd.DataFrame(STATE.prefs_list or [])
-                    if not dfp.empty:
-                        ui.table(
-                            columns=[{"name": c, "label": c, "field": c} for c in dfp.columns],
-                            rows=dfp.to_dict("records"),
-                            row_key=(dfp.columns[0] if len(dfp.columns) else "MerchantKey"),
-                        ).classes("w-full my-table")
-                    else:
-                        ui.label("No recurring templates yet.").classes("my-muted")
-
-                    with ui.card().classes("my-card p-4 mt-3"):
-                        ui.label("Add / Update template").classes("font-semibold")
-                        isrec = ui.switch("IsRecurring", value=True)
-                        mk = ui.input("MerchantKey (unique)", value="").classes("w-full")
-                        dom = ui.number("DayOfMonth", value=1, format="%.0f").classes("w-full")
-                        owner = ui.input("Owner", value="Family").classes("w-full")
-                        rtype = ui.select(["Debit", "Credit", "Investment", "CC Repay", "International", "LOC Draw", "LOC Repay"], value="Debit", label="Type").classes("w-full")
-                        amt = ui.number("Amount", value=0.0, format="%.2f").classes("w-full")
-                        pay = ui.input("Pay", value="Card").classes("w-full")
-                        acct_choices = accounts if accounts else [""]
-                        acct = ui.select(acct_choices, value=(acct_choices[0] if acct_choices else ""), label="Account").classes("w-full")
-                        cat = ui.input("Category", value="Uncategorized").classes("w-full")
-                        notes = ui.input("Notes", value="").classes("w-full")
-
-                        def upsert_template():
-                            try:
-                                plist = list(STATE.prefs_list or [])
-                                key = (mk.value or "").strip()
-                                if not key:
-                                    raise ValueError("MerchantKey required")
-                                item = {
-                                    "IsRecurring": bool(isrec.value),
-                                    "MerchantKey": key,
-                                    "DayOfMonth": int(dom.value or 1),
-                                    "Owner": owner.value or "Family",
-                                    "Type": rtype.value or "Debit",
-                                    "Amount": float(amt.value or 0),
-                                    "Pay": pay.value or "",
-                                    "Account": acct.value or "",
-                                    "Category": cat.value or "Uncategorized",
-                                    "Notes": notes.value or key,
-                                }
-                                for i, p in enumerate(plist):
-                                    if str(p.get("MerchantKey", "")).strip() == key:
-                                        plist[i] = item
-                                        break
-                                else:
-                                    plist.append(item)
-                                save_admin(STATE.locked_months, rules_text_from_state(), STATE.rules_locked, plist)
-                                ui.notify("Saved template", type="positive")
-                                ui.navigate.to("/app")
-                            except Exception as e:
-                                notify_error(e, "Save template failed: ")
-
-                        def delete_template():
-                            try:
-                                key = (mk.value or "").strip()
-                                if not key:
-                                    raise ValueError("MerchantKey required")
-                                plist = [p for p in (STATE.prefs_list or []) if str(p.get("MerchantKey", "")).strip() != key]
-                                save_admin(STATE.locked_months, rules_text_from_state(), STATE.rules_locked, plist)
-                                ui.notify("Deleted template", type="positive")
-                                ui.navigate.to("/app")
-                            except Exception as e:
-                                notify_error(e, "Delete template failed: ")
-
-                        with ui.row().classes("w-full gap-2"):
-                            ui.button("Save template", on_click=upsert_template).classes("my-pill")
-                            ui.button("Delete template", on_click=delete_template).classes("my-pill")
-
-                with ui.tab_panel("Accounts"):
-                    df = STATE.acct_df.copy()
-                    if not df.empty:
-                        ui.table(
-                            columns=[{"name": c, "label": c, "field": c} for c in ACCT_HEADERS],
-                            rows=df.to_dict("records"),
-                            row_key="Account",
-                        ).classes("w-full my-table")
-                    else:
-                        ui.label("No accounts found.").classes("my-muted")
-
-                    with ui.card().classes("my-card p-4 mt-3"):
-                        ui.label("Add / Update account").classes("font-semibold")
-                        a = ui.input("Account", value="").classes("w-full")
-                        e = ui.input("Emoji", value="").classes("w-full")
-                        lim = ui.number("Limit", value=0.0, format="%.2f").classes("w-full")
-                        bd = ui.number("BillingDay", value=1, format="%.0f").classes("w-full")
-
-                        def save_account():
-                            try:
-                                acc = (a.value or "").strip()
-                                if not acc:
-                                    raise ValueError("Account required")
-                                d = STATE.acct_df.copy()
-                                if d.empty:
-                                    d = pd.DataFrame(columns=ACCT_HEADERS)
-                                row = {"Account": acc, "Emoji": (e.value or "").strip(), "Limit": float(lim.value or 0), "BillingDay": int(bd.value or 1)}
-                                if (d["Account"].astype(str) == acc).any():
-                                    d.loc[d["Account"].astype(str) == acc, ["Emoji", "Limit", "BillingDay"]] = [row["Emoji"], row["Limit"], row["BillingDay"]]
-                                else:
-                                    d = pd.concat([d, pd.DataFrame([row])], ignore_index=True)
-                                save_accounts(d)
-                                ui.notify("Saved account", type="positive")
-                                ui.navigate.to("/app")
-                            except Exception as ex:
-                                notify_error(ex, "Save account failed: ")
-
-                        ui.button("Save account", on_click=save_account).classes("my-pill")
-
-                with ui.tab_panel("Fix Mistakes"):
-                    ui.label("Edit/delete any row by row number (_row).").classes("my-muted my-sub")
-                    rn = ui.number("Row # (_row)", value=0, format="%.0f").classes("w-[240px]")
-
-                    def open_edit():
-                        try:
-                            rownum = int(rn.value or 0)
-                            if rownum < 2:
-                                raise ValueError("Enter a valid row number")
-                            row = STATE.tx_df[STATE.tx_df["_row"] == rownum]
-                            if row.empty:
-                                raise ValueError("Row not found. Refresh.")
-                            r = row.iloc[0].to_dict()
-
-                            dlg = ui.dialog()
-                            with dlg, ui.card().classes("my-card p-5 w-[680px] max-w-[95vw]"):
-                                ui.label(f"Edit Row {rownum}").classes("text-lg font-bold")
-                                d_date = ui.input('Date', value=str(r.get("Date", ""))[:10] or dt.date.today().isoformat()).props('type=date').classes("w-full")
-                                d_owner = ui.input("Owner", value=str(r.get("Owner", ""))).classes("w-full")
-                                d_type = ui.input("Type", value=str(r.get("Type", ""))).classes("w-full")
-                                d_amount = ui.number("Amount", value=float(r.get("Amount", 0) or 0), format="%.2f").classes("w-full")
-                                d_pay = ui.input("Pay", value=str(r.get("Pay", ""))).classes("w-full")
-                                d_acct = ui.input("Account", value=str(r.get("Account", ""))).classes("w-full")
-                                d_cat = ui.input("Category", value=str(r.get("Category", ""))).classes("w-full")
-                                d_notes = ui.textarea("Notes", value=str(r.get("Notes", ""))).classes("w-full")
-                                d_tag = ui.input("AutoTag", value=str(r.get("AutoTag", ""))).classes("w-full")
-
-                                with ui.row().classes("w-full justify-end gap-2"):
-                                    ui.button("Cancel", on_click=dlg.close).classes("my-pill")
-
-                                    def save():
-                                        try:
-                                            date_parsed = dt.date.fromisoformat(d_date.value)
-                                            _assert_month_unlocked(_month_of(date_parsed))
-                                            update_transaction(rownum, {
-                                                "Date": date_parsed.isoformat(),
-                                                "Owner": d_owner.value,
-                                                "Type": d_type.value,
-                                                "Amount": f"{float(d_amount.value or 0):.2f}",
-                                                "Pay": d_pay.value,
-                                                "Account": normalize_account_name(d_acct.value),
-                                                "Category": d_cat.value,
-                                                "Notes": d_notes.value,
-                                                "AutoTag": d_tag.value,
-                                            })
-                                            ui.notify("Updated", type="positive")
-                                            dlg.close()
-                                            ui.navigate.to("/app")
-                                        except Exception as e:
-                                            notify_error(e, "Update failed: ")
-
-                                    ui.button("Save", on_click=save).classes("my-pill")
-                            dlg.open()
-                        except Exception as e:
-                            notify_error(e, "Edit failed: ")
-
-                    def do_delete():
-                        try:
-                            rownum = int(rn.value or 0)
-                            if rownum < 2:
-                                raise ValueError("Enter a valid row number")
-                            row = STATE.tx_df[STATE.tx_df["_row"] == rownum]
-                            if not row.empty:
-                                d = _parse_date_any(row.iloc[0]["Date"])
-                                _assert_month_unlocked(_month_of(d))
-                            delete_transaction(rownum)
-                            ui.notify("Deleted", type="positive")
-                            ui.navigate.to("/app")
-                        except Exception as e:
-                            notify_error(e, "Delete failed: ")
-
-                    with ui.row().classes("gap-2"):
-                        ui.button("Edit row", on_click=open_edit).classes("my-pill")
-                        ui.button("Delete row", on_click=do_delete).classes("my-pill")
+    shell(content)
 
 
-if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(
+@ui.page("/cards")
+def cards_page():
+    if not require_login():
+        ui.open("/login")
+        return
+
+    def content():
+        cards = cached_df("cards")
+        with ui.card().classes("my-card p-5"):
+            ui.label("Cards").classes("text-lg font-bold")
+            ui.label("Billing day is day-of-month.").style("color: var(--mf-muted)")
+
+            t = ui.table(columns=[
+                {"name": "card_name", "label": "Card", "field": "card_name"},
+                {"name": "owner", "label": "Owner", "field": "owner"},
+                {"name": "billing_day", "label": "Billing Day", "field": "billing_day"},
+                {"name": "max_limit", "label": "Max Limit", "field": "max_limit"},
+                {"name": "method_name", "label": "Method Name", "field": "method_name"},
+            ], rows=cards.to_dict(orient="records") if not cards.empty else [], row_key="card_name").classes("w-full")
+
+            with ui.row().classes("w-full gap-3 mt-3"):
+                n_name = ui.input("Card name").classes("w-full")
+                n_owner = ui.input("Owner").classes("w-full")
+                n_bill = ui.number("Billing day", value=1).classes("w-full")
+                n_lim = ui.number("Max limit", value=0).classes("w-full")
+                n_meth = ui.input("Method name (optional)", value="Card").classes("w-full")
+
+            def add_card():
+                append_row("cards", {
+                    "card_name": n_name.value or "",
+                    "owner": n_owner.value or "",
+                    "billing_day": int(to_float(n_bill.value)),
+                    "max_limit": float(to_float(n_lim.value)),
+                    "method_name": n_meth.value or "Card",
+                })
+                invalidate("cards")
+                ui.notify("Card added", type="positive")
+                ui.open("/cards")
+
+            ui.button("Add card", on_click=add_card).props("unelevated")
+
+    shell(content)
+
+
+@ui.page("/recurring")
+def recurring_page():
+    if not require_login():
+        ui.open("/login")
+        return
+
+    def content():
+        rdf = cached_df("recurring", force=True)
+        with ui.card().classes("my-card p-5"):
+            ui.label("Recurring templates").classes("text-lg font-bold")
+            ui.label("Templates only. Transactions get created when the due date arrives.").style("color: var(--mf-muted)")
+
+            if rdf.empty:
+                ui.label("No templates yet. Mark an Add entry as recurring to create one.").style("color: var(--mf-muted)")
+                return
+
+            rdf2 = rdf.copy()
+            rdf2["active"] = rdf2["active"].astype(str)
+            table = ui.table(columns=[
+                {"name": "recurring_id", "label": "ID", "field": "recurring_id"},
+                {"name": "owner", "label": "Owner", "field": "owner"},
+                {"name": "type", "label": "Type", "field": "type"},
+                {"name": "amount", "label": "Amount", "field": "amount"},
+                {"name": "day_of_month", "label": "Day", "field": "day_of_month"},
+                {"name": "category", "label": "Category", "field": "category"},
+                {"name": "active", "label": "Active", "field": "active"},
+                {"name": "last_generated_month", "label": "Last Gen", "field": "last_generated_month"},
+            ], rows=rdf2.to_dict(orient="records"), row_key="recurring_id").classes("w-full")
+
+            def toggle_active():
+                if not table.selected:
+                    ui.notify("Select a row", type="warning")
+                    return
+                row = table.selected[0]
+                rid = str(row.get("recurring_id", ""))
+                cur = str(row.get("active", "TRUE")).strip().upper() in ("TRUE", "1", "YES", "Y")
+                update_row_by_id("recurring", "recurring_id", rid, {"active": "FALSE" if cur else "TRUE"})
+                invalidate("recurring")
+                ui.open("/recurring")
+
+            def delete_template():
+                if not table.selected:
+                    ui.notify("Select a row", type="warning")
+                    return
+                rid = str(table.selected[0].get("recurring_id", ""))
+                if delete_row_by_id("recurring", "recurring_id", rid):
+                    invalidate("recurring")
+                    ui.notify("Deleted template", type="positive")
+                    ui.open("/recurring")
+                else:
+                    ui.notify("Delete failed", type="negative")
+
+            with ui.row().classes("gap-2 mt-3"):
+                ui.button("Toggle active", on_click=toggle_active).props("flat")
+                ui.button("Delete template", on_click=delete_template).props("flat")
+                ui.button("Run generation (today)", on_click=lambda: ui.notify(f"Created {generate_recurring_for_date(today())} entries", type="positive")).props("flat")
+
+    shell(content)
+
+
+@ui.page("/rules")
+def rules_page():
+    if not require_login():
+        ui.open("/login")
+        return
+
+    def content():
+        rdf = cached_df("rules", force=True)
+        with ui.card().classes("my-card p-5"):
+            ui.label("Rules").classes("text-lg font-bold")
+            ui.label("Keyword → category mapping used for Auto-category in Add.").style("color: var(--mf-muted)")
+
+            table = ui.table(columns=[
+                {"name": "keyword", "label": "Keyword", "field": "keyword"},
+                {"name": "category", "label": "Category", "field": "category"},
+            ], rows=rdf.to_dict(orient="records") if not rdf.empty else [], row_key="keyword").classes("w-full")
+
+            with ui.row().classes("w-full gap-3 mt-3"):
+                k = ui.input("Keyword (lowercase recommended)").classes("w-full")
+                c = ui.input("Category").classes("w-full")
+
+            def add_rule():
+                append_row("rules", {"keyword": k.value or "", "category": c.value or ""})
+                invalidate("rules")
+                ui.notify("Rule added", type="positive")
+                ui.open("/rules")
+
+            def del_rule():
+                if not table.selected:
+                    ui.notify("Select a row", type="warning")
+                    return
+                kw = str(table.selected[0].get("keyword", ""))
+                if delete_row_by_id("rules", "keyword", kw):
+                    invalidate("rules")
+                    ui.notify("Deleted", type="positive")
+                    ui.open("/rules")
+                else:
+                    ui.notify("Delete failed", type="negative")
+
+            with ui.row().classes("gap-2 mt-3"):
+                ui.button("Add rule", on_click=add_rule).props("unelevated")
+                ui.button("Delete selected", on_click=del_rule).props("flat")
+
+    shell(content)
+
+
+# -----------------------------
+# Boot
+# -----------------------------
+def bootstrap():
+    ensure_tabs()
+
+bootstrap()
+
+ui.run(
     host="0.0.0.0",
-    port=int(os.environ.get("PORT", 8080)),
-    reload=False,
-    title=APP_NAME,
-    storage_secret=os.environ.get("NICEGUI_STORAGE_SECRET", "change-me"),
+    port=PORT,
+    storage_secret=STORAGE_SECRET or "PLEASE_SET_NICEGUI_STORAGE_SECRET",
+    title=APP_TITLE,
 )
