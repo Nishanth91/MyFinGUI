@@ -1,7 +1,7 @@
 
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICGUI_VF2_STABLE_PHASE01_HF1_FULL.py
+File: Myfin_NICGUI_VF2_STABLE_PHASE02_HF5.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -308,6 +308,11 @@ _gc: Optional[gspread.Client] = None
 _ss = None
 _ws: Dict[str, gspread.Worksheet] = {}
 
+# Quota protection / memoization for Sheets metadata
+_tabs_ready: bool = False
+_tabs_ready_at: float = 0.0
+_header_cache: Dict[str, List[str]] = {}
+
 def get_client() -> gspread.Client:
     global _gc
     if _gc:
@@ -350,12 +355,16 @@ def ensure_tabs() -> None:
     This function always reuses existing tabs (case-insensitive) when present.
     """
 
+    # Avoid hammering the Sheets API: only (re)build the worksheet map occasionally.
+    global _ws, _tabs_ready, _tabs_ready_at
+    now = time.time()
+    if _tabs_ready and _ws and (now - _tabs_ready_at) < 300:
+        return
+
     ss = get_spreadsheet()
     existing = {normalize_title(w.title): w for w in ss.worksheets()}
 
-    global _ws
     _ws = {}
-
     missing_tabs: list[str] = []
 
     for tab, headers in TABS.items():
@@ -366,23 +375,28 @@ def ensure_tabs() -> None:
             missing_tabs.append(tab)
             if not ALLOW_CREATE_MISSING_SHEETS:
                 continue
-            # create new sheet
+            # create new sheet (one-time)
             w = ss.add_worksheet(title=tab, rows=2000, cols=max(12, len(headers) + 2))
             w.append_row(headers)
+            _header_cache[tab] = headers
         else:
-            values = w.get_all_values()
-            if not values:
-                w.append_row(headers)
+            # Do NOT call get_all_values() here (very expensive in quota terms).
+            # Only read the header row once and cache it.
+            try:
+                cur = [c.strip() for c in (w.row_values(1) or [])]
+            except Exception:
+                cur = []
+            if not cur:
+                try:
+                    w.append_row(headers)
+                except Exception:
+                    pass
+                _header_cache[tab] = headers
             else:
-                cur = [c.strip() for c in values[0]]
-                # If sheet has a different header order, don't destroy it. Only add missing columns.
-                missing = [h for h in headers if h not in cur]
-                if missing:
-                    # add columns and update header row
-                    w.add_cols(len(missing))
-                    w.update('1:1', [cur + missing])
+                _header_cache[tab] = cur
 
-        _ws[tab] = w
+        if w is not None:
+            _ws[tab] = w
 
     if missing_tabs and not ALLOW_CREATE_MISSING_SHEETS:
         existing_titles = [w.title for w in ss.worksheets()]
@@ -395,6 +409,9 @@ def ensure_tabs() -> None:
             + "or set ALLOW_CREATE_MISSING_SHEETS=1 to let the app create them."
         )
 
+    _tabs_ready = True
+    _tabs_ready_at = now
+
 
 def ws(tab: str) -> gspread.Worksheet:
     ensure_tabs()
@@ -402,17 +419,24 @@ def ws(tab: str) -> gspread.Worksheet:
 
 
 def sheet_headers(tab: str) -> list[str]:
+    # Prefer cached header row to avoid repeated reads.
+    ensure_tabs()
+    if tab in _header_cache and _header_cache[tab]:
+        return [c.strip() for c in _header_cache[tab]]
+
     w = ws(tab)
-    values = w.get_all_values()
-    if not values:
-        # create headers
+    try:
+        headers = [c.strip() for c in (w.row_values(1) or [])]
+    except Exception:
+        headers = []
+
+    if not headers:
         headers = TABS[tab]
-        w.append_row(headers)
-        return headers
-    headers = [c.strip() for c in values[0]]
-    if not headers or all(h == '' for h in headers):
-        headers = TABS[tab]
-        w.update('1:1', [headers])
+        try:
+            w.append_row(headers)
+        except Exception:
+            pass
+    _header_cache[tab] = headers
     return headers
 
 
@@ -531,19 +555,48 @@ def cached_df(tab: str, force: bool = False) -> pd.DataFrame:
     if (not force) and tab in _cache and (now - _cache[tab][0] < CACHE_TTL):
         return _cache[tab][1].copy()
 
+    # Lightweight retry for transient Google Sheets quota bursts.
+    def _is_quota_error(exc: Exception) -> bool:
+        s = str(exc)
+        return ('429' in s) or ('Quota exceeded' in s) or ('Read requests' in s)
+
     try:
-        df = read_df(tab)
+        last_exc: Optional[Exception] = None
+        df: Optional[pd.DataFrame] = None
+
+        for attempt in range(3):
+            try:
+                df = read_df(tab)
+                break
+            except Exception as e:
+                last_exc = e
+                if _is_quota_error(e) and attempt < 2:
+                    time.sleep(1.0 * (2 ** attempt))  # 1s, 2s
+                    continue
+                break
+
+        if df is None:
+            raise last_exc or RuntimeError('Unknown Sheets read error')
+
         if tab == 'transactions':
             # Support the legacy "wide" sheet layout (category columns)
             # by converting it into the app's long ledger format.
             before_cols = list(df.columns)
             df = wide_transactions_to_long(df)
             print(f"[MyFin] transactions loaded: rows={len(df)} cols={list(df.columns)} (source cols={before_cols})")
+
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
         print('GOOGLE_SHEETS_READ_ERROR', tab, str(e))
         print(tb)
+        # If we already have cached data, keep serving it (stale-but-usable)
+        if tab in _cache:
+            try:
+                ui.notify(f'Google Sheets temporarily unavailable for {tab}. Showing cached data.', type='warning')
+            except Exception:
+                pass
+            return _cache[tab][1].copy()
         try:
             ui.notify(f'Google Sheets read failed for {tab}: {e}', type='negative')
         except Exception:
