@@ -797,4 +797,12 @@ def admin_page():
 # ============================
 
 if __name__ in { '__main__', '__mp_main__' }:
-    ui.run(title=APP_TITLE, reload=False, host='0.0.0.0', port=int(os.getenv('PORT', '8080')))
+    # NiceGUI session storage requires a stable secret (set STORAGE_SECRET in your host env).
+    _storage_secret = os.getenv('STORAGE_SECRET')
+    if not _storage_secret:
+        # Fallback: derive a deterministic dev secret from credentials to avoid crashes.
+        import hashlib
+        seed = (os.getenv('MYFIN_USERNAME','') + '|' + os.getenv('MYFIN_PASSWORD','')).encode()
+        _storage_secret = 'dev-' + hashlib.sha256(seed).hexdigest()[:32] if seed.strip(b'|') else 'dev-secret-change-me'
+
+    ui.run(title=APP_TITLE, reload=False, host='0.0.0.0', port=int(os.getenv('PORT', '8080')), storage_secret=_storage_secret)
