@@ -1,7 +1,7 @@
 
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICGUI_VF2_STABLE_PHASE02_HF5.py
+File: Myfin_NICGUI_VF2_STABLE_PHASE01_HF1_FULL.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -121,7 +121,8 @@ WIFE_PAY_ANCHOR = dt.date(2026, 1, 16)  # biweekly Friday anchor
 # -----------------------------
 # Data cache (prevents repeated Google Sheets reads)
 # -----------------------------
-CACHE_TTL = int(os.environ.get("CACHE_TTL_SECONDS", "60"))  # seconds
+# Default to 5 minutes to avoid Google Sheets "Read requests per minute" quota issues.
+CACHE_TTL = int(os.environ.get("CACHE_TTL_SECONDS", "300"))  # seconds
 
 # Safety switch: when a sheet/tab name mismatch happens, auto-creating blank worksheets makes the app
 # look like it "has no data" while actually reading a new empty tab. Default is OFF so we fail loudly.
@@ -147,15 +148,59 @@ def parse_date(x: Any) -> Optional[dt.date]:
     s = str(x).strip()
     if not s:
         return None
-    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y", "%d/%m/%Y"):
+
+    # Google Sheets can sometimes deliver dates as serial numbers (e.g., 45567)
+    # depending on formatting. Convert these to real dates.
+    if s.isdigit() and len(s) >= 5:
+        try:
+            serial = int(s)
+            # Excel/Sheets serial date origin (1899-12-30) works for modern dates.
+            origin = dt.date(1899, 12, 30)
+            return origin + dt.timedelta(days=serial)
+        except Exception:
+            pass
+    # Fast path for common explicit formats
+    for fmt in (
+        "%Y-%m-%d",
+        "%d-%m-%Y",
+        "%m/%d/%Y",
+        "%d/%m/%Y",
+        "%d-%b-%Y",     # 16-Jan-2026
+        "%d %b %Y",     # 16 Jan 2026
+        "%b %d, %Y",    # Jan 16, 2026
+        "%d %B %Y",     # 16 January 2026
+        "%B %d, %Y",    # January 16, 2026
+    ):
         try:
             return dt.datetime.strptime(s, fmt).date()
         except Exception:
             pass
+
+    # Google Sheets sometimes returns date-like serial numbers
+    # (days since 1899-12-30). If the value looks numeric, try that.
     try:
-        return pd.to_datetime(s).date()
+        if re.fullmatch(r"\d+(?:\.\d+)?", s):
+            n = float(s)
+            if 20000 <= n <= 60000:  # reasonable range for modern dates
+                base = dt.date(1899, 12, 30)
+                return base + dt.timedelta(days=int(n))
     except Exception:
-        return None
+        pass
+
+    # Robust fallback: try pandas with both day-first and month-first
+    try:
+        d = pd.to_datetime(s, errors='coerce', dayfirst=False)
+        if pd.notna(d):
+            return d.date()
+    except Exception:
+        pass
+    try:
+        d = pd.to_datetime(s, errors='coerce', dayfirst=True)
+        if pd.notna(d):
+            return d.date()
+    except Exception:
+        pass
+    return None
 
 def to_float(x: Any) -> float:
     try:
@@ -446,7 +491,23 @@ def read_df(tab: str) -> pd.DataFrame:
     This is intentionally tolerant of extra columns or different header casing/order.
     """
     w = ws(tab)
-    values = w.get_all_values()
+    # Sheets quota is based on request count. NiceGUI can cause short bursts of reads
+    # (initial load + websocket reconnects). Retry a few times on HTTP 429.
+    values: List[List[str]]
+    last_err: Optional[Exception] = None
+    for delay in (0.0, 1.0, 2.0, 4.0):
+        if delay:
+            time.sleep(delay)
+        try:
+            values = w.get_all_values()
+            break
+        except APIError as e:
+            last_err = e
+            if '429' not in str(e):
+                raise
+    else:
+        # exhausted retries
+        raise cast(Exception, last_err)
     if not values or len(values) == 0:
         return pd.DataFrame(columns=sheet_headers(tab))
 
@@ -649,7 +710,7 @@ def create_or_update_recurring_template(
     start_date: dt.date,
     active: bool = True,
 ) -> str:
-    rdf = cached_df("recurring", force=True)
+    rdf = cached_df("recurring")
     # Key by owner+type+method+account+category+notes+day
     key = f"{owner}|{type_}|{method}|{account}|{category}|{notes}|{day_of_month}"
     rid = sha16(key)
@@ -690,11 +751,11 @@ def create_or_update_recurring_template(
     return rid
 
 def generate_recurring_for_date(d: dt.date) -> int:
-    rdf = cached_df("recurring", force=True)
+    rdf = cached_df("recurring")
     if rdf.empty:
         return 0
 
-    tx = cached_df("transactions", force=True)
+    tx = cached_df("transactions")
     existing = set(tx["id"].astype(str).tolist()) if not tx.empty else set()
 
     created = 0
@@ -1546,7 +1607,7 @@ def recurring_page():
         return
 
     def content():
-        rdf = cached_df("recurring", force=True)
+        rdf = cached_df("recurring")
         with ui.card().classes("my-card p-5"):
             ui.label("Recurring templates").classes("text-lg font-bold")
             ui.label("Templates only. Transactions get created when the due date arrives.").style("color: var(--mf-muted)")
@@ -1606,7 +1667,7 @@ def rules_page():
         return
 
     def content():
-        rdf = cached_df("rules", force=True)
+        rdf = cached_df("rules")
         with ui.card().classes("my-card p-5"):
             ui.label("Rules").classes("text-lg font-bold")
             ui.label("Keyword → category mapping used for Auto-category in Add.").style("color: var(--mf-muted)")
