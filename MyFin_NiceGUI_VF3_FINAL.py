@@ -1,7 +1,7 @@
 
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICGUI_VF2_STABLE_PHASE01_HF1_FULL.py
+File: Myfin_NICGUI_VF2_PHASE02_HF3.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -84,8 +84,23 @@ def nav_to(path: str) -> None:
 # Config
 # -----------------------------
 TZ = os.environ.get("TIMEZONE", "America/Winnipeg")
-SPREADSHEET_NAME = os.environ.get('SPREADSHEET_NAME', 'nishanthfintrack_2026')
-SPREADSHEET_ID = os.environ.get('SPREADSHEET_ID') or os.environ.get('GOOGLE_SHEET_ID')
+
+# Spreadsheet identification
+# Prefer an ID (the long id in the Google Sheets URL). If not available, fall back to a spreadsheet name.
+SPREADSHEET_ID = (
+    os.environ.get('SPREADSHEET_ID')
+    or os.environ.get('GOOGLE_SHEET_ID')
+    or os.environ.get('GOOGLE_SHEETID')
+)
+SPREADSHEET_NAME = (
+    os.environ.get('SPREADSHEET_NAME')
+    or os.environ.get('GOOGLE_SHEET_NAME')
+    or 'nishanthfintrack_2026'
+)
+
+# When worksheets are missing, the app currently creates them. This can hide an ID/name mismatch by creating
+# new empty tabs. Setting this to "0" will enforce that existing sheets must be present.
+ALLOW_CREATE_MISSING_SHEETS = os.environ.get('ALLOW_CREATE_MISSING_SHEETS', '1').strip() not in {'0', 'false', 'False'}
 SERVICE_ACCOUNT_JSON = (os.environ.get("SERVICE_ACCOUNT_JSON") or os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or os.environ.get("GOOGLE_SERVICE_ACCOUNT") or "")
 STORAGE_SECRET = os.environ.get("NICEGUI_STORAGE_SECRET")  # set on Render; will be auto-derived if empty
 PORT = int(os.environ.get("PORT", "10000"))
@@ -107,6 +122,10 @@ WIFE_PAY_ANCHOR = dt.date(2026, 1, 16)  # biweekly Friday anchor
 # Data cache (prevents repeated Google Sheets reads)
 # -----------------------------
 CACHE_TTL = int(os.environ.get("CACHE_TTL_SECONDS", "60"))  # seconds
+
+# Safety switch: when a sheet/tab name mismatch happens, auto-creating blank worksheets makes the app
+# look like it "has no data" while actually reading a new empty tab. Default is OFF so we fail loudly.
+ALLOW_CREATE_MISSING_SHEETS = os.environ.get('ALLOW_CREATE_MISSING_SHEETS', '0').strip().lower() in {'1', 'true', 'yes', 'y'}
 _cache: Dict[str, Tuple[float, pd.DataFrame]] = {}
 
 # -----------------------------
@@ -232,10 +251,22 @@ def get_spreadsheet():
     if _ss is not None:
         return _ss
     gc = get_client()
-    if SPREADSHEET_ID:
-        _ss = gc.open_by_key(SPREADSHEET_ID)
-    else:
-        _ss = gc.open(SPREADSHEET_NAME)
+    try:
+        if SPREADSHEET_ID:
+            _ss = gc.open_by_key(SPREADSHEET_ID)
+        else:
+            _ss = gc.open(SPREADSHEET_NAME)
+    except Exception as e:
+        # Surface spreadsheet open issues clearly in Render logs.
+        print(f"[MyFin] Failed to open spreadsheet. id={bool(SPREADSHEET_ID)} name={SPREADSHEET_NAME!r}: {e}")
+        raise
+
+    # Helpful diagnostics in logs so we can confirm the app is reading the correct file.
+    try:
+        titles = [w.title for w in _ss.worksheets()]
+        print(f"[MyFin] Opened spreadsheet: '{_ss.title}' | worksheets={titles}")
+    except Exception:
+        pass
     return _ss
 
 def ensure_tabs() -> None:
@@ -252,11 +283,16 @@ def ensure_tabs() -> None:
     global _ws
     _ws = {}
 
+    missing_tabs: list[str] = []
+
     for tab, headers in TABS.items():
         key = normalize_title(tab)
         w = existing.get(key)
 
         if w is None:
+            missing_tabs.append(tab)
+            if not ALLOW_CREATE_MISSING_SHEETS:
+                continue
             # create new sheet
             w = ss.add_worksheet(title=tab, rows=2000, cols=max(12, len(headers) + 2))
             w.append_row(headers)
@@ -274,6 +310,17 @@ def ensure_tabs() -> None:
                     w.update('1:1', [cur + missing])
 
         _ws[tab] = w
+
+    if missing_tabs and not ALLOW_CREATE_MISSING_SHEETS:
+        existing_titles = [w.title for w in ss.worksheets()]
+        raise RuntimeError(
+            "Missing required Google Sheets tabs: "
+            + ", ".join(missing_tabs)
+            + ". Existing tabs: "
+            + ", ".join(existing_titles)
+            + ".\nFix: rename your sheets to match (Transactions, Rules, Cards, Recurring) "
+            + "or set ALLOW_CREATE_MISSING_SHEETS=1 to let the app create them."
+        )
 
 
 def ws(tab: str) -> gspread.Worksheet:
@@ -303,11 +350,26 @@ def read_df(tab: str) -> pd.DataFrame:
     """
     w = ws(tab)
     values = w.get_all_values()
-    if not values or len(values) == 1:
+    if not values or len(values) == 0:
         return pd.DataFrame(columns=sheet_headers(tab))
-    headers = [c.strip() for c in values[0]]
-    rows = values[1:]
-    # pad rows
+
+    # Some sheets have a few header / notes rows before the actual header row. We try to detect the
+    # best header row within the first 10 rows by matching expected headers for this tab.
+    expected = {normalize_title(h) for h in sheet_headers(tab) if h.strip()}
+    header_row_idx = 0
+    best_score = -1
+    for i in range(min(10, len(values))):
+        row = values[i]
+        score = sum(1 for c in row if normalize_title(c) in expected)
+        if score > best_score:
+            best_score = score
+            header_row_idx = i
+    headers = [c.strip() for c in (values[header_row_idx] if values else [])]
+    rows = values[header_row_idx + 1 :]
+
+    if not headers or len(rows) == 0:
+        return pd.DataFrame(columns=sheet_headers(tab))
+
     width = len(headers)
     norm_rows = [r + [''] * (width - len(r)) if len(r) < width else r[:width] for r in rows]
     df = pd.DataFrame(norm_rows, columns=headers)
@@ -1176,6 +1238,24 @@ def transactions_page():
         return
 
     def content():
+        # Data source / debug panel (helps verify we are reading the correct spreadsheet and tabs)
+        try:
+            ss = get_spreadsheet()
+            ensure_tabs()
+            with ui.expansion('Data Source (debug)', icon='info').classes('w-full'):
+                ui.label(f'Spreadsheet: {ss.title}').classes('text-sm')
+                ui.label(f'Spreadsheet ID: {SPREADSHEET_ID or "(opened by name)"}').classes('text-sm')
+                # Show discovered worksheet titles + row counts
+                for k in ['transactions', 'cards', 'rules', 'recurring']:
+                    try:
+                        w = ws(k)
+                        n_rows = len(w.get_all_values()) - 1
+                        ui.label(f'Tab "{k}" -> worksheet "{w.title}": {max(n_rows, 0)} data rows').classes('text-sm')
+                    except Exception as e:
+                        ui.label(f'Tab "{k}": ERROR: {e}').classes('text-sm text-red-300')
+        except Exception as e:
+            ui.label(f'Data source error: {e}').classes('text-sm text-red-300')
+
         tx = cached_df("transactions")
         if tx.empty:
             with ui.card().classes("my-card p-5"):
