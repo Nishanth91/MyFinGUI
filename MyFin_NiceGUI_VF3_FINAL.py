@@ -410,24 +410,30 @@ def require_login() -> None:
 # UI helpers (premium-ish dark by default)
 # ============================
 
-ui.colors(primary='#0f172a', secondary='#1f2937', accent='#22c55e', positive='#22c55e', negative='#ef4444', warning='#f59e0b')
-ui.dark_mode().enable()
+# NOTE: When using @ui.page multi-page apps, avoid creating UI elements in global scope.
+# We apply theming lazily inside pages.
+_SHARED_UI_DONE = False
 
-ui.add_head_html(
-    """
-    <style>
-      :root { --mf-card: rgba(255,255,255,0.06); --mf-border: rgba(255,255,255,0.12); }
-      .mf-card { background: var(--mf-card); border: 1px solid var(--mf-border); border-radius: 16px; }
-      .mf-soft { color: rgba(255,255,255,0.72); }
-      .mf-h1 { font-size: 18px; font-weight: 700; }
-      .mf-h2 { font-size: 14px; font-weight: 600; }
-      .mf-btn { border-radius: 999px !important; }
-      .mf-chip { border: 1px solid var(--mf-border); border-radius: 999px; padding: 2px 10px; font-size: 12px; }
-      .q-field--filled .q-field__control { background: rgba(255,255,255,0.06) !important; }
-      .q-table__container { background: transparent !important; }
-    </style>
-    """
-)
+def ensure_shared_ui() -> None:
+    global _SHARED_UI_DONE
+    if _SHARED_UI_DONE:
+        return
+    ui.colors(primary="#1976D2", secondary="#26A69A", accent="#9C27B0")
+    ui.dark_mode().enable()
+    ui.add_head_html(
+        """
+<style>
+  body { background: radial-gradient(circle at 10% 10%, #0b2440 0%, #071a2d 40%, #061223 100%); }
+  .my-card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); border-radius: 18px; backdrop-filter: blur(10px); }
+  .my-title { font-weight: 700; letter-spacing: 0.3px; }
+  .my-muted { color: rgba(255,255,255,0.70); }
+  .mf-bottom-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000; }
+  .mf-safe-pad { padding-bottom: 88px; }
+</style>
+""",
+        shared=True,
+    )
+    _SHARED_UI_DONE = True
 
 
 def money(x: float) -> str:
@@ -474,11 +480,13 @@ def top_shell(page_title: str, content_fn) -> None:
 
 @ui.page('/')
 def root_page():
+    ensure_shared_ui()
     ui.navigate.to('/dashboard' if is_logged_in() else '/login')
 
 
 @ui.page('/login')
 def login_page():
+    ensure_shared_ui()
     if is_logged_in():
         ui.navigate.to('/dashboard')
         return
