@@ -737,19 +737,8 @@ def refresh_all():
 
 
 def owners_list() -> List[str]:
-    # Prefer owners from cards, else from transactions, else defaults
-    cards = cached_df("cards")
-    owners = set()
-    if (not cards.empty) and ("owner" in cards.columns):
-        owners |= set(cards["owner"].astype(str).tolist())
-    tx = cached_df("transactions")
-    if (not tx.empty) and ("owner" in tx.columns):
-        owners |= set(tx["owner"].astype(str).tolist())
-    owners = {o.strip() for o in owners if o and o.strip()}
-    if not owners:
-        # Phase-2 will likely remove owner completely; keep safe fallback for now
-        owners = {"Family"}
-    return sorted(owners)
+    # Phase 2+: treat everything as family-wide (no per-person owner split)
+    return ["Family"]
 
 
 def accounts_list() -> List[str]:
@@ -1026,7 +1015,6 @@ def add_page():
         with dlg, ui.card().classes("my-card p-5 w-[620px] max-w-[95vw]"):
             ui.label(f"Add: {entry_type}").classes("text-lg font-bold")
 
-            d_owner = ui.select(owners, value=owners[0], label="Owner").classes("w-full")
             d_date = ui.input("Date", value=today().isoformat()).props("type=date").classes("w-full")
             d_amount = ui.number("Amount", value=0.0, format="%.2f").classes("w-full")
 
@@ -1055,7 +1043,7 @@ def add_page():
             def save():
                 dd = parse_date(d_date.value) or today()
                 amt = float(to_float(d_amount.value))
-                owner = str(d_owner.value or "").strip()
+                owner = "Family"
                 method = str(d_method.value or "Other").strip()
                 account = str(d_account.value or "").strip()
                 category = str(d_category.value or "Uncategorized").strip()
