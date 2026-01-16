@@ -740,14 +740,15 @@ def owners_list() -> List[str]:
     # Prefer owners from cards, else from transactions, else defaults
     cards = cached_df("cards")
     owners = set()
-    if not cards.empty:
+    if (not cards.empty) and ("owner" in cards.columns):
         owners |= set(cards["owner"].astype(str).tolist())
     tx = cached_df("transactions")
-    if not tx.empty:
+    if (not tx.empty) and ("owner" in tx.columns):
         owners |= set(tx["owner"].astype(str).tolist())
     owners = {o.strip() for o in owners if o and o.strip()}
     if not owners:
-        owners = {"Abhi", "Indhu"}
+        # Phase-2 will likely remove owner completely; keep safe fallback for now
+        owners = {"Family"}
     return sorted(owners)
 
 
@@ -1311,7 +1312,7 @@ def cards_page() -> None:
         ui.separator().classes('my-4')
         ui.label('Tip: Edit the cards sheet in Google Sheets to update limits/balances.').classes('text-xs text-slate-300')
 
-    shell(content, title='Cards')
+    shell(content)
 
 
 @ui.page("/recurring")
