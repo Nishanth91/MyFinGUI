@@ -717,12 +717,14 @@ def shell(content_fn):
     with ui.column().classes("w-full max-w-[1100px] mx-auto p-3 gap-3"):
         content_fn()
 
-        # Bottom navigation for mobile
-        with ui.footer().classes('my-card q-pa-xs mf-bottom-nav'):
-            with ui.row().classes('w-full justify-around items-center'):
-                ui.button('Dashboard', icon='dashboard').props('flat').on('click', lambda: nav_to('/'))
-                ui.button('Add', icon='add_circle').props('flat').on('click', lambda: nav_to('/add'))
-                ui.button('Admin', icon='settings').props('flat').on('click', lambda: nav_to('/admin'))
+
+    # Bottom navigation for mobile
+    with ui.footer().classes('my-card q-pa-xs mf-bottom-nav'):
+        with ui.row().classes('w-full justify-around items-center'):
+            ui.button('Dashboard', icon='dashboard').props('flat').on('click', lambda: nav_to('/'))
+            ui.button('Add', icon='add_circle').props('flat').on('click', lambda: nav_to('/add'))
+            ui.button('Admin', icon='settings').props('flat').on('click', lambda: nav_to('/admin'))
+
 
 
 
