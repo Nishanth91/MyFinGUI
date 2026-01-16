@@ -1,7 +1,7 @@
 
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICGUI_VF2_STABLE_PHASE01_HF1_FULL.py
+File: Myfin_NICEGUI_VF2_P2_6.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -13,9 +13,8 @@ Key behavior changes (requested)
    - The app auto-creates the actual transaction ONLY when the due date arrives (and only once per month).
    - No backfilling past months. No creating future months in advance.
 
-2) Pay cycles (for dashboard clarity)
-   - Abhi: semimonthly on 15th & 30th, moved to the previous Friday if it falls on weekend.
-   - Indhu: biweekly Friday from anchor date 2026-01-16.
+2) Pay cycles
+   - Kept as "family" (no owner split). Any pay-cycle specific dashboards are deferred to later phases.
 
 Required Render environment variables
 - SERVICE_ACCOUNT_JSON: Paste your service_account.json contents (full JSON).
@@ -230,10 +229,19 @@ def wide_transactions_to_long(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     # helper to find first matching column
+    # We support both:
+    # 1) exact header matches (e.g., "credit")
+    # 2) "contains" matches (e.g., "credit card repay (amount ...)" contains "credit card repay")
     def pick(*names: str) -> Optional[str]:
+        # exact
         for n in names:
             if n in cols_norm:
                 return cols_norm[n]
+        # contains
+        for n in names:
+            for k_norm, orig in cols_norm.items():
+                if n and (n in k_norm):
+                    return orig
         return None
 
     notes_col = pick('reason/notes', 'reason', 'notes', 'note', 'description', 'remarks')
