@@ -1,7 +1,7 @@
 
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICGUI_VF2_PHASE02_HF3.py
+File: Myfin_NICGUI_VF2_STABLE_PHASE01_HF1_FULL.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -166,6 +166,79 @@ def to_float(x: Any) -> float:
         return float(x)
     except Exception:
         return 0.0
+
+
+def wide_transactions_to_long(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert a 'wide' Transactions sheet into the app's long format.
+
+    If the sheet already contains 'type' and 'amount' columns, this returns df unchanged.
+    Otherwise it looks for common MyFin columns like:
+    Date, International transaction, Credit, Investment, Credit card repay, Debit,
+    LOC Withdrawal, LOC Repayment, Account, Reason/Notes.
+    """
+    cols_norm = {c.strip().lower(): c for c in df.columns}
+    if 'type' in cols_norm and 'amount' in cols_norm:
+        return df
+
+    date_col = cols_norm.get('date')
+    if not date_col:
+        return df
+
+    # helper to find first matching column
+    def pick(*names: str) -> Optional[str]:
+        for n in names:
+            if n in cols_norm:
+                return cols_norm[n]
+        return None
+
+    notes_col = pick('reason/notes', 'reason', 'notes', 'note', 'description', 'remarks')
+    account_col = pick('account', 'accounts')
+    owner_col = pick('owner', 'person', 'who')
+
+    # category amount columns
+    mapping = [
+        ('international', pick('international transaction', 'international', 'intl', 'remittance')),
+        ('credit', pick('credit', 'income')),
+        ('investment', pick('investment', 'invest')),
+        ('cc_repay', pick('credit card repay', 'credit card repayment', 'creditcard repay', 'cc repay', 'cc repayment')),
+        ('debit', pick('debit', 'expense', 'spend')),
+        ('loc_withdrawal', pick('loc withdrawal', 'loc draw', 'line of credit withdrawal')),
+        ('loc_repayment', pick('loc repayment', 'loc repay', 'line of credit repayment')),
+    ]
+
+    # build long rows
+    out_rows: List[Dict[str, Any]] = []
+    for _, r in df.iterrows():
+        base = {
+            'date': r.get(date_col),
+            'notes': (str(r.get(notes_col)).strip() if notes_col and pd.notna(r.get(notes_col)) else ''),
+            'account': (str(r.get(account_col)).strip() if account_col and pd.notna(r.get(account_col)) else ''),
+            'owner': (str(r.get(owner_col)).strip() if owner_col and pd.notna(r.get(owner_col)) else 'Family'),
+        }
+
+        any_added = False
+        for t, c in mapping:
+            if not c:
+                continue
+            amt = to_float(r.get(c))
+            if abs(amt) > 1e-9:
+                row = dict(base)
+                row.update({'type': t, 'amount': amt})
+                out_rows.append(row)
+                any_added = True
+
+        # if no category columns found, keep row (helps surface schema issues)
+        if not any_added:
+            row = dict(base)
+            row.update({'type': str(r.get(pick('type')) or '').strip(), 'amount': to_float(r.get(pick('amount')) or 0)})
+            out_rows.append(row)
+
+    out = pd.DataFrame(out_rows)
+    # ensure expected columns exist
+    for c in ['date', 'type', 'amount', 'account', 'notes', 'owner']:
+        if c not in out.columns:
+            out[c] = '' if c != 'amount' else 0.0
+    return out
 
 def normalize_title(s: str) -> str:
     # Normalize worksheet names for robust matching (ignore spaces/punctuation)
@@ -460,6 +533,12 @@ def cached_df(tab: str, force: bool = False) -> pd.DataFrame:
 
     try:
         df = read_df(tab)
+        if tab == 'transactions':
+            # Support the legacy "wide" sheet layout (category columns)
+            # by converting it into the app's long ledger format.
+            before_cols = list(df.columns)
+            df = wide_transactions_to_long(df)
+            print(f"[MyFin] transactions loaded: rows={len(df)} cols={list(df.columns)} (source cols={before_cols})")
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
