@@ -148,6 +148,12 @@ def to_float(x: Any) -> float:
     except Exception:
         return 0.0
 
+def normalize_title(s: str) -> str:
+    # Normalize worksheet names for robust matching (ignore spaces/punctuation)
+    return ''.join(ch for ch in (s or '').lower() if ch.isalnum())
+
+
+
 def currency(x: float) -> str:
     return f"${x:,.2f}"
 
@@ -241,13 +247,13 @@ def ensure_tabs() -> None:
     """
 
     ss = get_spreadsheet()
-    existing = {w.title.strip().lower(): w for w in ss.worksheets()}
+    existing = {normalize_title(w.title): w for w in ss.worksheets()}
 
     global _ws
     _ws = {}
 
     for tab, headers in TABS.items():
-        key = tab.strip().lower()
+        key = normalize_title(tab)
         w = existing.get(key)
 
         if w is None:
@@ -382,14 +388,32 @@ def delete_row_by_id(tab: str, id_col: str, id_val: str) -> bool:
 
 
 def cached_df(tab: str, force: bool = False) -> pd.DataFrame:
+    """Return a cached copy of a tab DataFrame (read from Google Sheets).
+
+    On any Sheets error, we log to stdout and return an empty DataFrame with expected headers.
+    """
     now = time.time()
     if (not force) and tab in _cache and (now - _cache[tab][0] < CACHE_TTL):
         return _cache[tab][1].copy()
-    df = read_df(tab)
+
+    try:
+        df = read_df(tab)
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print('GOOGLE_SHEETS_READ_ERROR', tab, str(e))
+        print(tb)
+        try:
+            ui.notify(f'Google Sheets read failed for {tab}: {e}', type='negative')
+        except Exception:
+            pass
+        df = pd.DataFrame(columns=TABS.get(tab, []))
+
     _cache[tab] = (now, df.copy())
     return df
 
 def invalidate(*tabs: str) -> None:
+
     for t in tabs:
         _cache.pop(t, None)
 
