@@ -539,6 +539,29 @@ def read_df(tab: str) -> pd.DataFrame:
     width = len(headers)
     norm_rows = [r + [''] * (width - len(r)) if len(r) < width else r[:width] for r in rows]
     df = pd.DataFrame(norm_rows, columns=headers)
+
+    # Coalesce duplicate header names (common during sheet migrations).
+    # Example: both "Emoji" and "emoji" can exist; then df['emoji'] returns a DataFrame,
+    # and card rendering may appear empty.
+    if df.columns.duplicated().any():
+        new_cols: list[str] = []
+        seen: set[str] = set()
+        for col in df.columns:
+            if col not in seen:
+                new_cols.append(col)
+                seen.add(col)
+        fixed = pd.DataFrame(index=df.index)
+        for col in new_cols:
+            if (df.columns == col).sum() == 1:
+                fixed[col] = df[col]
+            else:
+                # take the first, then fill with later duplicates if blank
+                dup = df.loc[:, df.columns == col]
+                s = dup.iloc[:, 0].copy()
+                for i in range(1, dup.shape[1]):
+                    s = s.where((s.astype(str).str.strip() != '') & s.notna(), dup.iloc[:, i])
+                fixed[col] = s
+        df = fixed
     return df
 
 
