@@ -52,6 +52,36 @@ import pandas as pd
 import plotly.express as px
 
 import gspread
+
+
+# -------------------- Google Sheets retry helpers --------------------
+from gspread.exceptions import APIError as GSpreadAPIError
+
+def gs_retry(fn, *, retries: int = 6, base_sleep: float = 0.8):
+    """Retry wrapper for Google Sheets API calls.
+
+    Handles transient 429/5xx errors by backing off. Raises the last exception on failure.
+    """
+    import time
+    import random
+
+    last = None
+    for i in range(retries):
+        try:
+            return fn()
+        except GSpreadAPIError as e:
+            last = e
+            msg = str(e)
+            # common transient cases: 429 quota, 500/502/503/504
+            transient = any(code in msg for code in ['429', '500', '502', '503', '504'])
+            if not transient or i == retries - 1:
+                raise
+            sleep_s = base_sleep * (2 ** i) + random.uniform(0, 0.35)
+            time.sleep(sleep_s)
+
+    if last:
+        raise last
+
 from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 from nicegui import ui, app
@@ -671,7 +701,7 @@ def delete_row_by_id(tab: str, id_col: str, id_val: str) -> bool:
     row_idx, _ = find_row_index_by_id(tab, id_col, id_val)
     if row_idx is None:
         return False
-    w.delete_rows(row_idx)
+    gs_retry(lambda: w.delete_rows(row_idx))
     return True
 
 
@@ -1388,49 +1418,96 @@ def add_page():
             ui.button("Auto-category", on_click=autofill).props("flat")
 
             def save():
+
                 dd = parse_date(d_date.value) or today()
+
                 amt = float(to_float(d_amount.value))
+
                 owner = "Family"
+
                 method = str(d_method.value or "Other").strip()
+
                 account = str(d_account.value or "").strip()
+
                 category = str(d_category.value or "Uncategorized").strip()
+
                 notes = str(d_notes.value or "").strip()
 
-                # Build tx id (unique)
-                tx_id = sha16(f"{owner}|{dd.isoformat()}|{entry_type}|{amt}|{method}|{account}|{category}|{notes}|{dt.datetime.now().isoformat()}")
 
-                rec_id = ""
-                if d_rec.value:
-                    rec_id = create_or_update_recurring_template(
+                try:
+
+                    # Build tx id (unique)
+
+                    tx_id = sha16(f"{owner}|{dd.isoformat()}|{entry_type}|{amt}|{method}|{account}|{category}|{notes}|{dt.datetime.now().isoformat()}")
+
+
+                    rec_id = ""
+
+                    if d_rec.value:
+
+                        rec_id = create_or_update_recurring_template(
+
+                            owner=owner,
+
+                            type_=entry_type,
+
+                            amount=amt,
+
+                            method=method,
+
+                            account=account,
+
+                            category=category,
+
+                            notes=notes,
+
+                            day_of_month=dd.day,
+
+                            start_date=dd,
+
+                            active=True,
+
+                        )
+
+
+                    append_tx(
+
+                        tx_id=tx_id,
+
+                        date_=dd,
+
                         owner=owner,
+
                         type_=entry_type,
+
                         amount=amt,
+
                         method=method,
+
                         account=account,
+
                         category=category,
+
                         notes=notes,
-                        day_of_month=dd.day,
-                        start_date=dd,
-                        active=True,
+
+                        recurring_id=rec_id,
+
                     )
 
-                append_tx(
-                    tx_id=tx_id,
-                    date_=dd,
-                    owner=owner,
-                    type_=entry_type,
-                    amount=amt,
-                    method=method,
-                    account=account,
-                    category=category,
-                    notes=notes,
-                    recurring_id=rec_id,
-                )
 
-                cached_df.invalidate('transactions')
-                cached_df.invalidate('recurring')
-                ui.notify("Saved", type="positive")
-                dlg.close()
+                    cached_df.invalidate('transactions')
+
+                    cached_df.invalidate('recurring')
+
+                    ui.notify("Saved", type="positive")
+
+                    dlg.close()
+
+
+                except Exception as e:
+
+                    ui.notify(f"Save failed: {e}", type="negative")
+
 
             with ui.row().classes("w-full justify-end gap-2"):
                 ui.button("Cancel", on_click=dlg.close).props("flat")
@@ -1621,8 +1698,8 @@ def transactions_page():
                     ui.notify("Delete failed", type="negative")
 
             with ui.row().classes("gap-2 mt-3"):
-                ui.button("Edit selected", on_click=lambda: open_edit(table.selected[0]) if table.selected else ui.notify("Select a row", type="warning")).props("flat")
-                ui.button("Delete selected", on_click=lambda: open_delete(table.selected[0]) if table.selected else ui.notify("Select a row", type="warning")).props("flat")
+                ui.button("Edit selected", on_click=lambda: open_edit(selected['row']) if selected.get('row') else ui.notify("Select a row", type="warning")).props("flat")
+                ui.button("Delete selected", on_click=lambda: open_delete(selected['row']) if selected.get('row') else ui.notify("Select a row", type="warning")).props("flat")
 
     shell(content)
 
