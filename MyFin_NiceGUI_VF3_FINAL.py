@@ -1591,42 +1591,56 @@ def transactions_page():
 @ui.page("/cards")
 def cards_page() -> None:
     if not require_login():
+        nav_to('/login')
         return
 
     def content() -> None:
+        ui.label('Cards').classes('text-2xl font-semibold').style('color: var(--mf-text);')
+        ui.label('Limits and billing details from Google Sheets.').classes('text-sm').style('color: var(--mf-muted);')
+
         df = cached_df('cards')
         if df.empty:
-            ui.label('No cards found. Add rows in the "cards" sheet.').classes('text-slate-200')
+            ui.label('No cards found in the "cards" sheet.').classes('text-sm').style('color: var(--mf-muted);')
             return
 
-        # normalize
-        for c in ['name', 'limit', 'balance', 'notes']:
-            if c not in df.columns:
-                df[c] = ''
+        # Accept both old and new schemas
+        def pick(col_candidates, default=''):
+            for c in col_candidates:
+                if c in df.columns:
+                    return df[c]
+            return [default] * len(df)
 
-        # Card-style list (mobile friendly)
-        with ui.column().classes('w-full gap-4'):
-            for _, r in df.fillna('').iterrows():
-                name = str(r.get('name', '')).strip() or 'Card'
-                limit_v = r.get('limit', '')
-                bal_v = r.get('balance', '')
-                notes = str(r.get('notes', '')).strip()
+        names = pick(['card_name', 'name', 'account', 'Account'], default='Card')
+        emojis = pick(['emoji', 'Emoji'], default='💳')
+        methods = pick(['method_name', 'method', 'Method'], default='')
+        billing_days = pick(['billing_day', 'BillingDay', 'billingday'], default='')
+        limits = pick(['max_limit', 'limit', 'Limit'], default='')
 
-                with ui.card().classes('w-full glass card-elev'):
-                    with ui.row().classes('w-full items-center justify-between'):
-                        ui.label(name).classes('text-lg font-semibold')
-                        badge = ''
-                        if str(limit_v).strip() != '':
-                            badge = f'Limit: {limit_v}'
-                        if str(bal_v).strip() != '':
-                            badge = (badge + '  •  ' if badge else '') + f'Balance: {bal_v}'
-                        if badge:
-                            ui.label(badge).classes('text-xs text-slate-300')
-                    if notes:
-                        ui.label(notes).classes('text-sm text-slate-200')
+        grid = ui.row().classes('w-full q-col-gutter-md')
+        grid.style('flex-wrap: wrap;')
 
-        ui.separator().classes('my-4')
-        ui.label('Tip: Edit the cards sheet in Google Sheets to update limits/balances.').classes('text-xs text-slate-300')
+        for i in range(len(df)):
+            name = str(names[i]).strip() or 'Card'
+            emoji = str(emojis[i]).strip() or '💳'
+            method = str(methods[i]).strip()
+            bd = str(billing_days[i]).strip()
+            lim = parse_money(limits[i])
+
+            with grid:
+                with ui.card().classes('my-card').style('width: 320px; max-width: 100%;'):
+                    with ui.row().classes('items-center justify-between'):
+                        ui.label(f'{emoji} {name}').classes('text-lg font-semibold').style('color: var(--mf-text);')
+                        if method:
+                            ui.badge(method).classes('q-pa-xs').style('background: rgba(46,125,255,0.18); color: var(--mf-text); border: 1px solid var(--mf-border);')
+
+                    with ui.row().classes('items-center q-gutter-md'):
+                        with ui.column().classes('q-gutter-xs'):
+                            ui.label('Billing day').classes('text-xs').style('color: var(--mf-muted);')
+                            ui.label(bd or '—').classes('text-sm').style('color: var(--mf-text);')
+
+                        with ui.column().classes('q-gutter-xs'):
+                            ui.label('Limit').classes('text-xs').style('color: var(--mf-muted);')
+                            ui.label(f'${lim:,.2f}' if lim else '—').classes('text-sm').style('color: var(--mf-text);')
 
     shell(content)
 
