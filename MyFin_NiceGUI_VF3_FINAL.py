@@ -1,7 +1,7 @@
 
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICEGUI_VF2_P2_6.py
+File: Myfin_NICEGUI_VF2_P3_5.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -33,7 +33,7 @@ Expected Google Sheet tabs (auto-created if missing)
 - rules
 
 Render start command
-- python Myfin_NICGUI_V1HF5_STABLE.py
+- python Myfin_NICEGUI_VF2_P3_5.py
 """
 
 from __future__ import annotations
@@ -427,6 +427,82 @@ _ws: Dict[str, gspread.Worksheet] = {}
 _tabs_ready: bool = False
 _tabs_ready_at: float = 0.0
 _header_cache: Dict[str, List[str]] = {}
+_migrated_tx_ids: bool = False
+
+
+def _col_to_letter(idx0: int) -> str:
+    """0-based column index -> Google Sheets column letter."""
+    n = idx0 + 1
+    s = ''
+    while n:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def _migrate_transactions_id_column() -> None:
+    """Backfill transactions.id from legacy TxId/txid column.
+
+    Why: older sheets had a 'TxId' column; Phase 3 uses a canonical 'id' column.
+    Edit/update looked up rows by 'id', so legacy rows (id blank) could not be edited.
+
+    This runs once per process and only writes when it detects blanks.
+    """
+    global _migrated_tx_ids
+    if _migrated_tx_ids:
+        return
+    _migrated_tx_ids = True
+
+    try:
+        w = ws('transactions')
+        hdr = sheet_headers('transactions')
+        if not hdr:
+            return
+
+        def _find_idx(names: List[str]) -> Optional[int]:
+            lowered = [h.strip().lower() for h in hdr]
+            for n in names:
+                if n.lower() in lowered:
+                    return lowered.index(n.lower())
+            return None
+
+        id_idx = _find_idx(['id'])
+        legacy_idx = _find_idx(['txid', 'tx_id', 'TxId'])
+        if id_idx is None or legacy_idx is None:
+            return
+
+        # Read whole columns (1 API call each). Values include header at row 1.
+        id_col = w.col_values(id_idx + 1)
+        legacy_col = w.col_values(legacy_idx + 1)
+        n_rows = max(len(id_col), len(legacy_col))
+        if n_rows <= 1:
+            return
+
+        # Normalize lengths
+        id_col += [''] * (n_rows - len(id_col))
+        legacy_col += [''] * (n_rows - len(legacy_col))
+
+        new_vals: List[List[str]] = []
+        changed = False
+        for r in range(2, n_rows + 1):
+            cur = (id_col[r - 1] or '').strip()
+            leg = (legacy_col[r - 1] or '').strip()
+            # If both are empty, generate a stable id so edit/delete works for legacy rows.
+            val = cur or leg or uuid.uuid4().hex
+            if val != cur:
+                changed = True
+            new_vals.append([val])
+
+        if not changed:
+            return
+
+        col_letter = _col_to_letter(id_idx)
+        w.update(f'{col_letter}2:{col_letter}{n_rows}', new_vals)
+        _header_cache.pop('transactions', None)
+        _df_cache.pop('transactions', None)
+    except Exception as e:
+        # Never break the app because of a migration attempt.
+        print(f'[migrate_tx_ids] skipped due to: {e}')
 
 def get_client() -> gspread.Client:
     global _gc
@@ -714,6 +790,12 @@ def find_row_index_by_id(tab: str, id_col: str, id_val: str) -> tuple[int, list[
 def update_row_by_id(tab: str, id_col: str, id_val: str, updates: dict[str, Any]) -> bool:
     w = ws(tab)
     row_idx, headers = find_row_index_by_id(tab, id_col, id_val)
+    if row_idx is None and tab == 'transactions' and str(id_col).lower() == 'id':
+        # Backward compatibility: if the sheet still uses legacy id columns.
+        for alt in ('txid', 'TxId', 'TXID'):
+            row_idx, headers = find_row_index_by_id(tab, alt, id_val)
+            if row_idx is not None:
+                break
     if row_idx is None:
         return False
     lower_map = {h.lower(): (i, h) for i, h in enumerate(headers)}
@@ -738,6 +820,11 @@ def update_row_by_id(tab: str, id_col: str, id_val: str, updates: dict[str, Any]
 def delete_row_by_id(tab: str, id_col: str, id_val: str) -> bool:
     w = ws(tab)
     row_idx, _ = find_row_index_by_id(tab, id_col, id_val)
+    if row_idx is None and tab == 'transactions' and str(id_col).lower() == 'id':
+        for alt in ('txid', 'TxId', 'TXID'):
+            row_idx, _ = find_row_index_by_id(tab, alt, id_val)
+            if row_idx is not None:
+                break
     if row_idx is None:
         return False
     gs_retry(lambda: w.delete_rows(row_idx))
@@ -1441,6 +1528,23 @@ def add_page():
             d_notes = ui.textarea("Notes", value="").classes("w-full")
             d_rec = ui.checkbox("Mark as recurring (creates template for future cycles only)")
 
+            # --- Live category suggestion (Option B): show suggestion while typing, apply on save unless user overrides ---
+            category_touched = {"v": False}
+            suggest_label = ui.label("").classes("text-xs")
+            suggest_label.style("color: var(--mf-muted)")
+
+            def _refresh_suggestion(_: Any = None) -> None:
+                suggestion = infer_category(str(d_notes.value or ""), rules) or "Uncategorized"
+                suggest_label.text = f"Suggested category: {suggestion}"
+                if not category_touched["v"]:
+                    d_category.value = suggestion
+
+            # mark manual override
+            d_category.on('update:model-value', lambda e: category_touched.__setitem__('v', True))
+            # refresh suggestion on notes changes
+            d_notes.on('update:model-value', _refresh_suggestion)
+            _refresh_suggestion()
+
             # Apply presets (used for special flows like LOC withdrawal/repayment)
             if preset_method is not None:
                 d_method.value = preset_method
@@ -1451,8 +1555,10 @@ def add_page():
                 d_category.value = preset_category
 
             def autofill():
-                d_category.value = infer_category(d_notes.value or "", rules)
-                ui.notify("Category suggested", type="positive")
+                # manual button: set category based on current notes
+                category_touched["v"] = True
+                d_category.value = infer_category(d_notes.value or "", rules) or "Uncategorized"
+                ui.notify("Category updated", type="positive")
 
             ui.button("Auto-category", on_click=autofill).props("flat")
 
@@ -1674,18 +1780,15 @@ def transactions_page():
         tx = tx[tx["date_parsed"].notna()].copy()
         tx = tx.sort_values("date_parsed", ascending=False)
 
-        owners = sorted({o for o in tx["owner"].astype(str).tolist() if o.strip()})
         types = sorted({t for t in tx["type"].astype(str).tolist() if t.strip()})
 
         with ui.card().classes("my-card p-5"):
             ui.label("Transactions").classes("text-lg font-bold")
-            f_owner = ui.select(["All"] + owners, value="All", label="Owner").classes("w-full")
             f_type = ui.select(["All"] + types, value="All", label="Type").classes("w-full")
             f_text = ui.input("Search notes/category/account").classes("w-full")
 
             table = ui.table(columns=[
                 {"name": "date", "label": "Date", "field": "date"},
-                {"name": "owner", "label": "Owner", "field": "owner"},
                 {"name": "type", "label": "Type", "field": "type"},
                 {"name": "amount", "label": "Amount", "field": "amount"},
                 {"name": "method", "label": "Method", "field": "method"},
@@ -1705,8 +1808,6 @@ def transactions_page():
 
             def refresh_table():
                 df = tx.copy()
-                if f_owner.value != "All":
-                    df = df[df["owner"].astype(str) == f_owner.value]
                 if f_type.value != "All":
                     df = df[df["type"].astype(str) == f_type.value]
                 q = (f_text.value or "").strip().lower()
@@ -1718,7 +1819,6 @@ def transactions_page():
                 table.rows = df.to_dict(orient="records")
                 table.update()
 
-            f_owner.on("update:model-value", lambda e: refresh_table())
             f_type.on("update:model-value", lambda e: refresh_table())
             f_text.on("update:model-value", lambda e: refresh_table())
 
@@ -1732,7 +1832,6 @@ def transactions_page():
                     tid = str(row.get("id", "")).strip()
 
                     e_date = ui.input("Date", value=str(row.get("date", ""))).props("type=date").classes("w-full")
-                    e_owner = ui.input("Owner", value=str(row.get("owner", ""))).classes("w-full")
                     e_type = ui.input("Type", value=str(row.get("type", ""))).classes("w-full")
                     e_amount = ui.number("Amount", value=to_float(row.get("amount", 0))).classes("w-full")
                     e_method = ui.input("Method", value=str(row.get("method", ""))).classes("w-full")
@@ -1743,7 +1842,8 @@ def transactions_page():
                     def save_edit():
                         ok = update_row_by_id("transactions", "id", tid, {
                             "date": (parse_date(e_date.value) or today()).isoformat(),
-                            "owner": e_owner.value or "",
+                            # owner is kept for backward compatibility but hidden from the UI
+                            "owner": str(row.get("owner", "Family")) or "Family",
                             "type": e_type.value or "",
                             "amount": float(to_float(e_amount.value)),
                             "method": e_method.value or "",
@@ -1961,6 +2061,9 @@ def rules_page():
 # -----------------------------
 def bootstrap() -> None:
     ensure_tabs()
+    # One-time migration: older rows often have the unique id stored in `TxId` while
+    # the newer logic edits by `id`. Backfill `id` from `TxId` so Edit works.
+    _migrate_transactions_id_column()
 
 bootstrap()
 
