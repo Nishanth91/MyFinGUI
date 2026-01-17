@@ -234,6 +234,11 @@ def parse_date(x: Any) -> Optional[dt.date]:
     return None
 
 
+
+
+def now_iso() -> str:
+    """Return current UTC timestamp as ISO-8601 string with timezone."""
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
 def parse_money(value: object, default: float = 0.0) -> float:
     """Parse money-ish values like '$25,000', '25000', 25000 into float."""
     if value is None:
@@ -643,13 +648,47 @@ def append_row(tab: str, row: dict[str, Any]) -> None:
 
 
 
-def append_tx(tx: Dict[str, Any]) -> None:
-    """Append a transaction dict to the `transactions` worksheet.
+def append_tx(tx: Optional[Dict[str, Any]] = None, **kwargs: Any) -> None:
+    """Append a transaction to the `transactions` worksheet.
 
-    The row is written in the current sheet header order (see `sheet_headers`).
-    Missing keys are written as empty strings.
+    This function accepts either:
+      1) a fully-formed transaction dict via `tx`, OR
+      2) keyword args (used by the Add page), e.g. tx_id=..., date=..., owner=..., etc.
+
+    Supported id keys: `tx_id` (legacy) and `id` (current).
     """
-    # `append_row` expects a dict; it will write values in the sheet's header order.
+
+    # Build a transaction dict if called with kwargs (legacy call-sites used `tx_id=`).
+    if tx is None:
+        tx = dict(kwargs)
+    else:
+        # merge kwargs over tx (kwargs wins)
+        tx = {**tx, **kwargs}
+
+    # Normalize primary key
+    if 'id' not in tx or not str(tx.get('id', '')).strip():
+        if 'tx_id' in tx and str(tx.get('tx_id', '')).strip():
+            tx['id'] = tx['tx_id']
+
+    # Normalize common field names (some call-sites use `type_` / `date_`)
+    if 'date' not in tx and 'date_' in tx:
+        tx['date'] = tx.get('date_')
+    if 'type' not in tx and 'type_' in tx:
+        tx['type'] = tx.get('type_')
+
+    # Ensure required columns exist even if blank
+    tx.setdefault('owner', '')
+    tx.setdefault('type', '')
+    tx.setdefault('amount', '')
+    tx.setdefault('method', '')
+    tx.setdefault('account', '')
+    tx.setdefault('category', '')
+    tx.setdefault('notes', '')
+    tx.setdefault('is_recurring', False)
+    tx.setdefault('recurring_id', '')
+    tx.setdefault('created_at', tx.get('created_at', now_iso()))
+
+    # `append_row` expects a dict; it writes values in the sheet's header order.
     append_row('transactions', tx)
 
 def find_row_index_by_id(tab: str, id_col: str, id_val: str) -> tuple[int, list[str]] | tuple[None, list[str]]:
@@ -1495,9 +1534,9 @@ def add_page():
                     )
 
 
-                    cached_df.invalidate('transactions')
-
-                    cached_df.invalidate('recurring')
+                    # refresh in-memory cache so the new entry shows up immediately
+                    invalidate('transactions')
+                    invalidate('recurring')
 
                     ui.notify("Saved", type="positive")
 
@@ -1571,6 +1610,8 @@ def admin_page() -> None:
 
 @ui.page("/tx")
 def transactions_page():
+    # Keep track of the currently selected row (so Edit/Delete buttons work consistently)
+    selected_row: Dict[str, Any] = {'row': None}
     if not require_login():
         nav_to("/login")
         return
@@ -1595,6 +1636,35 @@ def transactions_page():
             ui.label(f'Data source error: {e}').classes('text-sm text-red-300')
 
         tx = cached_df("transactions")
+        # Selection uses `row_key='id'`. If `id` is empty for older data, every row shares the
+        # same key (""), which makes the table behave like "select all".
+        # We therefore backfill `id` from the legacy `TxId` (or `txid`) column when needed.
+        if not tx.empty:
+            try:
+                if "id" in tx.columns:
+                    ids = tx["id"].astype(str).fillna("")
+                    missing = ids.str.strip() == ""
+                else:
+                    tx["id"] = ""
+                    missing = pd.Series([True] * len(tx), index=tx.index)
+
+                legacy_col = None
+                for cand in ["TxId", "txid", "TXID"]:
+                    if cand in tx.columns:
+                        legacy_col = cand
+                        break
+
+                if legacy_col is not None and missing.any():
+                    tx.loc[missing, "id"] = tx.loc[missing, legacy_col].astype(str)
+
+                # Final fallback: generate deterministic ids for any still-missing rows
+                ids2 = tx["id"].astype(str).fillna("")
+                still_missing = ids2.str.strip() == ""
+                if still_missing.any():
+                    tx.loc[still_missing, "id"] = [f"row_{i}" for i in range(still_missing.sum())]
+            except Exception:
+                # Never break the page due to id normalization
+                pass
         if tx.empty:
             with ui.card().classes("my-card p-5"):
                 ui.label("No transactions").classes("text-lg font-bold")
@@ -1625,7 +1695,13 @@ def transactions_page():
                 {"name": "id", "label": "ID", "field": "id"},
             ], rows=[], row_key="id", selection='single').classes("w-full")
             # Make tapping a row select it (helps on mobile where the checkbox can be fiddly).
-            table.on('rowClick', lambda e: setattr(table, 'selected', [e.args['row']]))
+            def _on_row_click(e):
+                row = e.args.get('row') if isinstance(e.args, dict) else None
+                if row is not None:
+                    table.selected = [row]
+                    selected_row['row'] = row
+
+            table.on('rowClick', _on_row_click)
 
             def refresh_table():
                 df = tx.copy()
@@ -1698,8 +1774,19 @@ def transactions_page():
                     ui.notify("Delete failed", type="negative")
 
             with ui.row().classes("gap-2 mt-3"):
-                ui.button("Edit selected", on_click=lambda: open_edit(selected['row']) if selected.get('row') else ui.notify("Select a row", type="warning")).props("flat")
-                ui.button("Delete selected", on_click=lambda: open_delete(selected['row']) if selected.get('row') else ui.notify("Select a row", type="warning")).props("flat")
+                def _current_row() -> Optional[Dict[str, Any]]:
+                    if table.selected:
+                        return table.selected[0]
+                    return selected_row.get('row')
+
+                ui.button(
+                    "Edit selected",
+                    on_click=lambda: open_edit(_current_row()) if _current_row() else ui.notify("Select a row", type="warning"),
+                ).props("flat")
+                ui.button(
+                    "Delete selected",
+                    on_click=lambda: open_delete(_current_row()) if _current_row() else ui.notify("Select a row", type="warning"),
+                ).props("flat")
 
     shell(content)
 
