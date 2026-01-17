@@ -201,6 +201,31 @@ def parse_date(x: Any) -> Optional[dt.date]:
         pass
     return None
 
+
+def parse_money(value: object, default: float = 0.0) -> float:
+    """Parse money-ish values like '$25,000', '25000', 25000 into float."""
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        try:
+            return float(value)
+        except Exception:
+            return default
+    s = str(value).strip()
+    if not s or s.lower() in ('nan', 'none'):
+        return default
+    # keep digits, minus, dot
+    s = s.replace(',', '')
+    if s.startswith('$'):
+        s = s[1:].strip()
+    # remove any remaining currency symbols/spaces
+    s = ''.join(ch for ch in s if (ch.isdigit() or ch in '.-'))
+    if not s or s in ('-', '.', '-.'):
+        return default
+    try:
+        return float(s)
+    except Exception:
+        return default
 def to_float(x: Any) -> float:
     try:
         if x is None:
