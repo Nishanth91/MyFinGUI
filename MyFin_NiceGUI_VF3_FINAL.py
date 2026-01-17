@@ -619,9 +619,8 @@ def append_tx(tx: Dict[str, Any]) -> None:
     The row is written in the current sheet header order (see `sheet_headers`).
     Missing keys are written as empty strings.
     """
-    headers = sheet_headers('transactions')
-    row = [tx.get(h, "") for h in headers]
-    append_row('transactions', row)
+    # `append_row` expects a dict; it will write values in the sheet's header order.
+    append_row('transactions', tx)
 
 def find_row_index_by_id(tab: str, id_col: str, id_val: str) -> tuple[int, list[str]] | tuple[None, list[str]]:
     w = ws(tab)
@@ -1547,7 +1546,9 @@ def transactions_page():
                 {"name": "category", "label": "Category", "field": "category"},
                 {"name": "notes", "label": "Notes", "field": "notes"},
                 {"name": "id", "label": "ID", "field": "id"},
-            ], rows=[], row_key="id").classes("w-full")
+            ], rows=[], row_key="id", selection='single').classes("w-full")
+            # Make tapping a row select it (helps on mobile where the checkbox can be fiddly).
+            table.on('rowClick', lambda e: setattr(table, 'selected', [e.args['row']]))
 
             def refresh_table():
                 df = tx.copy()
