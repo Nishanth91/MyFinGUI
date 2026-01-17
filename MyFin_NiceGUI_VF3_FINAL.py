@@ -40,17 +40,19 @@ from __future__ import annotations
 
 import os
 import json
+import re
 import math
 import time
 import calendar
 import hashlib
 import datetime as dt
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import pandas as pd
 import plotly.express as px
 
 import gspread
+from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 from nicegui import ui, app
 
@@ -609,6 +611,17 @@ def append_row(tab: str, row: dict[str, Any]) -> None:
             values[i] = '' if v is None else str(v)
     w.append_row(values, value_input_option='USER_ENTERED')
 
+
+
+def append_tx(tx: Dict[str, Any]) -> None:
+    """Append a transaction dict to the `transactions` worksheet.
+
+    The row is written in the current sheet header order (see `sheet_headers`).
+    Missing keys are written as empty strings.
+    """
+    headers = sheet_headers('transactions')
+    row = [tx.get(h, "") for h in headers]
+    append_row('transactions', row)
 
 def find_row_index_by_id(tab: str, id_col: str, id_val: str) -> tuple[int, list[str]] | tuple[None, list[str]]:
     w = ws(tab)
