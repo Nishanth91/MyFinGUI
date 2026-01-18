@@ -1,4 +1,3 @@
-
 """
 MyFin — NiceGUI Stable
 File: Myfin_NICEGUI_VF2_P3_5.py
@@ -37,6 +36,25 @@ Render start command
 """
 
 from __future__ import annotations
+
+import uuid
+import datetime
+import logging
+
+# Lightweight logger used across the app
+logging.basicConfig(level=logging.INFO)
+_logger = logging.getLogger("myfin")
+
+def log(message: str) -> None:
+    """Log a message to stdout and the configured logger."""
+    try:
+        _logger.info(message)
+    except Exception:
+        print(message)
+
+# Simple in-memory cache for worksheet->DataFrame
+_df_cache: dict[tuple[str, str], object] = {}
+
 
 import os
 import json
