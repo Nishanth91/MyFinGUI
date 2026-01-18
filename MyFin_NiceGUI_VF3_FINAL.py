@@ -45,6 +45,7 @@ import math
 import time
 import calendar
 import hashlib
+import base64
 import datetime as dt
 from typing import Any, Dict, List, Optional, Tuple, cast
 
@@ -52,6 +53,9 @@ import pandas as pd
 import plotly.express as px
 
 import gspread
+
+# NOTE: Receipt scanning uses free, client-side OCR (tesseract.js) loaded from a CDN.
+# No paid APIs are used.
 
 
 # -------------------- Google Sheets retry helpers --------------------
@@ -263,6 +267,124 @@ def parse_money(value: object, default: float = 0.0) -> float:
         return float(s)
     except Exception:
         return default
+
+
+def _guess_merchant_from_text(text: str) -> str:
+    """Best-effort merchant extraction from OCR text."""
+    t = text.upper()
+    # prefer known merchants if present
+    known = [
+        "WALMART",
+        "DOLLARAMA",
+        "COSTCO",
+        "SUPERSTORE",
+        "LOBLAWS",
+        "NO FRILLS",
+        "FRESHCO",
+        "CANADIAN TIRE",
+        "TIM HORTONS",
+        "MCDONALD",
+        "STARBUCKS",
+        "GILL",
+    ]
+    for k in known:
+        if k in t:
+            # keep original casing style
+            return k.title() if k != "WALMART" else "Walmart"
+
+    # fallback: first non-empty line that isn't obviously an address/phone/terminal
+    bad = ("WINNIPEG", "MB", "MANITOBA", "CANADA", "TEL", "PHONE", "STORE", "POS", "TERMINAL")
+    for line in [ln.strip() for ln in text.splitlines() if ln.strip()]:
+        up = line.upper()
+        if any(b in up for b in bad):
+            continue
+        # skip if mostly digits
+        digits = sum(ch.isdigit() for ch in line)
+        if len(line) > 0 and digits / max(1, len(line)) > 0.5:
+            continue
+        if 2 <= len(line) <= 40:
+            return line.strip().title()
+    return ""
+
+
+def _extract_date_from_text(text: str) -> Optional[dt.date]:
+    """Try multiple date patterns commonly found on receipts."""
+    # patterns with 4-digit year
+    patterns = [
+        r"(\d{4}[-/]\d{2}[-/]\d{2})",          # 2026-01-18
+        r"(\d{2}[-/]\d{2}[-/]\d{4})",          # 18/01/2026 or 01/18/2026
+        r"(\d{2}\s+[A-Za-z]{3,9}\s+\d{4})",   # 18 Jan 2026 / 18 January 2026
+        r"([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})",# Jan 18, 2026
+    ]
+    for pat in patterns:
+        m = re.search(pat, text)
+        if not m:
+            continue
+        d = parse_date(m.group(1))
+        if d:
+            return d
+    return None
+
+
+def _extract_total_amount(text: str) -> Optional[float]:
+    """Try to find the final total. Falls back to the largest currency-like value."""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    # prefer TOTAL / GRAND TOTAL
+    key_order = ["GRAND TOTAL", "AMOUNT DUE", "TOTAL", "BALANCE", "SUBTOTAL"]
+    money_pat = re.compile(r"(-?\$?\d{1,6}(?:[\,\s]\d{3})*(?:\.\d{2})?)")
+    for key in key_order:
+        for ln in lines:
+            up = ln.upper()
+            if key in up:
+                vals = money_pat.findall(ln)
+                # take last number on the line
+                if vals:
+                    v = parse_money(vals[-1], default=float('nan'))
+                    if not math.isnan(v) and v != 0:
+                        return abs(v)
+
+    # fallback: pick the largest plausible amount
+    best: Optional[float] = None
+    for ln in lines:
+        for s in money_pat.findall(ln):
+            v = parse_money(s, default=float('nan'))
+            if math.isnan(v):
+                continue
+            v = abs(v)
+            if v <= 0:
+                continue
+            if best is None or v > best:
+                best = v
+    return best
+
+
+def _extract_card_last4(text: str) -> str:
+    """Try to find last-4 digits of card, if printed."""
+    # common formats: **** 1234, XXXX1234, x1234
+    patterns = [
+        r"\*{2,}\s*(\d{4})",
+        r"X{2,}\s*(\d{4})",
+        r"(?:VISA|MASTERCARD|MASTER CARD|MC|DEBIT)\D{0,15}(\d{4})",
+    ]
+    for pat in patterns:
+        m = re.search(pat, text.upper())
+        if m:
+            return m.group(1)
+    return ""
+
+
+def parse_receipt_text(text: str) -> Dict[str, Any]:
+    """Return best-effort parsed fields from OCR text."""
+    cleaned = text or ""
+    return {
+        "merchant": _guess_merchant_from_text(cleaned),
+        "date": _extract_date_from_text(cleaned),
+        "amount": _extract_total_amount(cleaned),
+        "card_last4": _extract_card_last4(cleaned),
+        "raw": cleaned,
+    }
+
+
 def to_float(x: Any) -> float:
     try:
         if x is None:
@@ -901,14 +1023,52 @@ def invalidate(*tabs: str) -> None:
 # Rules + Category inference
 # -----------------------------
 def load_rules() -> List[Tuple[str, str]]:
-    df = cached_df("rules")
-    out: List[Tuple[str, str]] = []
+    """Load rule keywords from the **Rules** sheet.
+
+    Accepts flexible header names because the sheet evolves over time.
+    Required meaning:
+      - keyword column: one keyword or a comma-separated list of keywords
+      - category column: the target category to assign when keyword matches notes
+    """
+    df = cached_df('rules')
+    if df.empty:
+        return []
+
+    # build case-insensitive header map
+    cols = list(df.columns)
+    lmap = {str(c).strip().lower(): c for c in cols}
+
+    keyword_col = None
+    for k in ['keyword', 'keywords', 'key', 'keys', 'rule', 'match', 'pattern']:
+        if k in lmap:
+            keyword_col = lmap[k]
+            break
+
+    category_col = None
+    for k in ['category', 'cat', 'label', 'bucket', 'type']:
+        if k in lmap:
+            category_col = lmap[k]
+            break
+
+    if keyword_col is None or category_col is None:
+        # show a hint in logs, but keep app running
+        log(f"Rules sheet missing expected columns. Found: {cols}")
+        return []
+
+    rules: list[tuple[str, str]] = []
     for _, r in df.iterrows():
-        kw = str(r.get("keyword", "")).strip().lower()
-        cat = str(r.get("category", "")).strip()
-        if kw and cat:
-            out.append((kw, cat))
-    return out
+        raw_kw = str(r.get(keyword_col, '')).strip()
+        cat = str(r.get(category_col, '')).strip()
+        if not raw_kw or not cat or raw_kw.lower() == 'nan' or cat.lower() == 'nan':
+            continue
+
+        # allow multiple keywords separated by comma/semicolon
+        parts = [p.strip() for p in re.split(r"[;,]", raw_kw) if p.strip()]
+        for p in parts:
+            rules.append((p.lower(), cat))
+
+    return rules
+
 
 def infer_category(notes: str, rules: List[Tuple[str, str]]) -> str:
     n = (notes or "").lower()
@@ -1172,6 +1332,12 @@ body, .q-layout, .q-page {
 .tile:hover { transform: translateY(-2px); background: rgba(255,255,255,0.07) !important; }
 """
 ui.add_head_html(f"<style>{BANK_CSS}</style>", shared=True)
+
+# Client-side OCR (free): used only when user scans a receipt on Expense form.
+ui.add_head_html(
+    "<script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>",
+    shared=True,
+)
 
 
 # -----------------------------
@@ -1528,6 +1694,117 @@ def add_page():
             d_notes = ui.textarea("Notes", value="").classes("w-full")
             d_rec = ui.checkbox("Mark as recurring (creates template for future cycles only)")
 
+            # Receipt scan (Expense only): opens camera on mobile, runs free OCR in the browser (tesseract.js)
+            if entry_type.lower() == 'debit':
+                scan_state: Dict[str, Any] = {"data_url": None}
+
+                scan_dlg = ui.dialog()
+                with scan_dlg, ui.card().classes('my-card p-4 w-[720px] max-w-[95vw]'):
+                    ui.label('Scan receipt').classes('text-lg font-bold')
+                    ui.label('Tip: on iPhone, this will prompt for camera access.').classes('text-xs').style('color: var(--mf-muted)')
+                    preview = ui.image('').classes('w-full rounded').style('display:none')
+                    raw_out = ui.textarea('OCR text (debug)', value='').props('readonly').classes('w-full')
+                    raw_out.style('max-height: 180px')
+
+                    def _on_upload(e: Any) -> None:
+                        try:
+                            data = e.content.read()
+                            mime = getattr(e, 'type', None) or 'image/jpeg'
+                            scan_state['data_url'] = f"data:{mime};base64,{base64.b64encode(data).decode('utf-8')}"
+                            preview.set_source(scan_state['data_url'])
+                            preview.style('display:block')
+                            raw_out.value = ''
+                        except Exception as ex:
+                            ui.notify(f'Upload failed: {ex}', type='negative')
+
+                    ui.upload(on_upload=_on_upload, auto_upload=True, label='Capture / Upload receipt') \
+                        .props("accept='image/*' capture='environment'") \
+                        .classes('w-full')
+
+                    async def _run_ocr() -> None:
+                        if not scan_state.get('data_url'):
+                            ui.notify('Please upload a receipt image first.', type='warning')
+                            return
+                        ui.notify('Scanning…', type='info')
+                        img_literal = json.dumps(str(scan_state.get('data_url', '')))
+                        js = f"""
+                            const img = {img_literal};
+                            if (!window.Tesseract) {{ return {{ ok: false, error: 'tesseract.js not loaded' }}; }}
+                            try {{
+                              const res = await Tesseract.recognize(img, 'eng');
+                              return {{ ok: true, text: res.data.text || '' }};
+                            }} catch (e) {{
+                              return {{ ok: false, error: String(e) }};
+                            }}
+                        """
+                        result = await ui.run_javascript(js)
+                        if not result or not isinstance(result, dict) or not result.get('ok'):
+                            err = (result or {}).get('error', 'Unknown OCR error') if isinstance(result, dict) else 'Unknown OCR error'
+                            ui.notify(f'OCR failed: {err}', type='negative')
+                            return
+                        text = str(result.get('text') or '')
+                        raw_out.value = text
+
+                        parsed = parse_receipt_text(text)
+                        # Fill form fields (best effort)
+                        if parsed.get('date'):
+                            d_date.value = parsed['date'].isoformat()
+                        if parsed.get('amount') is not None:
+                            d_amount.value = float(parsed['amount'])
+                        merch = str(parsed.get('merchant') or '').strip()
+                        last4 = str(parsed.get('card_last4') or '').strip()
+                        # prepend merchant/date hints into Notes, but don't overwrite if user already typed
+                        if merch or last4:
+                            prefix = []
+                            if merch:
+                                prefix.append(merch)
+                            if last4:
+                                prefix.append(f"****{last4}")
+                            hint = ' '.join(prefix)
+                            if not str(d_notes.value or '').strip():
+                                d_notes.value = hint
+                            else:
+                                d_notes.value = f"{hint} | {d_notes.value}"
+                        # try auto-pick method/account from last4
+                        if last4:
+                            # find account/method by cards sheet last4
+                            try:
+                                cards_df = cached_df('cards', force=True)
+                                if not cards_df.empty:
+                                    cols = [c.lower() for c in cards_df.columns]
+                                    # accept 'last4' or 'last_4' columns if present
+                                    last4_col = None
+                                    for c in cards_df.columns:
+                                        if c.lower() in ('last4', 'last_4', 'card_last4', 'card_last_4'):
+                                            last4_col = c
+                                            break
+                                    if last4_col:
+                                        match = cards_df[cards_df[last4_col].astype(str).str.contains(last4, na=False)]
+                                        if not match.empty:
+                                            row = match.iloc[0]
+                                            # prefer MethodName/Account columns if they exist
+                                            for meth_col in ('method_name', 'methodname', 'method'):
+                                                if meth_col in cols:
+                                                    d_method.value = str(row[cards_df.columns[cols.index(meth_col)]])
+                                                    break
+                                            for acc_col in ('account', 'account_name', 'accountname'):
+                                                if acc_col in cols:
+                                                    d_account.value = str(row[cards_df.columns[cols.index(acc_col)]])
+                                                    break
+                            except Exception:
+                                pass
+
+                        # Refresh category suggestion with updated notes
+                        _refresh_suggestion()
+                        ui.notify('Scan complete. Please review before saving.', type='positive')
+                        scan_dlg.close()
+
+                    with ui.row().classes('w-full justify-end gap-2'):
+                        ui.button('Run scan', on_click=_run_ocr).props('unelevated')
+                        ui.button('Close', on_click=scan_dlg.close).props('flat')
+
+                ui.button('Scan receipt', on_click=scan_dlg.open).props('outline').classes('w-full')
+
             # --- Live category suggestion (Option B): show suggestion while typing, apply on save unless user overrides ---
             category_touched = {"v": False}
             suggest_label = ui.label("").classes("text-xs")
@@ -1786,6 +2063,19 @@ def transactions_page():
             ui.label("Transactions").classes("text-lg font-bold")
             f_type = ui.select(["All"] + types, value="All", label="Type").classes("w-full")
             f_text = ui.input("Search notes/category/account").classes("w-full")
+            # Date range filter (defaults to last 30 days)
+            try:
+                _today = datetime.date.today()
+                _from = (_today - datetime.timedelta(days=30)).isoformat()
+                _to = _today.isoformat()
+            except Exception:
+                _from = ''
+                _to = ''
+            with ui.row().classes('w-full items-center gap-2'):
+                f_from = ui.input('From').props('type=date dense outlined').classes('w-40')
+                f_to = ui.input('To').props('type=date dense outlined').classes('w-40')
+            f_from.value = _from
+            f_to.value = _to
 
             table = ui.table(columns=[
                 {"name": "date", "label": "Date", "field": "date"},
@@ -1810,6 +2100,24 @@ def transactions_page():
                 df = tx.copy()
                 if f_type.value != "All":
                     df = df[df["type"].astype(str) == f_type.value]
+                # Date filter (inclusive)
+                try:
+                    d_from = parse_date(f_from.value) if f_from.value else None
+                    d_to = parse_date(f_to.value) if f_to.value else None
+                except Exception:
+                    d_from = d_to = None
+                if d_from or d_to:
+                    def _in_range(x):
+                        try:
+                            dx = parse_date(x)
+                        except Exception:
+                            return False
+                        if d_from and dx < d_from:
+                            return False
+                        if d_to and dx > d_to:
+                            return False
+                        return True
+                    df = df[df['date'].apply(_in_range)]
                 q = (f_text.value or "").strip().lower()
                 if q:
                     hay = (df["notes"].astype(str) + " " + df["category"].astype(str) + " " + df["account"].astype(str)).str.lower()
