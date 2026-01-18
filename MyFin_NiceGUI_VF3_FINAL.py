@@ -1723,11 +1723,39 @@ def add_page():
                     preview = ui.image('').classes('w-full rounded').style('display:none')
                     raw_out = ui.textarea('OCR text (debug)', value='').props('readonly').classes('w-full')
                     raw_out.style('max-height: 180px')
-
                     def _on_upload(e: Any) -> None:
+                        """Store the uploaded image as a data URL for client-side OCR (tesseract.js).
+
+                        NiceGUI versions differ in what they provide on the upload event, so we
+                        defensively extract bytes from several possible shapes.
+                        """
                         try:
-                            data = e.content.read()
-                            mime = getattr(e, 'type', None) or 'image/jpeg'
+                            data = None
+                            # Most common shapes across NiceGUI versions
+                            if hasattr(e, 'content'):
+                                c = getattr(e, 'content')
+                                if hasattr(c, 'read'):
+                                    data = c.read()
+                                elif isinstance(c, (bytes, bytearray)):
+                                    data = bytes(c)
+                            if data is None and hasattr(e, 'file'):
+                                f = getattr(e, 'file')
+                                # starlette UploadFile style
+                                if hasattr(f, 'read'):
+                                    data = f.read()
+                                elif hasattr(f, 'file') and hasattr(f.file, 'read'):
+                                    data = f.file.read()
+                            if data is None and isinstance(e, dict):
+                                c = e.get('content') or e.get('file')
+                                if hasattr(c, 'read'):
+                                    data = c.read()
+                                elif isinstance(c, (bytes, bytearray)):
+                                    data = bytes(c)
+
+                            if not data:
+                                raise ValueError('no file bytes received')
+
+                            mime = getattr(e, 'type', None) or getattr(e, 'mime_type', None) or 'image/jpeg'
                             scan_state['data_url'] = f"data:{mime};base64,{base64.b64encode(data).decode('utf-8')}"
                             preview.set_source(scan_state['data_url'])
                             preview.style('display:block')
