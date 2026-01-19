@@ -1,6 +1,6 @@
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICEGUI_VF2_P3_12_3.py
+File: Myfin_NICEGUI_VF2_P3_14.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -2025,217 +2025,221 @@ def add_page():
                 scan_dlg = ui.dialog()
                 parsed_state: Dict[str, Any] = {"parsed": None}
                 with scan_dlg, ui.card().classes('my-card p-4 w-[720px] max-w-[95vw]'):
-                    ui.label('Scan receipt').classes('text-lg font-bold')
-                    ui.label('Tip: on iPhone, this will prompt for camera access.').classes('text-xs').style('color: var(--mf-muted)')
+                    # Keep action buttons visible on mobile by making the content area scrollable.
+                    with ui.column().classes('w-full max-h-[70vh] overflow-y-auto pr-1'):
+                        ui.label('Scan receipt').classes('text-lg font-bold')
+                        ui.label('Tip: on iPhone, this will prompt for camera access.').classes('text-xs').style('color: var(--mf-muted)')
 
-                    preview = ui.image('').classes('w-full rounded').style('display:none')
+                        preview = ui.image('').classes('w-full rounded').style('display:none')
 
-                    # Parsed preview (filled after OCR)
-                    with ui.card().classes('my-card p-3 w-full').style('display:none') as parsed_card:
-                        ui.label('Detected fields (review before applying)').classes('text-sm font-bold')
-                        pv_merchant = ui.input('Merchant', value='').props('readonly').classes('w-full')
-                        pv_date = ui.input('Date', value='').props('readonly').classes('w-full')
-                        pv_amount = ui.input('Total amount', value='').props('readonly').classes('w-full')
-                        pv_last4 = ui.input('Card last-4', value='').props('readonly').classes('w-full')
-                        pv_conf = ui.label('').classes('text-xs').style('color: var(--mf-muted)')
+                        # Parsed preview (filled after OCR)
+                        with ui.card().classes('my-card p-3 w-full').style('display:none') as parsed_card:
+                            ui.label('Detected fields (review before applying)').classes('text-sm font-bold')
+                            pv_merchant = ui.input('Merchant', value='').props('readonly').classes('w-full')
+                            pv_date = ui.input('Date', value='').props('readonly').classes('w-full')
+                            pv_amount = ui.input('Total amount', value='').props('readonly').classes('w-full')
+                            pv_last4 = ui.input('Card last-4', value='').props('readonly').classes('w-full')
+                            pv_conf = ui.label('').classes('text-xs').style('color: var(--mf-muted)')
 
-                    raw_out = ui.textarea('OCR text (debug)', value='').props('readonly').classes('w-full')
-                    raw_out.style('max-height: 180px')
+                        raw_out = ui.textarea('OCR text (debug)', value='').props('readonly').classes('w-full')
+                        raw_out.style('max-height: 160px')
 
-                    async def _on_upload(e: Any) -> None:
-                        """Store uploaded image as a data URL for client-side OCR (tesseract.js).
+                        async def _on_upload(e: Any) -> None:
+                            """Store uploaded image as a data URL for client-side OCR (tesseract.js).
 
-                        NOTE: On Render/iOS, NiceGUI's upload content reader is async.
-                        If we don't await it, we end up passing a coroutine (not bytes) and the
-                        OCR pipeline fails with: "a bytes-like object is required, not 'coroutine'".
-                        """
+                            NOTE: On Render/iOS, NiceGUI's upload content reader is async.
+                            If we don't await it, we end up passing a coroutine (not bytes) and the
+                            OCR pipeline fails with: "a bytes-like object is required, not 'coroutine'".
+                            """
 
-                        async def _read_bytes(obj: Any) -> Optional[bytes]:
-                            if obj is None:
+                            async def _read_bytes(obj: Any) -> Optional[bytes]:
+                                if obj is None:
+                                    return None
+                                if isinstance(obj, (bytes, bytearray)):
+                                    return bytes(obj)
+                                if hasattr(obj, 'read'):
+                                    res = obj.read()
+                                    if asyncio.iscoroutine(res):
+                                        res = await res
+                                    if isinstance(res, (bytes, bytearray)):
+                                        return bytes(res)
                                 return None
-                            if isinstance(obj, (bytes, bytearray)):
-                                return bytes(obj)
-                            if hasattr(obj, 'read'):
-                                res = obj.read()
-                                if asyncio.iscoroutine(res):
-                                    res = await res
-                                if isinstance(res, (bytes, bytearray)):
-                                    return bytes(res)
-                            return None
 
-                        try:
-                            data: Optional[bytes] = None
-                            if hasattr(e, 'content'):
-                                data = await _read_bytes(getattr(e, 'content'))
-                            if data is None and hasattr(e, 'file'):
-                                f = getattr(e, 'file')
-                                data = await _read_bytes(f)
-                                if data is None and hasattr(f, 'file'):
-                                    data = await _read_bytes(getattr(f, 'file'))
-                            if data is None and isinstance(e, dict):
-                                c = e.get('content') or e.get('file')
-                                data = await _read_bytes(c)
+                            try:
+                                data: Optional[bytes] = None
+                                if hasattr(e, 'content'):
+                                    data = await _read_bytes(getattr(e, 'content'))
+                                if data is None and hasattr(e, 'file'):
+                                    f = getattr(e, 'file')
+                                    data = await _read_bytes(f)
+                                    if data is None and hasattr(f, 'file'):
+                                        data = await _read_bytes(getattr(f, 'file'))
+                                if data is None and isinstance(e, dict):
+                                    c = e.get('content') or e.get('file')
+                                    data = await _read_bytes(c)
 
-                            if not data:
-                                raise ValueError('no file bytes received')
+                                if not data:
+                                    raise ValueError('no file bytes received')
 
-                            mime = getattr(e, 'type', None) or getattr(e, 'mime_type', None) or 'image/jpeg'
-                            scan_state['data_url'] = f"data:{mime};base64,{base64.b64encode(data).decode('utf-8')}"
-                            preview.set_source(scan_state['data_url'])
-                            preview.style('display:block')
-                            raw_out.value = ''
-                            parsed_state['parsed'] = None
-                            parsed_card.style('display:none')
-                            apply_btn.disable()
-                        except Exception as ex:
-                            ui.notify(f'Upload failed: {ex}', type='negative')
+                                mime = getattr(e, 'type', None) or getattr(e, 'mime_type', None) or 'image/jpeg'
+                                scan_state['data_url'] = f"data:{mime};base64,{base64.b64encode(data).decode('utf-8')}"
+                                preview.set_source(scan_state['data_url'])
+                                preview.style('display:block')
+                                raw_out.value = ''
+                                parsed_state['parsed'] = None
+                                parsed_card.style('display:none')
+                                apply_btn.disable()
+                            except Exception as ex:
+                                ui.notify(f'Upload failed: {ex}', type='negative')
 
-                    ui.upload(on_upload=_on_upload, auto_upload=True, label='Capture / Upload receipt')                         .props("accept='image/*' capture='environment'")                         .classes('w-full')
+                        ui.upload(on_upload=_on_upload, auto_upload=True, label='Capture / Upload receipt')                         .props("accept='image/*' capture='environment'")                         .classes('w-full')
 
-                    async def _run_ocr() -> None:
-                        if not scan_state.get('data_url'):
-                            ui.notify('Please upload a receipt image first.', type='warning')
-                            return
-                        ui.notify('Scanning…', type='info')
-                        img_literal = json.dumps(str(scan_state.get('data_url', '')))
-                        js = f"""
-                            // Client-side OCR (tesseract.js).
-                            // We downscale large images first to avoid timeouts on mobile Safari.
-                            const img = {img_literal};
-                            if (!window.Tesseract) {{ return {{ ok: false, error: 'tesseract.js not loaded' }}; }}
-                            const downscale = async (dataUrl) => new Promise((resolve) => {{
-                              const im = new Image();
-                              im.onload = () => {{
+                        async def _run_ocr() -> None:
+                            if not scan_state.get('data_url'):
+                                ui.notify('Please upload a receipt image first.', type='warning')
+                                return
+                            ui.notify('Scanning…', type='info')
+                            img_literal = json.dumps(str(scan_state.get('data_url', '')))
+                            js = f"""
+                                // Client-side OCR (tesseract.js).
+                                // We downscale large images first to avoid timeouts on mobile Safari.
+                                const img = {img_literal};
+                                if (!window.Tesseract) {{ return {{ ok: false, error: 'tesseract.js not loaded' }}; }}
+                                const downscale = async (dataUrl) => new Promise((resolve) => {{
+                                  const im = new Image();
+                                  im.onload = () => {{
+                                    try {{
+                                      const maxW = 1200;
+                                      const maxH = 1600;
+                                      let w = im.width, h = im.height;
+                                      const scale = Math.min(1, maxW / w, maxH / h);
+                                      w = Math.max(1, Math.floor(w * scale));
+                                      h = Math.max(1, Math.floor(h * scale));
+                                      const c = document.createElement('canvas');
+                                      c.width = w; c.height = h;
+                                      const ctx = c.getContext('2d');
+                                      ctx.drawImage(im, 0, 0, w, h);
+                                      resolve(c.toDataURL('image/jpeg', 0.85));
+                                    }} catch (e) {{
+                                      resolve(dataUrl);
+                                    }}
+                                  }};
+                                  im.onerror = () => resolve(dataUrl);
+                                  im.src = dataUrl;
+                                }});
                                 try {{
-                                  const maxW = 1200;
-                                  const maxH = 1600;
-                                  let w = im.width, h = im.height;
-                                  const scale = Math.min(1, maxW / w, maxH / h);
-                                  w = Math.max(1, Math.floor(w * scale));
-                                  h = Math.max(1, Math.floor(h * scale));
-                                  const c = document.createElement('canvas');
-                                  c.width = w; c.height = h;
-                                  const ctx = c.getContext('2d');
-                                  ctx.drawImage(im, 0, 0, w, h);
-                                  resolve(c.toDataURL('image/jpeg', 0.85));
+                                  const small = await downscale(img);
+                                  const res = await Tesseract.recognize(small, 'eng');
+                                  return {{ ok: true, text: res.data.text || '' }};
                                 }} catch (e) {{
-                                  resolve(dataUrl);
+                                  return {{ ok: false, error: String(e) }};
                                 }}
-                              }};
-                              im.onerror = () => resolve(dataUrl);
-                              im.src = dataUrl;
-                            }});
-                            try {{
-                              const small = await downscale(img);
-                              const res = await Tesseract.recognize(small, 'eng');
-                              return {{ ok: true, text: res.data.text || '' }};
-                            }} catch (e) {{
-                              return {{ ok: false, error: String(e) }};
-                            }}
-                        """
-                        try:
-                            # Mobile/browser OCR can easily take several seconds; 1s default is too low.
-                            result = await ui.run_javascript(js, timeout=60.0)
-                        except TimeoutError:
-                            ui.notify('OCR timed out (slow device/network). Try retaking closer or smaller image.', type='negative')
-                            return
-                        except Exception as ex:
-                            ui.notify(f'OCR failed: {ex}', type='negative')
-                            return
-
-                        if not result or not isinstance(result, dict) or not result.get('ok'):
-                            err = (result or {}).get('error', 'Unknown OCR error') if isinstance(result, dict) else 'Unknown OCR error'
-                            ui.notify(f'OCR failed: {err}', type='negative')
-                            return
-
-                        text = str(result.get('text') or '')
-                        raw_out.value = text
-
-                        parsed = parse_receipt_text(text)
-                        parsed_state['parsed'] = parsed
-
-                        merch = str(parsed.get('merchant') or '').strip()
-                        last4 = str(parsed.get('card_last4') or '').strip()
-                        rdate = parsed.get('date')
-                        amt = parsed.get('amount')
-                        conf = float(parsed.get('amount_confidence') or 0.0)
-                        src = str(parsed.get('amount_source') or '')
-
-                        # Update preview UI
-                        pv_merchant.value = merch
-                        pv_date.value = (rdate.isoformat() if rdate else '')
-                        pv_amount.value = (f"{float(amt):.2f}" if amt is not None else '')
-                        pv_last4.value = last4
-                        pv_conf.text = f"Amount confidence: {conf:.1f}/10 (source: {src})" + (" — please double-check" if conf < 3.0 else "")
-                        parsed_card.style('display:block')
-                        apply_btn.enable()
-
-                        if conf < 3.0:
-                            ui.notify('Low confidence TOTAL detected — verify amount before applying.', type='warning')
-                        else:
-                            ui.notify('Scan complete. Review and tap Apply.', type='positive')
-
-                    def _apply_to_form() -> None:
-                        parsed = parsed_state.get('parsed') or {}
-                        if not parsed:
-                            ui.notify('Nothing to apply yet.', type='warning')
-                            return
-
-                        merch = str(parsed.get('merchant') or '').strip()
-                        last4 = str(parsed.get('card_last4') or '').strip()
-                        rdate = parsed.get('date')
-                        amt = parsed.get('amount')
-                        conf = float(parsed.get('amount_confidence') or 0.0)
-
-                        if rdate:
-                            d_date.value = rdate.isoformat()
-                        if amt is not None:
-                            # Even when low confidence, pre-fill but warn. User can edit before saving.
+                            """
                             try:
-                                d_amount.value = float(amt)
-                            except Exception:
-                                pass
+                                # Mobile/browser OCR can easily take several seconds; 1s default is too low.
+                                result = await ui.run_javascript(js, timeout=60.0)
+                            except TimeoutError:
+                                ui.notify('OCR timed out (slow device/network). Try retaking closer or smaller image.', type='negative')
+                                return
+                            except Exception as ex:
+                                ui.notify(f'OCR failed: {ex}', type='negative')
+                                return
 
-                        # Notes hint
-                        if merch or last4:
-                            prefix = []
-                            if merch:
-                                prefix.append(merch)
-                            if last4:
-                                prefix.append(f"****{last4}")
-                            hint = ' '.join(prefix)
-                            if not str(d_notes.value or '').strip():
-                                d_notes.value = hint
+                            if not result or not isinstance(result, dict) or not result.get('ok'):
+                                err = (result or {}).get('error', 'Unknown OCR error') if isinstance(result, dict) else 'Unknown OCR error'
+                                ui.notify(f'OCR failed: {err}', type='negative')
+                                return
+
+                            text = str(result.get('text') or '')
+                            raw_out.value = text
+
+                            parsed = parse_receipt_text(text)
+                            parsed_state['parsed'] = parsed
+
+                            merch = str(parsed.get('merchant') or '').strip()
+                            last4 = str(parsed.get('card_last4') or '').strip()
+                            rdate = parsed.get('date')
+                            amt = parsed.get('amount')
+                            conf = float(parsed.get('amount_confidence') or 0.0)
+                            src = str(parsed.get('amount_source') or '')
+
+                            # Update preview UI
+                            pv_merchant.value = merch
+                            pv_date.value = (rdate.isoformat() if rdate else '')
+                            pv_amount.value = (f"{float(amt):.2f}" if amt is not None else '')
+                            pv_last4.value = last4
+                            pv_conf.text = f"Amount confidence: {conf:.1f}/10 (source: {src})" + (" — please double-check" if conf < 3.0 else "")
+                            parsed_card.style('display:block')
+                            apply_btn.enable()
+
+                            if conf < 3.0:
+                                ui.notify('Low confidence TOTAL detected — verify amount before applying.', type='warning')
                             else:
-                                d_notes.value = f"{hint} | {d_notes.value}"
+                                ui.notify('Scan complete. Review and tap Apply.', type='positive')
 
-                        # Try auto-pick account from detected last-4 (optional).
-                        # If no mapping exists / no match, we keep the remembered default selection.
-                        if last4:
-                            try:
-                                cards_df = cached_df('cards', force=True)
-                                acct = pick_account_from_last4(cards_df, last4)
-                                if acct and (acct in accounts):
-                                    d_account.value = acct
-                                    # Most receipts are card-based; set method if available.
-                                    if 'Card' in methods:
-                                        d_method.value = 'Card'
-                            except Exception:
-                                pass
+                        def _apply_to_form() -> None:
+                            parsed = parsed_state.get('parsed') or {}
+                            if not parsed:
+                                ui.notify('Nothing to apply yet.', type='warning')
+                                return
 
-                        # Refresh category suggestion with updated notes
-                        _refresh_suggestion()
-                        if conf < 3.0:
-                            ui.notify('Applied, but amount confidence was low — please verify before saving.', type='warning')
-                        else:
-                            ui.notify('Applied scan results. Please review and save.', type='positive')
-                        scan_dlg.close()
+                            merch = str(parsed.get('merchant') or '').strip()
+                            last4 = str(parsed.get('card_last4') or '').strip()
+                            rdate = parsed.get('date')
+                            amt = parsed.get('amount')
+                            conf = float(parsed.get('amount_confidence') or 0.0)
 
-                    with ui.row().classes('w-full justify-end gap-2'):
-                        ui.button('Run scan', on_click=_run_ocr).props('outline')
+                            if rdate:
+                                d_date.value = rdate.isoformat()
+                            if amt is not None:
+                                # Even when low confidence, pre-fill but warn. User can edit before saving.
+                                try:
+                                    d_amount.value = float(amt)
+                                except Exception:
+                                    pass
+
+                            # Notes hint
+                            if merch or last4:
+                                prefix = []
+                                if merch:
+                                    prefix.append(merch)
+                                if last4:
+                                    prefix.append(f"****{last4}")
+                                hint = ' '.join(prefix)
+                                if not str(d_notes.value or '').strip():
+                                    d_notes.value = hint
+                                else:
+                                    d_notes.value = f"{hint} | {d_notes.value}"
+
+                            # Try auto-pick account from detected last-4 (optional).
+                            # If no mapping exists / no match, we keep the remembered default selection.
+                            if last4:
+                                try:
+                                    cards_df = cached_df('cards', force=True)
+                                    acct = pick_account_from_last4(cards_df, last4)
+                                    if acct and (acct in accounts):
+                                        d_account.value = acct
+                                        # Most receipts are card-based; set method if available.
+                                        if 'Card' in methods:
+                                            d_method.value = 'Card'
+                                except Exception:
+                                    pass
+
+                            # Refresh category suggestion with updated notes
+                            _refresh_suggestion()
+                            if conf < 3.0:
+                                ui.notify('Applied, but amount confidence was low — please verify before saving.', type='warning')
+                            else:
+                                ui.notify('Applied scan results. Please review and save.', type='positive')
+                            scan_dlg.close()
+
+                    # Sticky footer so buttons don't get pushed below the upload card on mobile
+                    with ui.row().classes('w-full items-center gap-2 sticky bottom-0').style('background: rgba(8,12,20,0.92); backdrop-filter: blur(8px); padding: 10px; border-top: 1px solid rgba(255,255,255,0.06)'):
+                        ui.button('Run scan', on_click=_run_ocr).props('unelevated').classes('flex-1')
                         apply_btn = ui.button('Apply', on_click=_apply_to_form).props('unelevated')
+                        apply_btn.classes('flex-1')
                         apply_btn.disable()
-                        ui.button('Close', on_click=scan_dlg.close).props('flat')
+                        ui.button('Close', on_click=scan_dlg.close).props('outline')
 
                 ui.button('Scan receipt', on_click=scan_dlg.open).props('outline').classes('w-full')
 
@@ -2522,6 +2526,8 @@ def transactions_page():
             ui.label("Transactions").classes("text-lg font-bold")
             f_type = ui.select(["All"] + types, value="All", label="Type").classes("w-full")
             f_text = ui.input("Search notes/category/account").classes("w-full")
+            sort_opts = ["Date (new → old)", "Date (old → new)", "Amount (high → low)", "Amount (low → high)"]
+            f_sort = ui.select(sort_opts, value=sort_opts[0], label="Sort").classes("w-full")
             # Date range filter (defaults to last 30 days)
             try:
                 _today = datetime.date.today()
@@ -2581,6 +2587,24 @@ def transactions_page():
                 if q:
                     hay = (df["notes"].astype(str) + " " + df["category"].astype(str) + " " + df["account"].astype(str)).str.lower()
                     df = df[hay.str.contains(q, na=False)]
+                # Sorting
+                try:
+                    sort_choice = f_sort.value or "Date (new → old)"
+                except Exception:
+                    sort_choice = "Date (new → old)"
+
+                if "Amount" in sort_choice:
+                    df["__amt"] = df["amount"].apply(to_float)
+                    ascending = "low → high" in sort_choice
+                    df = df.sort_values(by="__amt", ascending=ascending)
+                    df = df.drop(columns=["__amt"], errors="ignore")
+                else:
+                    # Date sorting uses parsed date
+                    if "date_parsed" not in df.columns:
+                        df["date_parsed"] = df["date"].apply(parse_date)
+                    ascending = "old → new" in sort_choice
+                    df = df.sort_values(by="date_parsed", ascending=ascending)
+
                 df = df.head(250)
                 df["amount"] = df["amount"].apply(lambda x: currency(to_float(x)))
                 table.rows = df.to_dict(orient="records")
@@ -2588,6 +2612,9 @@ def transactions_page():
 
             f_type.on("update:model-value", lambda e: refresh_table())
             f_text.on("update:model-value", lambda e: refresh_table())
+            f_sort.on("update:model-value", lambda e: refresh_table())
+            f_from.on("update:model-value", lambda e: refresh_table())
+            f_to.on("update:model-value", lambda e: refresh_table())
 
             refresh_table()
 
