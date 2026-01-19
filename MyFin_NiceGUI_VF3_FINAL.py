@@ -1,6 +1,6 @@
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICEGUI_VF2_P3_11.py
+File: Myfin_NICEGUI_VF2_P3_12_1.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -32,7 +32,7 @@ Expected Google Sheet tabs (auto-created if missing)
 - rules
 
 Render start command
-- python Myfin_NICEGUI_VF2_P3_11.py
+- python Myfin_NICEGUI_VF2_P3_12_1.py
 """
 
 from __future__ import annotations
@@ -1774,6 +1774,10 @@ def add_page():
         categories = categories_list()
         methods = methods_list()
 
+        # Remember last-used method/account for Expense (Debit) so you don't reselect every time.
+        last_debit_method = str(ui.storage.user.get('last_debit_method', '') or '').strip()
+        last_debit_account = str(ui.storage.user.get('last_debit_account', '') or '').strip()
+
         dlg = ui.dialog()
         with dlg, ui.card().classes("my-card p-5 w-[620px] max-w-[95vw]"):
             ui.label(f"Add: {entry_type}").classes("text-lg font-bold")
@@ -1781,9 +1785,13 @@ def add_page():
             d_date = ui.input("Date", value=today().isoformat()).props("type=date").classes("w-full")
             d_amount = ui.number("Amount", value=0.0, format="%.2f").classes("w-full")
 
-            default_method = ("Card" if entry_type.lower() == "debit" else "Other")
-            d_method = ui.select(methods, value=default_method, label="Method").classes("w-full")
-            d_account = ui.select(accounts or [""], value=(accounts[0] if accounts else ""), label="Account").classes("w-full")
+            is_debit = entry_type.lower() == 'debit'
+            default_method = ("Card" if is_debit else "Other")
+            # Presets override remembered defaults.
+            method_default = (preset_method or (last_debit_method if (is_debit and last_debit_method in methods) else default_method))
+            account_default = (preset_account or (last_debit_account if (is_debit and last_debit_account in accounts) else (accounts[0] if accounts else "")))
+            d_method = ui.select(methods, value=method_default, label="Method").classes("w-full")
+            d_account = ui.select(accounts or [""], value=account_default, label="Account").classes("w-full")
             d_category = ui.select(categories, value="Uncategorized", label="Category").classes("w-full")
             d_notes = ui.textarea("Notes", value="").classes("w-full")
             d_rec = ui.checkbox("Mark as recurring (creates template for future cycles only)")
@@ -1869,16 +1877,50 @@ def add_page():
                         ui.notify('Scanning…', type='info')
                         img_literal = json.dumps(str(scan_state.get('data_url', '')))
                         js = f"""
+                            // Client-side OCR (tesseract.js).
+                            // We downscale large images first to avoid timeouts on mobile Safari.
                             const img = {img_literal};
                             if (!window.Tesseract) {{ return {{ ok: false, error: 'tesseract.js not loaded' }}; }}
+                            const downscale = async (dataUrl) => new Promise((resolve) => {{
+                              const im = new Image();
+                              im.onload = () => {{
+                                try {{
+                                  const maxW = 1200;
+                                  const maxH = 1600;
+                                  let w = im.width, h = im.height;
+                                  const scale = Math.min(1, maxW / w, maxH / h);
+                                  w = Math.max(1, Math.floor(w * scale));
+                                  h = Math.max(1, Math.floor(h * scale));
+                                  const c = document.createElement('canvas');
+                                  c.width = w; c.height = h;
+                                  const ctx = c.getContext('2d');
+                                  ctx.drawImage(im, 0, 0, w, h);
+                                  resolve(c.toDataURL('image/jpeg', 0.85));
+                                }} catch (e) {{
+                                  resolve(dataUrl);
+                                }}
+                              }};
+                              im.onerror = () => resolve(dataUrl);
+                              im.src = dataUrl;
+                            }});
                             try {{
-                              const res = await Tesseract.recognize(img, 'eng');
+                              const small = await downscale(img);
+                              const res = await Tesseract.recognize(small, 'eng');
                               return {{ ok: true, text: res.data.text || '' }};
                             }} catch (e) {{
                               return {{ ok: false, error: String(e) }};
                             }}
                         """
-                        result = await ui.run_javascript(js)
+                        try:
+                            # Mobile/browser OCR can easily take several seconds; 1s default is too low.
+                            result = await ui.run_javascript(js, timeout=60.0)
+                        except TimeoutError:
+                            ui.notify('OCR timed out (slow device/network). Try retaking closer or smaller image.', type='negative')
+                            return
+                        except Exception as ex:
+                            ui.notify(f'OCR failed: {ex}', type='negative')
+                            return
+
                         if not result or not isinstance(result, dict) or not result.get('ok'):
                             err = (result or {}).get('error', 'Unknown OCR error') if isinstance(result, dict) else 'Unknown OCR error'
                             ui.notify(f'OCR failed: {err}', type='negative')
@@ -1945,29 +1987,17 @@ def add_page():
                             else:
                                 d_notes.value = f"{hint} | {d_notes.value}"
 
-                        # Try auto-pick method/account from last4
+                        # Try auto-pick account from detected last-4 (optional).
+                        # If no mapping exists / no match, we keep the remembered default selection.
                         if last4:
                             try:
                                 cards_df = cached_df('cards', force=True)
-                                if not cards_df.empty:
-                                    cols = [c.lower() for c in cards_df.columns]
-                                    last4_col = None
-                                    for c in cards_df.columns:
-                                        if c.lower() in ('last4', 'last_4', 'card_last4', 'card_last_4'):
-                                            last4_col = c
-                                            break
-                                    if last4_col:
-                                        match = cards_df[cards_df[last4_col].astype(str).str.contains(last4, na=False)]
-                                        if not match.empty:
-                                            row = match.iloc[0]
-                                            for meth_col in ('method_name', 'methodname', 'method'):
-                                                if meth_col in cols:
-                                                    d_method.value = str(row[cards_df.columns[cols.index(meth_col)]])
-                                                    break
-                                            for acc_col in ('account', 'account_name', 'accountname'):
-                                                if acc_col in cols:
-                                                    d_account.value = str(row[cards_df.columns[cols.index(acc_col)]])
-                                                    break
+                                acct = pick_account_from_last4(cards_df, last4)
+                                if acct and (acct in accounts):
+                                    d_account.value = acct
+                                    # Most receipts are card-based; set method if available.
+                                    if 'Card' in methods:
+                                        d_method.value = 'Card'
                             except Exception:
                                 pass
 
@@ -2032,6 +2062,16 @@ def add_page():
                 method = str(d_method.value or "Other").strip()
 
                 account = str(d_account.value or "").strip()
+
+                # Remember last-used card/account for Expenses (Debit) so next time it's preselected.
+                try:
+                    if entry_type.lower() == 'debit':
+                        if method:
+                            ui.storage.user['last_debit_method'] = method
+                        if account:
+                            ui.storage.user['last_debit_account'] = account
+                except Exception:
+                    pass
 
                 category = str(d_category.value or "Uncategorized").strip()
 
