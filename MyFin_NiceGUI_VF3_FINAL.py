@@ -1,6 +1,6 @@
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICEGUI_VF2_P3_12_2.py
+File: Myfin_NICEGUI_VF2_P3_12_3.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -32,7 +32,7 @@ Expected Google Sheet tabs (auto-created if missing)
 - rules
 
 Render start command
-- python Myfin_NICEGUI_VF2_P3_12_2.py
+- python Myfin_NICEGUI_VF2_P3_12_3.py
 """
 
 from __future__ import annotations
@@ -327,21 +327,70 @@ def _guess_merchant_from_text(text: str) -> str:
 
 
 def _extract_date_from_text(text: str) -> Optional[dt.date]:
-    """Try multiple date patterns commonly found on receipts."""
-    # patterns with 4-digit year
-    patterns = [
-        r"(\d{4}[-/]\d{2}[-/]\d{2})",          # 2026-01-18
-        r"(\d{2}[-/]\d{2}[-/]\d{4})",          # 18/01/2026 or 01/18/2026
-        r"(\d{2}\s+[A-Za-z]{3,9}\s+\d{4})",   # 18 Jan 2026 / 18 January 2026
-        r"([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})",# Jan 18, 2026
-    ]
-    for pat in patterns:
-        m = re.search(pat, text)
-        if not m:
-            continue
-        d = parse_date(m.group(1))
-        if d:
+    """Try to extract a receipt date from OCR text.
+
+    Handles common formats, including those with time appended.
+    If the year is missing, we assume the current year (best-effort).
+    """
+    if not text:
+        return None
+
+    def _pick_plausible(d: Optional[dt.date]) -> Optional[dt.date]:
+        if not d:
+            return None
+        today_d = today()
+        # Plausible window: within ~2 years of today (receipts are recent)
+        if abs((d - today_d).days) <= 730:
             return d
+        return d
+
+    # Prefer lines that explicitly mention DATE (and nearby)
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    preferred = []
+    for ln in lines:
+        up = ln.upper()
+        if 'DATE' in up or 'TIME' in up or 'PURCHASE' in up:
+            preferred.append(ln)
+
+    haystacks = preferred + lines
+
+    # Regex patterns (we extract the date part, ignore time if present)
+    patterns = [
+        r"(\d{4}[-/]\d{1,2}[-/]\d{1,2})",                 # 2026-01-18 / 2026/1/18
+        r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})",               # 18/01/2026, 01/18/26, 1-7-24
+        r"(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4})",          # 18 Jan 2026 / 18 January 24
+        r"([A-Za-z]{3,9}\s+\d{1,2},\s*\d{2,4})",         # Jan 18, 2026
+        r"(\d{1,2}[-/]\d{1,2})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?"  # 01/27 18:08:08 (no year)
+    ]
+
+    for ln in haystacks:
+        for pat in patterns:
+            m = re.search(pat, ln)
+            if not m:
+                continue
+            s = m.group(1)
+            d = parse_date(s)
+            if d:
+                return _pick_plausible(d)
+
+            # If no year, assume current year
+            if re.fullmatch(r"\d{1,2}[-/]\d{1,2}", s):
+                try:
+                    mm, dd = re.split(r"[-/]", s)
+                    mm_i = int(mm)
+                    dd_i = int(dd)
+                    # Try MM/DD first (common in North America)
+                    d1 = dt.date(today().year, mm_i, dd_i)
+                    return _pick_plausible(d1)
+                except Exception:
+                    # Try DD/MM fallback
+                    try:
+                        dd, mm = re.split(r"[-/]", s)
+                        d2 = dt.date(today().year, int(mm), int(dd))
+                        return _pick_plausible(d2)
+                    except Exception:
+                        pass
+
     return None
 
 
@@ -1116,7 +1165,7 @@ def invalidate(*tabs: str) -> None:
 # -----------------------------
 # Rules + Category inference
 # -----------------------------
-def load_rules() -> List[Tuple[str, str]]:
+def load_rules(force: bool = False) -> List[Tuple[str, str]]:
     """Load rule keywords from the **Rules** sheet.
 
     Accepts flexible header names because the sheet evolves over time.
@@ -1124,7 +1173,7 @@ def load_rules() -> List[Tuple[str, str]]:
       - keyword column: one keyword or a comma-separated list of keywords
       - category column: the target category to assign when keyword matches notes
     """
-    df = cached_df('rules')
+    df = cached_df('rules', force=force)
     if df.empty:
         return []
 
@@ -2023,7 +2072,16 @@ def add_page():
             suggest_label.style("color: var(--mf-muted)")
 
             def _refresh_suggestion(_: Any = None) -> None:
-                suggestion = infer_category(str(d_notes.value or ""), rules) or "Uncategorized"
+                active_rules = rules
+                if not active_rules:
+                    # Try once to load rules (in case sheet headers were fixed after app boot)
+                    active_rules = load_rules(force=True)
+                if not active_rules:
+                    suggest_label.text = "Suggested category: Uncategorized (no rules loaded)"
+                    if not category_touched["v"]:
+                        d_category.value = "Uncategorized"
+                    return
+                suggestion = infer_category(str(d_notes.value or ""), active_rules) or "Uncategorized"
                 suggest_label.text = f"Suggested category: {suggestion}"
                 if not category_touched["v"]:
                     d_category.value = suggestion
@@ -2046,7 +2104,13 @@ def add_page():
             def autofill():
                 # manual button: set category based on current notes
                 category_touched["v"] = True
-                d_category.value = infer_category(d_notes.value or "", rules) or "Uncategorized"
+                # force-refresh rules so updates in the sheet are picked up
+                fresh_rules = load_rules(force=True)  # force refresh so sheet updates are picked up
+                if not fresh_rules:
+                    ui.notify('No rules loaded (check Rules sheet columns). Keeping Uncategorized.', type='warning')
+                    d_category.value = 'Uncategorized'
+                    return
+                d_category.value = infer_category(d_notes.value or "", fresh_rules) or "Uncategorized"
                 ui.notify("Category updated", type="positive")
 
             ui.button("Auto-category", on_click=autofill).props("flat")
