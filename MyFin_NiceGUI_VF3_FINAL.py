@@ -1,6 +1,6 @@
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICEGUI_VF2_P3_10.py
+File: Myfin_NICEGUI_VF2_P3_11.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -32,7 +32,7 @@ Expected Google Sheet tabs (auto-created if missing)
 - rules
 
 Render start command
-- python Myfin_NICEGUI_VF2_P3_10.py
+- python Myfin_NICEGUI_VF2_P3_11.py
 """
 
 from __future__ import annotations
@@ -64,6 +64,7 @@ import time
 import calendar
 import hashlib
 import base64
+import asyncio
 import datetime as dt
 from typing import Any, Dict, List, Optional, Tuple, cast
 
@@ -1811,28 +1812,39 @@ def add_page():
                     raw_out = ui.textarea('OCR text (debug)', value='').props('readonly').classes('w-full')
                     raw_out.style('max-height: 180px')
 
-                    def _on_upload(e: Any) -> None:
-                        # Store uploaded image as data URL for client-side OCR (tesseract.js).
+                    async def _on_upload(e: Any) -> None:
+                        """Store uploaded image as a data URL for client-side OCR (tesseract.js).
+
+                        NOTE: On Render/iOS, NiceGUI's upload content reader is async.
+                        If we don't await it, we end up passing a coroutine (not bytes) and the
+                        OCR pipeline fails with: "a bytes-like object is required, not 'coroutine'".
+                        """
+
+                        async def _read_bytes(obj: Any) -> Optional[bytes]:
+                            if obj is None:
+                                return None
+                            if isinstance(obj, (bytes, bytearray)):
+                                return bytes(obj)
+                            if hasattr(obj, 'read'):
+                                res = obj.read()
+                                if asyncio.iscoroutine(res):
+                                    res = await res
+                                if isinstance(res, (bytes, bytearray)):
+                                    return bytes(res)
+                            return None
+
                         try:
-                            data = None
+                            data: Optional[bytes] = None
                             if hasattr(e, 'content'):
-                                c = getattr(e, 'content')
-                                if hasattr(c, 'read'):
-                                    data = c.read()
-                                elif isinstance(c, (bytes, bytearray)):
-                                    data = bytes(c)
+                                data = await _read_bytes(getattr(e, 'content'))
                             if data is None and hasattr(e, 'file'):
                                 f = getattr(e, 'file')
-                                if hasattr(f, 'read'):
-                                    data = f.read()
-                                elif hasattr(f, 'file') and hasattr(f.file, 'read'):
-                                    data = f.file.read()
+                                data = await _read_bytes(f)
+                                if data is None and hasattr(f, 'file'):
+                                    data = await _read_bytes(getattr(f, 'file'))
                             if data is None and isinstance(e, dict):
                                 c = e.get('content') or e.get('file')
-                                if hasattr(c, 'read'):
-                                    data = c.read()
-                                elif isinstance(c, (bytes, bytearray)):
-                                    data = bytes(c)
+                                data = await _read_bytes(c)
 
                             if not data:
                                 raise ValueError('no file bytes received')
