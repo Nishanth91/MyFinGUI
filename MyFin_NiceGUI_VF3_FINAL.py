@@ -327,72 +327,132 @@ def _guess_merchant_from_text(text: str) -> str:
 
 
 def _extract_date_from_text(text: str) -> Optional[dt.date]:
-    """Try to extract a receipt date from OCR text.
+    """Extract a receipt date from OCR text using candidate scoring.
 
-    Handles common formats, including those with time appended.
-    If the year is missing, we assume the current year (best-effort).
+    Supported formats (most common in your receipts):
+      - MM/DD/YYYY (e.g., Gill’s 12/8/2025)
+      - MM/DD/YY   (e.g., Walmart 1/17/26)
+      - YY/MM/DD   (e.g., Dollarama 26/01/17 -> 2026-01-17)
+      - YYYY/MM/DD, YYYY-MM-DD
+
+    We avoid false positives from terminal/store IDs by:
+      - strict month/day/year validation
+      - scoring candidates with DATE keywords / time proximity / recency
+      - rejecting ID-heavy lines unless they include date keywords
+
+    Returns a dt.date or None (safe: we prefer empty over wrong).
     """
     if not text:
         return None
 
-    def _pick_plausible(d: Optional[dt.date]) -> Optional[dt.date]:
-        if not d:
+    lines = [ln.strip() for ln in str(text).splitlines() if ln.strip()]
+    if not lines:
+        return None
+
+    ignore_tokens = (
+        'st#', 'store', 'term', 'tran', 'ref', 'seq', 'tc#',
+        'lane', 'op', 'auth', 'invoice', 'order', 'reg', 'terminal', 'cashier', 'till'
+    )
+    date_keywords = ('date', 'dte', 'trans', 'transaction', 'purchase', 'time', 'issued')
+
+    def norm_year(y: int) -> int:
+        return 2000 + y if 0 <= y <= 99 else y
+
+    def valid_date(yy: int, mm: int, dd: int) -> Optional[dt.date]:
+        yy = norm_year(yy)
+        if not (2020 <= yy <= 2032):
             return None
-        today_d = today()
-        # Plausible window: within ~2 years of today (receipts are recent)
-        if abs((d - today_d).days) <= 730:
-            return d
-        return d
+        if not (1 <= mm <= 12 and 1 <= dd <= 31):
+            return None
+        try:
+            return dt.date(yy, mm, dd)
+        except Exception:
+            return None
 
-    # Prefer lines that explicitly mention DATE (and nearby)
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    preferred = []
-    for ln in lines:
-        up = ln.upper()
-        if 'DATE' in up or 'TIME' in up or 'PURCHASE' in up:
-            preferred.append(ln)
-
-    haystacks = preferred + lines
-
-    # Regex patterns (we extract the date part, ignore time if present)
     patterns = [
-        r"(\d{4}[-/]\d{1,2}[-/]\d{1,2})",                 # 2026-01-18 / 2026/1/18
-        r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})",               # 18/01/2026, 01/18/26, 1-7-24
-        r"(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4})",          # 18 Jan 2026 / 18 January 24
-        r"([A-Za-z]{3,9}\s+\d{1,2},\s*\d{2,4})",         # Jan 18, 2026
-        r"(\d{1,2}[-/]\d{1,2})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?"  # 01/27 18:08:08 (no year)
+        ('YMD4', re.compile(r'(?<!\d)(\d{4})[\-/](\d{1,2})[\-/](\d{1,2})(?!\d)')),
+        ('MDY4', re.compile(r'(?<!\d)(\d{1,2})[\-/](\d{1,2})[\-/](\d{4})(?!\d)')),
+        ('MDY2', re.compile(r'(?<!\d)(\d{1,2})[\-/](\d{1,2})[\-/](\d{2})(?!\d)')),
+        ('YMD2', re.compile(r'(?<!\d)(\d{2})[\-/](\d{1,2})[\-/](\d{1,2})(?!\d)')),
     ]
 
-    for ln in haystacks:
-        for pat in patterns:
-            m = re.search(pat, ln)
-            if not m:
-                continue
-            s = m.group(1)
-            d = parse_date(s)
-            if d:
-                return _pick_plausible(d)
+    today_d = today()
+    candidates: list[tuple[float, dt.date]] = []
 
-            # If no year, assume current year
-            if re.fullmatch(r"\d{1,2}[-/]\d{1,2}", s):
+    for i, ln in enumerate(lines):
+        low = ln.lower()
+        has_kw = any(k in low for k in date_keywords)
+        has_time = bool(re.search(r'(?<!\d)\d{1,2}:\d{2}(?::\d{2})?(?!\d)', ln))
+
+        # Skip ID-heavy lines unless they contain date keywords
+        if any(tok in low for tok in ignore_tokens) and not has_kw:
+            continue
+
+        digit_ratio = sum(ch.isdigit() for ch in ln) / max(1, len(ln))
+
+        for kind, rx in patterns:
+            for m in rx.finditer(ln):
                 try:
-                    mm, dd = re.split(r"[-/]", s)
-                    mm_i = int(mm)
-                    dd_i = int(dd)
-                    # Try MM/DD first (common in North America)
-                    d1 = dt.date(today().year, mm_i, dd_i)
-                    return _pick_plausible(d1)
+                    if kind == 'YMD4':
+                        yy, mm, dd = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                    elif kind == 'MDY4':
+                        mm, dd, yy = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                    elif kind == 'MDY2':
+                        mm, dd, yy = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                        yy = norm_year(yy)
+                    else:  # YMD2 (Dollarama-style)
+                        yy, mm, dd = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                        yy = norm_year(yy)
+
+                    d = valid_date(yy, mm, dd)
+                    if not d:
+                        continue
+
+                    score = 0.0
+                    if has_kw:
+                        score += 6.0
+                    if has_time:
+                        score += 3.5
+
+                    delta = abs((today_d - d).days)
+                    if delta <= 7:
+                        score += 5.0
+                    elif delta <= 31:
+                        score += 3.0
+                    elif delta <= 120:
+                        score += 1.0
+                    else:
+                        score -= 2.0
+
+                    # Walmart often prints date near bottom; some merchants at top
+                    if i <= 4:
+                        score += 1.0
+                    if i >= len(lines) - 5:
+                        score += 1.0
+
+                    # Penalize ID-heavy lines
+                    if digit_ratio > 0.55 and not has_kw:
+                        score -= 2.0
+
+                    # Penalize if lots of digits remain aside from the matched date
+                    if re.search(r'\d{6,}', rx.sub('', ln)):
+                        score -= 2.0
+
+                    candidates.append((score, d))
                 except Exception:
-                    # Try DD/MM fallback
-                    try:
-                        dd, mm = re.split(r"[-/]", s)
-                        d2 = dt.date(today().year, int(mm), int(dd))
-                        return _pick_plausible(d2)
-                    except Exception:
-                        pass
+                    continue
 
-    return None
+    if not candidates:
+        return None
 
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    best_score, best_date = candidates[0]
+
+    # Safety: don't guess if confidence too low
+    if best_score < 2.0:
+        return None
+
+    return best_date
 
 def _extract_total_amount(text: str) -> Tuple[Optional[float], float, str]:
     """Try to find the final total.
@@ -501,6 +561,58 @@ def _extract_card_last4(text: str) -> str:
         if m:
             return m.group(1)
     return ""
+
+
+def pick_account_from_last4(cards_df: pd.DataFrame, last4: str) -> str:
+    """Return the matching card_name/account for a detected card last-4.
+
+    - Expects a column named 'card_last4' (recommended).
+      Also accepts common variants like 'last4', 'last_4'.
+    - Returns '' if no unique match.
+    - Safe with empty/missing columns.
+    """
+    try:
+        if cards_df is None or cards_df.empty:
+            return ''
+        digits = re.sub(r'[^0-9]', '', str(last4 or ''))
+        if len(digits) != 4:
+            return ''
+
+        # locate last-4 column
+        col_map = {str(c).strip().lower(): c for c in cards_df.columns}
+        last4_col = None
+        for k in ('card_last4', 'last4', 'last_4', 'cardlast4', 'ending4', 'ending_4'):
+            if k in col_map:
+                last4_col = col_map[k]
+                break
+        if not last4_col:
+            return ''
+
+        # locate card/account name column
+        name_col = None
+        for k in ('card_name', 'account', 'name'):
+            if k in col_map:
+                name_col = col_map[k]
+                break
+        if not name_col:
+            return ''
+
+        # match
+        def norm(v: object) -> str:
+            d = re.sub(r'[^0-9]', '', str(v or ''))
+            return d[-4:] if len(d) >= 4 else d
+
+        matches = cards_df[cards_df[last4_col].apply(norm) == digits]
+        if matches.empty:
+            return ''
+        # if multiple, pick first non-empty name
+        for v in matches[name_col].astype(str).tolist():
+            v = v.strip()
+            if v and v.lower() != 'nan':
+                return v
+        return ''
+    except Exception:
+        return ''
 
 
 def parse_receipt_text(text: str) -> Dict[str, Any]:
@@ -896,6 +1008,39 @@ def sheet_headers(tab: str) -> list[str]:
     return headers
 
 
+def read_df_optional(sheet_title: str) -> pd.DataFrame:
+    """Read an arbitrary worksheet by title if it exists; otherwise return empty DF.
+
+    Used for legacy/admin sources (e.g., rules_text) without forcing new required tabs.
+    Matching is case-insensitive and tolerant of spaces/underscores.
+    """
+    def _norm(s: str) -> str:
+        return re.sub(r"\s+", "", str(s).strip().lower().replace('_', ' '))
+
+    try:
+        ss = get_spreadsheet()
+        want = _norm(sheet_title)
+        target = None
+        for w in ss.worksheets():
+            if _norm(w.title) == want:
+                target = w
+                break
+        if target is None:
+            return pd.DataFrame()
+
+        values = target.get_all_values()
+        if not values or len(values) < 2:
+            return pd.DataFrame()
+
+        headers = [str(h).strip() for h in values[0]]
+        rows = values[1:]
+        df = pd.DataFrame(rows, columns=headers)
+        df.columns = [c.strip() for c in df.columns]
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
 def read_df(tab: str) -> pd.DataFrame:
     """Read a worksheet into a DataFrame (all values as strings initially).
 
@@ -1166,51 +1311,79 @@ def invalidate(*tabs: str) -> None:
 # Rules + Category inference
 # -----------------------------
 def load_rules(force: bool = False) -> List[Tuple[str, str]]:
-    """Load rule keywords from the **Rules** sheet.
+    """Load category rules from BOTH:
 
-    Accepts flexible header names because the sheet evolves over time.
-    Required meaning:
-      - keyword column: one keyword or a comma-separated list of keywords
-      - category column: the target category to assign when keyword matches notes
+    1) Primary **rules** sheet (keyword/category)
+    2) Legacy/admin **rules_text** sheet (Key/Category) if it exists
+
+    Rules sheet has priority; rules_text acts as fallback.
+    Missing/empty rules_text never errors.
     """
+
+    # --- primary Rules sheet ---
     df = cached_df('rules', force=force)
-    if df.empty:
-        return []
 
-    # build case-insensitive header map
-    cols = list(df.columns)
-    lmap = {str(c).strip().lower(): c for c in cols}
+    primary: list[tuple[str, str]] = []
+    if not df.empty:
+        cols = list(df.columns)
+        lmap = {str(c).strip().lower(): c for c in cols}
 
-    keyword_col = None
-    for k in ['keyword', 'keywords', 'key', 'keys', 'rule', 'match', 'pattern']:
-        if k in lmap:
-            keyword_col = lmap[k]
-            break
+        keyword_col = None
+        for k in ['keyword', 'keywords', 'key', 'keys', 'rule', 'match', 'pattern']:
+            if k in lmap:
+                keyword_col = lmap[k]
+                break
 
-    category_col = None
-    for k in ['category', 'cat', 'label', 'bucket', 'type']:
-        if k in lmap:
-            category_col = lmap[k]
-            break
+        category_col = None
+        for k in ['category', 'cat', 'label', 'bucket', 'type']:
+            if k in lmap:
+                category_col = lmap[k]
+                break
 
-    if keyword_col is None or category_col is None:
-        # show a hint in logs, but keep app running
-        log(f"Rules sheet missing expected columns. Found: {cols}")
-        return []
+        if keyword_col is None or category_col is None:
+            log(f"Rules sheet missing expected columns. Found: {cols}")
+        else:
+            for _, r in df.iterrows():
+                raw_kw = str(r.get(keyword_col, '')).strip()
+                cat = str(r.get(category_col, '')).strip()
+                if not raw_kw or not cat or raw_kw.lower() == 'nan' or cat.lower() == 'nan':
+                    continue
 
-    rules: list[tuple[str, str]] = []
-    for _, r in df.iterrows():
-        raw_kw = str(r.get(keyword_col, '')).strip()
-        cat = str(r.get(category_col, '')).strip()
-        if not raw_kw or not cat or raw_kw.lower() == 'nan' or cat.lower() == 'nan':
-            continue
+                parts = [p.strip() for p in re.split(r"[;,]", raw_kw) if p.strip()]
+                for p in parts:
+                    primary.append((p.lower(), cat))
 
-        # allow multiple keywords separated by comma/semicolon
-        parts = [p.strip() for p in re.split(r"[;,]", raw_kw) if p.strip()]
-        for p in parts:
-            rules.append((p.lower(), cat))
+    # --- legacy/admin rules_text sheet ---
+    admin: list[tuple[str, str]] = []
+    adf = read_df_optional('rules_text')
+    if adf is not None and not adf.empty:
+        cols = list(adf.columns)
+        lmap = {str(c).strip().lower(): c for c in cols}
 
-    return rules
+        key_col = None
+        for k in ['key', 'keyword', 'keywords', 'rules', 'rule']:
+            if k in lmap:
+                key_col = lmap[k]
+                break
+
+        cat_col = None
+        for k in ['category', 'cat', 'label', 'bucket', 'type']:
+            if k in lmap:
+                cat_col = lmap[k]
+                break
+
+        if key_col and cat_col:
+            for _, r in adf.iterrows():
+                raw_kw = str(r.get(key_col, '')).strip()
+                cat = str(r.get(cat_col, '')).strip()
+                if not raw_kw or not cat or raw_kw.lower() == 'nan' or cat.lower() == 'nan':
+                    continue
+                parts = [p.strip() for p in re.split(r"[;,]", raw_kw) if p.strip()]
+                for p in parts:
+                    admin.append((p.lower(), cat))
+
+    return primary + admin
+
 
 
 def infer_category(notes: str, rules: List[Tuple[str, str]]) -> str:
