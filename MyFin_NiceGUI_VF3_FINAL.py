@@ -1,6 +1,6 @@
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICEGUI_VF2_P3_12_1.py
+File: Myfin_NICEGUI_VF2_P3_12_2.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -32,7 +32,7 @@ Expected Google Sheet tabs (auto-created if missing)
 - rules
 
 Render start command
-- python Myfin_NICEGUI_VF2_P3_12_1.py
+- python Myfin_NICEGUI_VF2_P3_12_2.py
 """
 
 from __future__ import annotations
@@ -1775,8 +1775,8 @@ def add_page():
         methods = methods_list()
 
         # Remember last-used method/account for Expense (Debit) so you don't reselect every time.
-        last_debit_method = str(ui.storage.user.get('last_debit_method', '') or '').strip()
-        last_debit_account = str(ui.storage.user.get('last_debit_account', '') or '').strip()
+        last_debit_method = str(app.storage.user.get('last_debit_method', '') or '').strip()
+        last_debit_account = str(app.storage.user.get('last_debit_account', '') or '').strip()
 
         dlg = ui.dialog()
         with dlg, ui.card().classes("my-card p-5 w-[620px] max-w-[95vw]"):
@@ -2067,9 +2067,9 @@ def add_page():
                 try:
                     if entry_type.lower() == 'debit':
                         if method:
-                            ui.storage.user['last_debit_method'] = method
+                            app.storage.user['last_debit_method'] = method
                         if account:
-                            ui.storage.user['last_debit_account'] = account
+                            app.storage.user['last_debit_account'] = account
                 except Exception:
                     pass
 
