@@ -1,6 +1,6 @@
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICEGUI_VF2_P3_5.py
+File: Myfin_NICEGUI_VF2_P3_10.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -32,7 +32,7 @@ Expected Google Sheet tabs (auto-created if missing)
 - rules
 
 Render start command
-- python Myfin_NICEGUI_VF2_P3_5.py
+- python Myfin_NICEGUI_VF2_P3_10.py
 """
 
 from __future__ import annotations
@@ -344,24 +344,85 @@ def _extract_date_from_text(text: str) -> Optional[dt.date]:
     return None
 
 
-def _extract_total_amount(text: str) -> Optional[float]:
-    """Try to find the final total. Falls back to the largest currency-like value."""
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    # prefer TOTAL / GRAND TOTAL
-    key_order = ["GRAND TOTAL", "AMOUNT DUE", "TOTAL", "BALANCE", "SUBTOTAL"]
-    money_pat = re.compile(r"(-?\$?\d{1,6}(?:[\,\s]\d{3})*(?:\.\d{2})?)")
-    for key in key_order:
-        for ln in lines:
-            up = ln.upper()
-            if key in up:
-                vals = money_pat.findall(ln)
-                # take last number on the line
-                if vals:
-                    v = parse_money(vals[-1], default=float('nan'))
-                    if not math.isnan(v) and v != 0:
-                        return abs(v)
+def _extract_total_amount(text: str) -> Tuple[Optional[float], float, str]:
+    """Try to find the final total.
 
-    # fallback: pick the largest plausible amount
+    Returns (amount, confidence, source).
+
+    Confidence is a heuristic score in [0..10]. Source is the keyword bucket used.
+    """
+    lines = [ln.strip() for ln in (text or '').splitlines() if ln.strip()]
+
+    # Prefer explicit totals; avoid SUBTOTAL/TAX unless nothing else exists.
+    # Scores tuned for receipts; higher is more trustworthy.
+    key_scores = [
+        ('GRAND TOTAL', 10.0),
+        ('AMOUNT DUE', 9.5),
+        ('BALANCE DUE', 9.5),
+        ('TOTAL', 8.5),
+        ('BALANCE', 7.5),
+        ('PAYMENT', 6.0),
+        # SUBTOTAL is only used if no better match exists
+        ('SUBTOTAL', 2.0),
+    ]
+
+    negative_markers = (
+        'SUBTOTAL', 'TAX', 'GST', 'PST', 'HST', 'TIP', 'CHANGE', 'CASH', 'REFUND', 'RETURN',
+        'DISCOUNT', 'SAVINGS', 'COUPON', 'POINTS', 'DEPOSIT',
+    )
+
+    # Currency-like values (prefer cents): 12.34, $12.34, 1,234.56
+    money_pat = re.compile(r"(?:(?:CAD|USD)\s*)?(\$?\s*-?\d{1,7}(?:[\,\s]\d{3})*(?:\.\d{2})?)")
+
+    candidates: list[tuple[float, float, int, str]] = []  # (amount, score, line_idx, source)
+
+    for i, ln in enumerate(lines):
+        up = ln.upper()
+        vals = money_pat.findall(ln)
+        if not vals:
+            continue
+
+        # Base score: if line has decimals and looks like a total line
+        base = 0.5
+        if re.search(r"\.\d{2}\b", ln):
+            base += 0.8
+
+        # Keyword-based scoring
+        source = ''
+        kscore = 0.0
+        for key, sc in key_scores:
+            if key in up:
+                # Special case: avoid catching TOTAL in SUBTOTAL (handled by explicit SUBTOTAL entry)
+                if key == 'TOTAL' and 'SUBTOTAL' in up:
+                    continue
+                kscore = max(kscore, sc)
+                source = key
+
+        # Penalize lines that are clearly not the final payable amount
+        penalty = 0.0
+        if any(m in up for m in negative_markers):
+            # If we matched SUBTOTAL explicitly, don't over-penalize
+            if source != 'SUBTOTAL':
+                penalty += 3.0
+
+        # Take the last amount on the line (receipts often show: TOTAL 12.34)
+        v = parse_money(vals[-1], default=float('nan'))
+        if math.isnan(v) or v == 0:
+            continue
+        v = abs(v)
+
+        score = max(base + kscore - penalty, 0.0)
+        candidates.append((v, score, i, source or 'LINE'))
+
+    if candidates:
+        # pick best score; tie-break by later line (totals tend to appear near the bottom)
+        candidates.sort(key=lambda t: (t[1], t[2]), reverse=True)
+        amt, score, _, source = candidates[0]
+        # Clamp score to 0..10 for display
+        score = max(0.0, min(10.0, score))
+        return amt, score, source
+
+    # Fallback: pick the largest plausible currency-like value anywhere
     best: Optional[float] = None
     for ln in lines:
         for s in money_pat.findall(ln):
@@ -373,7 +434,8 @@ def _extract_total_amount(text: str) -> Optional[float]:
                 continue
             if best is None or v > best:
                 best = v
-    return best
+
+    return best, (1.0 if best is not None else 0.0), 'MAX'
 
 
 def _extract_card_last4(text: str) -> str:
@@ -392,12 +454,25 @@ def _extract_card_last4(text: str) -> str:
 
 
 def parse_receipt_text(text: str) -> Dict[str, Any]:
-    """Return best-effort parsed fields from OCR text."""
+    """Return best-effort parsed fields from OCR text.
+
+    Fields:
+      - merchant: str
+      - date: datetime.date|None
+      - amount: float|None
+      - amount_confidence: float (0..10)
+      - amount_source: str
+      - card_last4: str
+      - raw: str
+    """
     cleaned = text or ""
+    amount, conf, source = _extract_total_amount(cleaned)
     return {
         "merchant": _guess_merchant_from_text(cleaned),
         "date": _extract_date_from_text(cleaned),
-        "amount": _extract_total_amount(cleaned),
+        "amount": amount,
+        "amount_confidence": conf,
+        "amount_source": source,
         "card_last4": _extract_card_last4(cleaned),
         "raw": cleaned,
     }
@@ -1717,21 +1792,29 @@ def add_page():
                 scan_state: Dict[str, Any] = {"data_url": None}
 
                 scan_dlg = ui.dialog()
+                parsed_state: Dict[str, Any] = {"parsed": None}
                 with scan_dlg, ui.card().classes('my-card p-4 w-[720px] max-w-[95vw]'):
                     ui.label('Scan receipt').classes('text-lg font-bold')
                     ui.label('Tip: on iPhone, this will prompt for camera access.').classes('text-xs').style('color: var(--mf-muted)')
+
                     preview = ui.image('').classes('w-full rounded').style('display:none')
+
+                    # Parsed preview (filled after OCR)
+                    with ui.card().classes('my-card p-3 w-full').style('display:none') as parsed_card:
+                        ui.label('Detected fields (review before applying)').classes('text-sm font-bold')
+                        pv_merchant = ui.input('Merchant', value='').props('readonly').classes('w-full')
+                        pv_date = ui.input('Date', value='').props('readonly').classes('w-full')
+                        pv_amount = ui.input('Total amount', value='').props('readonly').classes('w-full')
+                        pv_last4 = ui.input('Card last-4', value='').props('readonly').classes('w-full')
+                        pv_conf = ui.label('').classes('text-xs').style('color: var(--mf-muted)')
+
                     raw_out = ui.textarea('OCR text (debug)', value='').props('readonly').classes('w-full')
                     raw_out.style('max-height: 180px')
-                    def _on_upload(e: Any) -> None:
-                        """Store the uploaded image as a data URL for client-side OCR (tesseract.js).
 
-                        NiceGUI versions differ in what they provide on the upload event, so we
-                        defensively extract bytes from several possible shapes.
-                        """
+                    def _on_upload(e: Any) -> None:
+                        # Store uploaded image as data URL for client-side OCR (tesseract.js).
                         try:
                             data = None
-                            # Most common shapes across NiceGUI versions
                             if hasattr(e, 'content'):
                                 c = getattr(e, 'content')
                                 if hasattr(c, 'read'):
@@ -1740,7 +1823,6 @@ def add_page():
                                     data = bytes(c)
                             if data is None and hasattr(e, 'file'):
                                 f = getattr(e, 'file')
-                                # starlette UploadFile style
                                 if hasattr(f, 'read'):
                                     data = f.read()
                                 elif hasattr(f, 'file') and hasattr(f.file, 'read'):
@@ -1760,12 +1842,13 @@ def add_page():
                             preview.set_source(scan_state['data_url'])
                             preview.style('display:block')
                             raw_out.value = ''
+                            parsed_state['parsed'] = None
+                            parsed_card.style('display:none')
+                            apply_btn.disable()
                         except Exception as ex:
                             ui.notify(f'Upload failed: {ex}', type='negative')
 
-                    ui.upload(on_upload=_on_upload, auto_upload=True, label='Capture / Upload receipt') \
-                        .props("accept='image/*' capture='environment'") \
-                        .classes('w-full')
+                    ui.upload(on_upload=_on_upload, auto_upload=True, label='Capture / Upload receipt')                         .props("accept='image/*' capture='environment'")                         .classes('w-full')
 
                     async def _run_ocr() -> None:
                         if not scan_state.get('data_url'):
@@ -1788,18 +1871,56 @@ def add_page():
                             err = (result or {}).get('error', 'Unknown OCR error') if isinstance(result, dict) else 'Unknown OCR error'
                             ui.notify(f'OCR failed: {err}', type='negative')
                             return
+
                         text = str(result.get('text') or '')
                         raw_out.value = text
 
                         parsed = parse_receipt_text(text)
-                        # Fill form fields (best effort)
-                        if parsed.get('date'):
-                            d_date.value = parsed['date'].isoformat()
-                        if parsed.get('amount') is not None:
-                            d_amount.value = float(parsed['amount'])
+                        parsed_state['parsed'] = parsed
+
                         merch = str(parsed.get('merchant') or '').strip()
                         last4 = str(parsed.get('card_last4') or '').strip()
-                        # prepend merchant/date hints into Notes, but don't overwrite if user already typed
+                        rdate = parsed.get('date')
+                        amt = parsed.get('amount')
+                        conf = float(parsed.get('amount_confidence') or 0.0)
+                        src = str(parsed.get('amount_source') or '')
+
+                        # Update preview UI
+                        pv_merchant.value = merch
+                        pv_date.value = (rdate.isoformat() if rdate else '')
+                        pv_amount.value = (f"{float(amt):.2f}" if amt is not None else '')
+                        pv_last4.value = last4
+                        pv_conf.text = f"Amount confidence: {conf:.1f}/10 (source: {src})" + (" — please double-check" if conf < 3.0 else "")
+                        parsed_card.style('display:block')
+                        apply_btn.enable()
+
+                        if conf < 3.0:
+                            ui.notify('Low confidence TOTAL detected — verify amount before applying.', type='warning')
+                        else:
+                            ui.notify('Scan complete. Review and tap Apply.', type='positive')
+
+                    def _apply_to_form() -> None:
+                        parsed = parsed_state.get('parsed') or {}
+                        if not parsed:
+                            ui.notify('Nothing to apply yet.', type='warning')
+                            return
+
+                        merch = str(parsed.get('merchant') or '').strip()
+                        last4 = str(parsed.get('card_last4') or '').strip()
+                        rdate = parsed.get('date')
+                        amt = parsed.get('amount')
+                        conf = float(parsed.get('amount_confidence') or 0.0)
+
+                        if rdate:
+                            d_date.value = rdate.isoformat()
+                        if amt is not None:
+                            # Even when low confidence, pre-fill but warn. User can edit before saving.
+                            try:
+                                d_amount.value = float(amt)
+                            except Exception:
+                                pass
+
+                        # Notes hint
                         if merch or last4:
                             prefix = []
                             if merch:
@@ -1811,14 +1932,13 @@ def add_page():
                                 d_notes.value = hint
                             else:
                                 d_notes.value = f"{hint} | {d_notes.value}"
-                        # try auto-pick method/account from last4
+
+                        # Try auto-pick method/account from last4
                         if last4:
-                            # find account/method by cards sheet last4
                             try:
                                 cards_df = cached_df('cards', force=True)
                                 if not cards_df.empty:
                                     cols = [c.lower() for c in cards_df.columns]
-                                    # accept 'last4' or 'last_4' columns if present
                                     last4_col = None
                                     for c in cards_df.columns:
                                         if c.lower() in ('last4', 'last_4', 'card_last4', 'card_last_4'):
@@ -1828,7 +1948,6 @@ def add_page():
                                         match = cards_df[cards_df[last4_col].astype(str).str.contains(last4, na=False)]
                                         if not match.empty:
                                             row = match.iloc[0]
-                                            # prefer MethodName/Account columns if they exist
                                             for meth_col in ('method_name', 'methodname', 'method'):
                                                 if meth_col in cols:
                                                     d_method.value = str(row[cards_df.columns[cols.index(meth_col)]])
@@ -1842,11 +1961,16 @@ def add_page():
 
                         # Refresh category suggestion with updated notes
                         _refresh_suggestion()
-                        ui.notify('Scan complete. Please review before saving.', type='positive')
+                        if conf < 3.0:
+                            ui.notify('Applied, but amount confidence was low — please verify before saving.', type='warning')
+                        else:
+                            ui.notify('Applied scan results. Please review and save.', type='positive')
                         scan_dlg.close()
 
                     with ui.row().classes('w-full justify-end gap-2'):
-                        ui.button('Run scan', on_click=_run_ocr).props('unelevated')
+                        ui.button('Run scan', on_click=_run_ocr).props('outline')
+                        apply_btn = ui.button('Apply', on_click=_apply_to_form).props('unelevated')
+                        apply_btn.disable()
                         ui.button('Close', on_click=scan_dlg.close).props('flat')
 
                 ui.button('Scan receipt', on_click=scan_dlg.open).props('outline').classes('w-full')
