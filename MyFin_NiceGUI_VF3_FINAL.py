@@ -1,6 +1,6 @@
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICEGUI_VF2_P3_14.py
+File: Myfin_NICEGUI_VF2_P4_2.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -1646,6 +1646,42 @@ body, .q-layout, .q-page {
   transition: transform .12s ease, background .12s ease;
 }
 .tile:hover { transform: translateY(-2px); background: rgba(255,255,255,0.07) !important; }
+
+/* Glassy dialogs (used for Add sub-flows like receipt scan) */
+.q-dialog__backdrop {
+  backdrop-filter: blur(10px) !important;
+  background: rgba(0,0,0,0.55) !important;
+}
+.q-dialog__inner > div {
+  background: rgba(16, 23, 40, 0.70) !important;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.55) !important;
+}
+.q-dialog__inner > div .q-card {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Nicer KPI blocks */
+.kpi {
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03)) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+}
+.kpi .kpi-value { letter-spacing: 0.2px; }
+
+/* Budget progress bar */
+.mf-progress {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.10);
+  overflow: hidden;
+}
+.mf-progress > div {
+  height: 100%;
+  background: rgba(46,125,255,0.85);
+  border-radius: 999px;
+}
 """
 ui.add_head_html(f"<style>{BANK_CSS}</style>", shared=True)
 
@@ -1909,6 +1945,13 @@ def dashboard_page():
         invest = amt[typ.isin(["investment"])].sum()
         net = income - expense - invest
 
+        # Expenses for this month (reused by budgets + breakdown)
+        spend = mtx[mtx["type_l"].isin(["debit", "expense"])].copy()
+        if not spend.empty:
+            if "category" not in spend.columns:
+                spend["category"] = "Uncategorized"
+            spend["category"] = spend["category"].astype(str).replace("", "Uncategorized")
+
         with ui.row().classes("w-full gap-3"):
             for label, val in [
                 ("Income (this month)", income),
@@ -1920,6 +1963,88 @@ def dashboard_page():
                     ui.label(label).classes("text-sm").style("color: var(--mf-muted)")
                     ui.label(currency(val)).classes("text-2xl font-bold")
                     ui.label(mkey).classes("text-xs").style("color: var(--mf-muted)")
+
+        # Quick actions + data quality
+        unc_count = 0
+        try:
+            if "category" in mtx.columns:
+                unc_count = int((mtx["category"].astype(str).str.strip().replace("", "Uncategorized") == "Uncategorized").sum())
+        except Exception:
+            unc_count = 0
+
+        # Phase 4.2: in-app notifications (budget + uncategorized)
+        try:
+            if unc_count > 0:
+                ui.notify(f'You have {unc_count} Uncategorized items this month.', type='warning')
+        except Exception:
+            pass
+
+        with ui.row().classes("w-full gap-3"):
+            with ui.card().classes("my-card p-4 w-full"):
+                ui.label("Quick actions").classes("text-lg font-bold")
+                with ui.row().classes("gap-2"):
+                    ui.button("Add expense", icon="add").props("unelevated").on("click", lambda: nav_to('/add?mode=expense'))
+                    ui.button("Add income", icon="add").props("outline").on("click", lambda: nav_to('/add?mode=income'))
+                    ui.button("Transactions", icon="receipt_long").props("flat").on("click", lambda: nav_to('/tx'))
+            with ui.card().classes("my-card p-4 w-full"):
+                ui.label("Data quality").classes("text-lg font-bold")
+                ui.label(f"Uncategorized this month: {unc_count}").classes("text-sm").style("color: var(--mf-muted)")
+                def _go_fix_uncat() -> None:
+                    app.storage.user['tx_quick_filter'] = 'uncat'
+                    nav_to('/tx')
+                ui.button("Fix now", icon="construction").props("outline").on("click", _go_fix_uncat)
+
+        # Budgets (Phase 4)
+        budgets = read_df_optional('budgets')
+        if budgets is not None and not budgets.empty and (not spend.empty) and "category" in spend.columns:
+            # Map budgets
+            bcols = {str(c).strip().lower(): c for c in budgets.columns}
+            c_cat = bcols.get('category') or bcols.get('cat')
+            c_budget = bcols.get('budget_monthly') or bcols.get('monthly_budget') or bcols.get('budget')
+            if c_cat and c_budget:
+                bmap: dict[str, float] = {}
+                for _, r in budgets.iterrows():
+                    k = str(r.get(c_cat, '')).strip()
+                    if not k:
+                        continue
+                    bmap[k] = parse_money(r.get(c_budget, 0), default=0.0)
+                if bmap:
+                    with ui.card().classes('my-card p-5'):
+                        ui.label('Budgets (this month)').classes('text-lg font-bold')
+                        # build progress list for categories that have a budget
+                        spend_by_cat = spend.groupby('category', as_index=False)['amount_num'].sum()
+                        # show only budgeted categories
+                        rows = []
+                        for _, r in spend_by_cat.iterrows():
+                            cat = str(r['category'])
+                            if cat in bmap and bmap[cat] > 0:
+                                rows.append((cat, float(r['amount_num']), float(bmap[cat])))
+                        # include budget categories with 0 spend yet
+                        present = set([x[0] for x in rows])
+                        for cat, bud in bmap.items():
+                            if cat not in present and bud > 0:
+                                rows.append((cat, 0.0, float(bud)))
+                        rows.sort(key=lambda x: (x[1]/x[2]) if x[2] else 0.0, reverse=True)
+                        if not rows:
+                            ui.label('No budget categories matched your spending yet.').style('color: var(--mf-muted)')
+                        else:
+                            # Phase 4.2: in-app budget alerts
+                            try:
+                                alerts80 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 0.80 and (s/b) < 1.0]
+                                alerts100 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 1.0]
+                                if alerts100:
+                                    ui.notify(f'Over budget: {alerts100[0][0]} ({currency(alerts100[0][1])} / {currency(alerts100[0][2])})', type='negative')
+                                elif alerts80:
+                                    ui.notify(f'Budget warning (80%+): {alerts80[0][0]} ({currency(alerts80[0][1])} / {currency(alerts80[0][2])})', type='warning')
+                            except Exception:
+                                pass
+
+                            for cat, spent_amt, bud_amt in rows[:10]:
+                                pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
+                                with ui.row().classes('w-full items-center justify-between'):
+                                    ui.label(cat).classes('text-sm')
+                                    ui.label(f"{currency(spent_amt)} / {currency(bud_amt)}").classes('text-xs').style('color: var(--mf-muted)')
+                                ui.linear_progress(value=pct).props('size=10px')
 
         # Upcoming paydays
         start = today()
@@ -1950,11 +2075,9 @@ def dashboard_page():
         # Spending breakdown
         with ui.card().classes("my-card p-5"):
             ui.label("Spending breakdown (this month)").classes("text-lg font-bold")
-            spend = mtx[mtx["type_l"].isin(["debit", "expense"])].copy()
             if spend.empty:
                 ui.label("No expenses this month.").style("color: var(--mf-muted)")
             else:
-                spend["category"] = spend["category"].astype(str).replace("", "Uncategorized")
                 agg = spend.groupby("category", as_index=False)["amount_num"].sum()
                 fig = px.pie(agg, names="category", values="amount_num", hole=0.55)
                 fig.update_layout(
@@ -1963,6 +2086,40 @@ def dashboard_page():
                     font_color="rgba(255,255,255,0.88)",
                 )
                 ui.plotly(fig).classes("w-full")
+
+        # Top merchants (best-effort from Notes)
+        with ui.card().classes("my-card p-5"):
+            ui.label("Top merchants (this month)").classes("text-lg font-bold")
+            if spend.empty or "notes" not in spend.columns:
+                ui.label("No merchant data available.").style("color: var(--mf-muted)")
+            else:
+                def _merchant_from_notes(n: str) -> str:
+                    s = str(n or "").strip()
+                    if not s:
+                        return "(blank)"
+                    # common separators: '|', '-', '•'
+                    for sep in ("|", "•", "-"):
+                        if sep in s:
+                            s = s.split(sep, 1)[0].strip()
+                    s = re.sub(r"\s+", " ", s)
+                    return (s[:28] + "…") if len(s) > 28 else s
+
+                spend["_merchant"] = spend["notes"].apply(_merchant_from_notes)
+                topm = spend.groupby("_merchant", as_index=False)["amount_num"].sum().sort_values("amount_num", ascending=False)
+                if topm.empty:
+                    ui.label("No merchant data available.").style("color: var(--mf-muted)")
+                else:
+                    rows = []
+                    for _, r in topm.head(8).iterrows():
+                        rows.append({"merchant": r["_merchant"], "spend": currency(float(r["amount_num"]))})
+                    ui.table(
+                        columns=[
+                            {"name": "merchant", "label": "Merchant", "field": "merchant", "align": "left"},
+                            {"name": "spend", "label": "Spend", "field": "spend", "align": "right"},
+                        ],
+                        rows=rows,
+                        row_key="merchant",
+                    ).classes("w-full")
 
         # Trend
         with ui.card().classes("my-card p-5"):
@@ -2447,6 +2604,8 @@ def admin_page() -> None:
                 ui.button("Cards", on_click=lambda: nav_to("/cards")).props("unelevated").classes("w-full")
                 ui.button("Recurring Templates", on_click=lambda: nav_to("/recurring")).props("unelevated").classes("w-full")
                 ui.button("Transactions (Fix Mistakes)", on_click=lambda: nav_to("/tx")).props("unelevated").classes("w-full")
+                ui.button("Budgets", on_click=lambda: nav_to("/budgets")).props("unelevated").classes("w-full")
+                ui.button("Data Tools (Import/Backup)", on_click=lambda: nav_to("/data_tools")).props("unelevated").classes("w-full")
 
         with ui.card().classes("my-card p-5"):
             ui.label("Locks").classes("text-lg font-bold")
@@ -2522,10 +2681,89 @@ def transactions_page():
 
         types = sorted({t for t in tx["type"].astype(str).tolist() if t.strip()})
 
+        # -----------------------------
+        # Phase 4 helpers (Transactions)
+        # -----------------------------
+        def _export_csv(last_view: Dict[str, Any]) -> None:
+            df = last_view.get('df')
+            if df is None or getattr(df, 'empty', True):
+                ui.notify('Nothing to export (adjust filters first).', type='warning')
+                return
+            try:
+                out = df.drop(columns=['date_parsed', 'amount_num'], errors='ignore').copy()
+                csv_text = out.to_csv(index=False)
+                ui.download(csv_text.encode('utf-8'), filename=f"transactions_{datetime.date.today().isoformat()}.csv")
+            except Exception as e:
+                ui.notify(f'Export failed: {e}', type='negative')
+
+        def _compute_duplicates(df: pd.DataFrame) -> pd.DataFrame:
+            if df is None or df.empty:
+                return pd.DataFrame()
+            base = df.copy()
+            for c in ('date', 'amount', 'notes'):
+                if c not in base.columns:
+                    base[c] = ''
+            # Normalize amount to numeric when possible
+            base['_amt'] = base.get('amount', '').apply(to_float)
+            base['_key'] = base['date'].astype(str).str.strip() + '|' + base['_amt'].astype(str) + '|' + base['notes'].astype(str).str.strip()
+            dup = base[base.duplicated('_key', keep=False)].copy()
+            if dup.empty:
+                return pd.DataFrame()
+            return dup.sort_values(['date', '_amt'], ascending=[False, True])
+
+        def _show_duplicates(last_view: Dict[str, Any]) -> None:
+            df = last_view.get('df')
+            dup = _compute_duplicates(df) if df is not None else pd.DataFrame()
+            if dup.empty:
+                ui.notify('No duplicates found in the current filtered view.', type='positive')
+                return
+            with ui.dialog() as d, ui.card().classes('my-card p-4 w-[92vw] max-w-5xl'):
+                ui.label(f'Duplicates found: {len(dup)} rows').classes('text-lg font-bold')
+                ui.label('Duplicates are detected by Date + Amount + Notes.').classes('text-sm').style('color: var(--mf-muted)')
+                rows = dup.drop(columns=['_key'], errors='ignore').head(200).to_dict(orient='records')
+                ui.table(
+                    columns=[
+                        {"name": "date", "label": "Date", "field": "date"},
+                        {"name": "type", "label": "Type", "field": "type"},
+                        {"name": "amount", "label": "Amount", "field": "amount"},
+                        {"name": "category", "label": "Category", "field": "category"},
+                        {"name": "notes", "label": "Notes", "field": "notes"},
+                        {"name": "id", "label": "ID", "field": "id"},
+                    ],
+                    rows=rows,
+                    row_key='id',
+                ).classes('w-full')
+                ui.button('Close', on_click=d.close).props('flat')
+            d.open()
+
+        def _apply_category_selected(table_ref, category_val: str) -> None:
+            if not getattr(table_ref, 'selected', None):
+                ui.notify('Select a transaction row first.', type='warning')
+                return
+            row = table_ref.selected[0]
+            rid = str(row.get('id', '')).strip()
+            if not rid:
+                ui.notify('Selected row has no id; cannot update.', type='negative')
+                return
+            ok = update_row_by_id('transactions', 'id', rid, {'category': category_val or 'Uncategorized'})
+            if not ok:
+                ui.notify('Update failed. Please refresh and try again.', type='negative')
+                return
+            invalidate('transactions')
+            ui.notify('Category updated.', type='positive')
+            nav_to('/tx')
+
         with ui.card().classes("my-card p-5"):
             ui.label("Transactions").classes("text-lg font-bold")
             f_type = ui.select(["All"] + types, value="All", label="Type").classes("w-full")
             f_text = ui.input("Search notes/category/account").classes("w-full")
+            # Quick filter (e.g., from Dashboard "Fix now")
+            try:
+                if app.storage.user.get('tx_quick_filter') == 'uncat':
+                    f_text.value = 'Uncategorized'
+                    app.storage.user.pop('tx_quick_filter', None)
+            except Exception:
+                pass
             sort_opts = ["Date (new → old)", "Date (old → new)", "Amount (high → low)", "Amount (low → high)"]
             f_sort = ui.select(sort_opts, value=sort_opts[0], label="Sort").classes("w-full")
             # Date range filter (defaults to last 30 days)
@@ -2541,6 +2779,9 @@ def transactions_page():
                 f_to = ui.input('To').props('type=date dense outlined').classes('w-40')
             f_from.value = _from
             f_to.value = _to
+
+            # Phase 4: export + quick fix tools (wired after the table is created)
+            last_view: Dict[str, Any] = {'df': None}
 
             table = ui.table(columns=[
                 {"name": "date", "label": "Date", "field": "date"},
@@ -2560,6 +2801,26 @@ def transactions_page():
                     selected_row['row'] = row
 
             table.on('rowClick', _on_row_click)
+
+            # Category quick-apply (useful for fixing Uncategorized)
+            try:
+                rules_df = cached_df('rules')
+                cats = sorted({str(x).strip() for x in rules_df.get('category', pd.Series([])).tolist() if str(x).strip()})
+            except Exception:
+                cats = []
+            try:
+                existing_cats = sorted({str(x).strip() for x in tx.get('category', pd.Series([])).tolist() if str(x).strip()})
+            except Exception:
+                existing_cats = []
+            cat_choices = ['Uncategorized'] + sorted({*cats, *existing_cats})
+
+            with ui.row().classes('w-full items-center justify-between gap-2 mt-2'):
+                with ui.row().classes('gap-2 items-center'):
+                    ui.button('Export CSV', icon='download').props('outline').on('click', lambda: _export_csv(last_view))
+                    ui.button('Show duplicates', icon='difference').props('flat').on('click', lambda: _show_duplicates(last_view))
+                with ui.row().classes('gap-2 items-center'):
+                    fix_cat = ui.select(cat_choices, value=cat_choices[0], label='Quick set category').classes('w-64')
+                    ui.button('Apply to selected', icon='label').props('unelevated').on('click', lambda: _apply_category_selected(table, fix_cat.value))
 
             def refresh_table():
                 df = tx.copy()
@@ -2604,6 +2865,12 @@ def transactions_page():
                         df["date_parsed"] = df["date"].apply(parse_date)
                     ascending = "old → new" in sort_choice
                     df = df.sort_values(by="date_parsed", ascending=ascending)
+
+                # keep a copy of the current filtered/sorted view for export & diagnostics
+                try:
+                    last_view['df'] = df.copy()
+                except Exception:
+                    last_view['df'] = None
 
                 df = df.head(250)
                 df["amount"] = df["amount"].apply(lambda x: currency(to_float(x)))
@@ -2760,6 +3027,61 @@ def recurring_page():
 
             rdf2 = rdf.copy()
             rdf2["active"] = rdf2["active"].astype(str)
+
+            # Phase 4: preview upcoming recurring posts (next 45 days)
+            try:
+                start_d = today()
+                end_d = start_d + dt.timedelta(days=45)
+                upcoming: list[dict[str, Any]] = []
+                for _, r in rdf2.iterrows():
+                    is_active = str(r.get('active', 'TRUE')).strip().upper() in ('TRUE', '1', 'YES', 'Y')
+                    if not is_active:
+                        continue
+                    try:
+                        dom = int(float(str(r.get('day_of_month', '1')).strip() or '1'))
+                    except Exception:
+                        dom = 1
+                    y, m = start_d.year, start_d.month
+                    # compute next due date this month or next
+                    for _ in range(2):
+                        last_day = calendar.monthrange(y, m)[1]
+                        dd = min(max(1, dom), last_day)
+                        due = dt.date(y, m, dd)
+                        if due < start_d:
+                            # move to next month
+                            m += 1
+                            if m == 13:
+                                y += 1
+                                m = 1
+                            continue
+                        if due <= end_d:
+                            upcoming.append({
+                                'due': due.isoformat(),
+                                'type': str(r.get('type', '')),
+                                'amount': currency(to_float(r.get('amount', 0))),
+                                'category': str(r.get('category', '')),
+                                'notes': str(r.get('notes', ''))[:28],
+                            })
+                        break
+                upcoming = sorted(upcoming, key=lambda x: x['due'])
+                with ui.card().classes('my-card p-4 mt-3'):
+                    ui.label('Upcoming recurring (next 45 days)').classes('text-md font-bold')
+                    if not upcoming:
+                        ui.label('No upcoming posts found.').style('color: var(--mf-muted)')
+                    else:
+                        ui.table(
+                            columns=[
+                                {'name': 'due', 'label': 'Due', 'field': 'due'},
+                                {'name': 'type', 'label': 'Type', 'field': 'type'},
+                                {'name': 'amount', 'label': 'Amount', 'field': 'amount'},
+                                {'name': 'category', 'label': 'Category', 'field': 'category'},
+                                {'name': 'notes', 'label': 'Notes', 'field': 'notes'},
+                            ],
+                            rows=upcoming[:20],
+                            row_key='due',
+                        ).classes('w-full')
+            except Exception:
+                pass
             table = ui.table(columns=[
                 {"name": "recurring_id", "label": "ID", "field": "recurring_id"},
                 {"name": "owner", "label": "Owner", "field": "owner"},
@@ -2819,6 +3141,17 @@ def rules_page():
                 {"name": "category", "label": "Category", "field": "category"},
             ], rows=rdf.to_dict(orient="records") if not rdf.empty else [], row_key="keyword").classes("w-full")
 
+            # Phase 4: quick rule tester
+            with ui.card().classes('my-card p-4 mt-4'):
+                ui.label('Test a rule').classes('text-md font-bold')
+                sample = ui.input('Paste merchant/notes text here').classes('w-full')
+                result = ui.label('')
+                def _test():
+                    rules = load_rules(force=True)
+                    cat = infer_category(sample.value or '', rules)
+                    result.text = f"Matched category: {cat}"
+                ui.button('Test', icon='science', on_click=_test).props('outline')
+
             with ui.row().classes("w-full gap-3 mt-3"):
                 k = ui.input("Keyword (lowercase recommended)").classes("w-full")
                 c = ui.input("Category").classes("w-full")
@@ -2846,6 +3179,492 @@ def rules_page():
                 ui.button("Delete selected", on_click=del_rule).props("flat")
 
     shell(content)
+
+
+
+# =============================
+# Phase 4.2 additions
+# - Budgets editor UI
+# - Data Tools: CSV import + Backup/Restore
+# - Merchant cleanup helper
+# =============================
+
+import io
+import zipfile
+
+OPTIONAL_SHEETS = {
+    'budgets': ['category', 'budget_monthly'],
+}
+
+
+def ensure_optional_sheet(title: str, headers: list[str]) -> bool:
+    """Ensure an optional worksheet exists. Returns True if exists/created."""
+    ss = get_spreadsheet()
+    want = title.strip().lower()
+    for w in ss.worksheets():
+        if w.title.strip().lower() == want:
+            return True
+    if not ALLOW_CREATE_MISSING_SHEETS:
+        return False
+    w = ss.add_worksheet(title=title, rows=1000, cols=max(10, len(headers)))
+    try:
+        w.append_row(headers)
+    except Exception:
+        pass
+    return True
+
+
+def write_df_to_sheet(sheet_title: str, df: pd.DataFrame, headers: list[str]) -> None:
+    """Overwrite a worksheet with headers + df rows (USER_ENTERED)."""
+    ss = get_spreadsheet()
+    # locate sheet
+    w = None
+    for ws_ in ss.worksheets():
+        if ws_.title.strip().lower() == sheet_title.strip().lower():
+            w = ws_
+            break
+    if w is None:
+        ok = ensure_optional_sheet(sheet_title, headers)
+        if not ok:
+            raise RuntimeError(f'Missing sheet: {sheet_title}')
+        for ws_ in ss.worksheets():
+            if ws_.title.strip().lower() == sheet_title.strip().lower():
+                w = ws_
+                break
+    assert w is not None
+
+    # normalize df to headers
+    out = df.copy()
+    for h in headers:
+        if h not in out.columns:
+            out[h] = ''
+    out = out[headers]
+
+    values = [headers]
+    for _, r in out.iterrows():
+        row = []
+        for h in headers:
+            v = r.get(h, '')
+            if isinstance(v, dt.date):
+                row.append(v.isoformat())
+            else:
+                row.append('' if v is None else str(v))
+        values.append(row)
+
+    gs_retry(lambda: w.clear())
+    gs_retry(lambda: w.update(values, value_input_option='USER_ENTERED'))
+
+
+def make_backup_zip() -> bytes:
+    """Create a zip containing CSVs for core + optional sheets."""
+    ss = get_spreadsheet()
+    sheet_titles = [w.title for w in ss.worksheets()]
+
+    def get_df_for_title(title: str) -> pd.DataFrame:
+        try:
+            # core tabs through cached_df to preserve transformations
+            t = title.strip().lower()
+            if t in ('transactions', 'cards', 'rules', 'recurring'):
+                return cached_df(t, force=True)
+            return read_df_optional(title)
+        except Exception:
+            return pd.DataFrame()
+
+    buff = io.BytesIO()
+    with zipfile.ZipFile(buff, 'w', compression=zipfile.ZIP_DEFLATED) as z:
+        for title in sheet_titles:
+            df = get_df_for_title(title)
+            if df is None:
+                continue
+            csv_bytes = df.to_csv(index=False).encode('utf-8')
+            safe = re.sub(r'[^a-zA-Z0-9_\-]+', '_', title.strip())
+            z.writestr(f'{safe}.csv', csv_bytes)
+        meta = {
+            'created_at': now_iso(),
+            'spreadsheet': ss.title,
+            'spreadsheet_id': SPREADSHEET_ID,
+        }
+        z.writestr('backup_meta.json', json.dumps(meta, indent=2).encode('utf-8'))
+    return buff.getvalue()
+
+
+def parse_uploaded_csv(content: bytes) -> pd.DataFrame:
+    try:
+        s = content.decode('utf-8', errors='ignore')
+        return pd.read_csv(io.StringIO(s))
+    except Exception:
+        # fallback for Excel-ish CSVs
+        return pd.read_csv(io.BytesIO(content))
+
+
+def normalize_merchant_from_notes(notes: str) -> str:
+    s = str(notes or '').strip()
+    if not s:
+        return ''
+    # merchant usually is first chunk
+    for sep in ('|', '•'):
+        if sep in s:
+            s = s.split(sep, 1)[0].strip()
+            break
+    # remove common trailing store markers
+    s = re.sub(r'\s*#\s*\d+\b', '', s)
+    s = re.sub(r'\b(store|st)\s*\d+\b', '', s, flags=re.IGNORECASE)
+    s = re.sub(r'\b\d{3,}\b', '', s)  # remove long numeric tokens
+    s = re.sub(r'\s+', ' ', s).strip()
+    # title-case known merchants
+    return s
+
+
+def apply_merchant_cleanup(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    if 'notes' not in out.columns:
+        return out
+    def _clean(n: str) -> str:
+        full = str(n or '')
+        merch = normalize_merchant_from_notes(full)
+        if not merch:
+            return full
+        # replace first segment only
+        # split by separators, keep remainder
+        rest = ''
+        for sep in ('|', '•'):
+            if sep in full:
+                head, tail = full.split(sep, 1)
+                rest = sep + tail
+                break
+        else:
+            # try hyphen only when it looks like "MERCHANT - details"
+            if ' - ' in full:
+                head, tail = full.split(' - ', 1)
+                rest = ' - ' + tail
+        return merch + rest
+    out['notes'] = out['notes'].apply(_clean)
+    return out
+
+
+@ui.page('/budgets')
+def budgets_page() -> None:
+    if not require_login():
+        nav_to('/login')
+        return
+
+    def content() -> None:
+        with ui.card().classes('my-card p-5'):
+            ui.label('Budgets').classes('text-lg font-bold')
+            ui.label('Create and manage monthly budgets per category.').style('color: var(--mf-muted)')
+
+            ok = ensure_optional_sheet('budgets', OPTIONAL_SHEETS['budgets'])
+            if not ok:
+                ui.label('Budgets sheet not found. Set ALLOW_CREATE_MISSING_SHEETS=1 to let the app create it.').classes('text-sm text-red-300')
+                return
+
+            budgets = read_df_optional('budgets')
+            if budgets is None or budgets.empty:
+                budgets = pd.DataFrame(columns=OPTIONAL_SHEETS['budgets'])
+
+            # Normalize columns
+            cols = {str(c).strip().lower(): c for c in budgets.columns}
+            c_cat = cols.get('category') or cols.get('cat')
+            c_budget = cols.get('budget_monthly') or cols.get('monthly_budget') or cols.get('budget')
+            if c_cat and c_cat != 'category':
+                budgets['category'] = budgets[c_cat]
+            if c_budget and c_budget != 'budget_monthly':
+                budgets['budget_monthly'] = budgets[c_budget]
+            for h in OPTIONAL_SHEETS['budgets']:
+                if h not in budgets.columns:
+                    budgets[h] = ''
+            budgets = budgets[OPTIONAL_SHEETS['budgets']].copy()
+
+            table = ui.table(
+                columns=[
+                    {'name': 'category', 'label': 'Category', 'field': 'category', 'align': 'left'},
+                    {'name': 'budget_monthly', 'label': 'Monthly Budget', 'field': 'budget_monthly', 'align': 'right'},
+                ],
+                rows=budgets.to_dict(orient='records'),
+                row_key='category',
+                selection='single',
+            ).classes('w-full')
+
+            cat_in = ui.input('Category').classes('w-full')
+            bud_in = ui.number('Monthly budget', value=0.0, format='%.2f').classes('w-full')
+
+            def _refresh() -> None:
+                b = read_df_optional('budgets')
+                if b is None or b.empty:
+                    b = pd.DataFrame(columns=OPTIONAL_SHEETS['budgets'])
+                cols = {str(c).strip().lower(): c for c in b.columns}
+                c_cat2 = cols.get('category') or cols.get('cat')
+                c_budget2 = cols.get('budget_monthly') or cols.get('monthly_budget') or cols.get('budget')
+                if c_cat2 and c_cat2 != 'category':
+                    b['category'] = b[c_cat2]
+                if c_budget2 and c_budget2 != 'budget_monthly':
+                    b['budget_monthly'] = b[c_budget2]
+                for h in OPTIONAL_SHEETS['budgets']:
+                    if h not in b.columns:
+                        b[h] = ''
+                b = b[OPTIONAL_SHEETS['budgets']].copy()
+                table.rows = b.to_dict(orient='records')
+                table.update()
+
+            def _load_selected() -> None:
+                if not table.selected:
+                    ui.notify('Select a row first.', type='warning');
+                    return
+                r = table.selected[0]
+                cat_in.value = str(r.get('category', ''))
+                bud_in.value = to_float(r.get('budget_monthly', 0))
+
+            def _save() -> None:
+                cat = str(cat_in.value or '').strip()
+                if not cat:
+                    ui.notify('Category required.', type='warning');
+                    return
+                bud = float(to_float(bud_in.value))
+                # upsert by category
+                existing = read_df_optional('budgets')
+                if existing is None or existing.empty:
+                    existing = pd.DataFrame(columns=OPTIONAL_SHEETS['budgets'])
+                cols = {str(c).strip().lower(): c for c in existing.columns}
+                c_cat3 = cols.get('category') or cols.get('cat')
+                c_budget3 = cols.get('budget_monthly') or cols.get('monthly_budget') or cols.get('budget')
+                if c_cat3 and c_cat3 != 'category':
+                    existing['category'] = existing[c_cat3]
+                if c_budget3 and c_budget3 != 'budget_monthly':
+                    existing['budget_monthly'] = existing[c_budget3]
+                for h in OPTIONAL_SHEETS['budgets']:
+                    if h not in existing.columns:
+                        existing[h] = ''
+                existing = existing[OPTIONAL_SHEETS['budgets']].copy()
+                # update/append
+                mask = existing['category'].astype(str).str.strip().str.lower() == cat.lower()
+                if mask.any():
+                    existing.loc[mask, 'budget_monthly'] = str(bud)
+                else:
+                    existing = pd.concat([existing, pd.DataFrame([{'category': cat, 'budget_monthly': str(bud)}])], ignore_index=True)
+                write_df_to_sheet('budgets', existing, OPTIONAL_SHEETS['budgets'])
+                ui.notify('Saved.', type='positive')
+                _refresh()
+
+            def _delete() -> None:
+                if not table.selected:
+                    ui.notify('Select a row first.', type='warning');
+                    return
+                cat = str(table.selected[0].get('category', '')).strip()
+                if not cat:
+                    return
+                existing = read_df_optional('budgets')
+                if existing is None or existing.empty:
+                    return
+                cols = {str(c).strip().lower(): c for c in existing.columns}
+                c_cat3 = cols.get('category') or cols.get('cat')
+                if c_cat3 and c_cat3 != 'category':
+                    existing['category'] = existing[c_cat3]
+                existing = existing.copy()
+                existing = existing[existing['category'].astype(str).str.strip().str.lower() != cat.lower()]
+                write_df_to_sheet('budgets', existing, OPTIONAL_SHEETS['budgets'])
+                ui.notify('Deleted.', type='positive')
+                _refresh()
+
+            with ui.row().classes('gap-2 mt-3'):
+                ui.button('Load selected', on_click=_load_selected).props('flat')
+                ui.button('Save / Upsert', on_click=_save).props('unelevated')
+                ui.button('Delete selected', on_click=_delete).props('outline')
+
+    shell(content)
+
+
+@ui.page('/data_tools')
+def data_tools_page() -> None:
+    if not require_login():
+        nav_to('/login')
+        return
+
+    def content() -> None:
+        with ui.card().classes('my-card p-5'):
+            ui.label('Data Tools').classes('text-lg font-bold')
+            ui.label('Import CSV, backup/restore, and merchant cleanup.').style('color: var(--mf-muted)')
+
+        # Backup
+        with ui.card().classes('my-card p-5'):
+            ui.label('Backup').classes('text-lg font-bold')
+            ui.label('Download a zip backup of all sheets as CSV.').style('color: var(--mf-muted)')
+            def _download_backup() -> None:
+                try:
+                    b = make_backup_zip()
+                    ui.download(b, filename=f'myfin_backup_{datetime.date.today().isoformat()}.zip')
+                except Exception as e:
+                    ui.notify(f'Backup failed: {e}', type='negative')
+            ui.button('Download backup zip', icon='archive', on_click=_download_backup).props('unelevated')
+
+        # Restore
+        with ui.card().classes('my-card p-5'):
+            ui.label('Restore').classes('text-lg font-bold')
+            ui.label('Upload a backup zip from this app to overwrite sheets.').style('color: var(--mf-muted)')
+            confirm = ui.input('Type RESTORE to enable overwrite').classes('w-full')
+            upload_zip = ui.upload(label='Upload backup zip', auto_upload=True).props('accept=.zip').classes('w-full')
+
+            async def _on_zip_upload(e):
+                if str(confirm.value).strip().upper() != 'RESTORE':
+                    ui.notify('Type RESTORE first (safety check).', type='warning');
+                    return
+                try:
+                    content = e.content.read() if hasattr(e, 'content') else None
+                    if content is None:
+                        # NiceGUI upload event provides `content` bytes on some versions
+                        content = e
+                    zdata = content if isinstance(content, (bytes, bytearray)) else bytes(content)
+                    with zipfile.ZipFile(io.BytesIO(zdata), 'r') as z:
+                        names = z.namelist()
+                        # overwrite core tabs if present
+                        overwritten = []
+                        for core in ('transactions', 'cards', 'rules', 'recurring', 'budgets'):
+                            fname = f'{core}.csv'
+                            # tolerate sanitized names
+                            cand = None
+                            for n in names:
+                                if n.lower() == fname:
+                                    cand = n; break
+                            if cand is None:
+                                continue
+                            df = parse_uploaded_csv(z.read(cand))
+                            if core in TABS:
+                                headers = sheet_headers(core)
+                                write_df_to_sheet(core, df, headers)
+                                invalidate(core)
+                            else:
+                                headers = OPTIONAL_SHEETS.get(core, list(df.columns))
+                                ensure_optional_sheet(core, headers)
+                                write_df_to_sheet(core, df, headers)
+                            overwritten.append(core)
+                        ui.notify('Restored: ' + ', '.join(overwritten) if overwritten else 'No matching CSVs found in zip.', type='positive')
+                except Exception as ex:
+                    ui.notify(f'Restore failed: {ex}', type='negative')
+
+            upload_zip.on('upload', _on_zip_upload)
+
+        # CSV import (append)
+        with ui.card().classes('my-card p-5'):
+            ui.label('Import Transactions CSV').classes('text-lg font-bold')
+            ui.label('Append rows from a CSV into Transactions. CSV should include at least date, type, amount.').style('color: var(--mf-muted)')
+            upload_csv = ui.upload(label='Upload CSV', auto_upload=True).props('accept=.csv').classes('w-full')
+
+            async def _on_csv_upload(e):
+                try:
+                    content = e.content.read() if hasattr(e, 'content') else None
+                    if content is None:
+                        content = e
+                    data = content if isinstance(content, (bytes, bytearray)) else bytes(content)
+                    df = parse_uploaded_csv(data)
+                    if df is None or df.empty:
+                        ui.notify('CSV is empty.', type='warning');
+                        return
+                    # normalize columns
+                    colmap = {str(c).strip().lower(): c for c in df.columns}
+                    def pick(*names):
+                        for n in names:
+                            if n in colmap:
+                                return colmap[n]
+                        return None
+                    c_date = pick('date', 'transaction_date')
+                    c_type = pick('type', 'transaction_type')
+                    c_amount = pick('amount', 'amt', 'value')
+                    if not (c_date and c_type and c_amount):
+                        ui.notify('CSV must include date, type, amount columns.', type='negative');
+                        return
+                    # optional
+                    c_method = pick('method')
+                    c_account = pick('account')
+                    c_category = pick('category')
+                    c_notes = pick('notes', 'note', 'description')
+
+                    count = 0
+                    for _, r in df.iterrows():
+                        d = parse_date(r.get(c_date))
+                        if not d:
+                            continue
+                        t = str(r.get(c_type, '')).strip()
+                        amt = to_float(r.get(c_amount))
+                        if not t:
+                            continue
+                        txid = str(r.get('id', '')).strip() or str(uuid.uuid4())
+                        append_tx(
+                            id=txid,
+                            date=d.isoformat(),
+                            owner='Family',
+                            type=t,
+                            amount=amt,
+                            method=str(r.get(c_method, '')) if c_method else '',
+                            account=str(r.get(c_account, '')) if c_account else '',
+                            category=str(r.get(c_category, '')) if c_category else '',
+                            notes=str(r.get(c_notes, '')) if c_notes else '',
+                            is_recurring=False,
+                            recurring_id='',
+                            created_at=now_iso(),
+                        )
+                        count += 1
+                    invalidate('transactions')
+                    ui.notify(f'Imported {count} rows into Transactions.', type='positive')
+                except Exception as ex:
+                    ui.notify(f'Import failed: {ex}', type='negative')
+
+            upload_csv.on('upload', _on_csv_upload)
+
+        # Merchant cleanup suggestions
+        with ui.card().classes('my-card p-5'):
+            ui.label('Merchant cleanup').classes('text-lg font-bold')
+            ui.label('Normalize merchant text inside Notes (best-effort).').style('color: var(--mf-muted)')
+            ui.label('This updates existing Transactions notes by cleaning the first merchant segment.').classes('text-sm').style('color: var(--mf-muted)')
+
+            def _preview_cleanup() -> None:
+                tx = cached_df('transactions', force=True)
+                if tx.empty or 'notes' not in tx.columns:
+                    ui.notify('No notes found.', type='warning');
+                    return
+                sample = tx[['id', 'date', 'notes']].head(50).copy()
+                sample['cleaned_notes'] = apply_merchant_cleanup(sample)['notes']
+                rows = sample.to_dict(orient='records')
+                with ui.dialog() as d, ui.card().classes('my-card p-4 w-[92vw] max-w-5xl'):
+                    ui.label('Preview (first 50 rows)').classes('text-lg font-bold')
+                    ui.table(
+                        columns=[
+                            {'name': 'date', 'label': 'Date', 'field': 'date'},
+                            {'name': 'notes', 'label': 'Notes', 'field': 'notes'},
+                            {'name': 'cleaned_notes', 'label': 'Cleaned Notes', 'field': 'cleaned_notes'},
+                            {'name': 'id', 'label': 'ID', 'field': 'id'},
+                        ],
+                        rows=rows,
+                        row_key='id',
+                    ).classes('w-full')
+                    ui.button('Close', on_click=d.close).props('flat')
+                d.open()
+
+            def _apply_cleanup_all() -> None:
+                tx = cached_df('transactions', force=True)
+                if tx.empty or 'notes' not in tx.columns:
+                    ui.notify('No notes found.', type='warning');
+                    return
+                cleaned = apply_merchant_cleanup(tx)
+                # apply updates row-by-row (safe; but can be slower)
+                updated = 0
+                for _, r in cleaned.iterrows():
+                    rid = str(r.get('id', '')).strip()
+                    if not rid:
+                        continue
+                    new_notes = str(r.get('notes', ''))
+                    # compare with original to avoid write spam
+                    orig_notes = str(tx.loc[tx['id'].astype(str) == rid, 'notes'].iloc[0]) if (tx['id'].astype(str) == rid).any() else None
+                    if orig_notes is not None and new_notes != orig_notes:
+                        if update_row_by_id('transactions', 'id', rid, {'notes': new_notes}):
+                            updated += 1
+                invalidate('transactions')
+                ui.notify(f'Updated {updated} notes.', type='positive')
+
+            with ui.row().classes('gap-2 mt-2'):
+                ui.button('Preview', icon='preview', on_click=_preview_cleanup).props('outline')
+                ui.button('Apply cleanup to all', icon='auto_fix_high', on_click=_apply_cleanup_all).props('unelevated')
+
+    shell(content)
+
 
 # -----------------------------
 # Boot
