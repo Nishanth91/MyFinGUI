@@ -1,7 +1,6 @@
 # ======================================
-# MyFin App – Phase 4.6A
-# Scope: Premium UI foundation & UX fixes
-# Base: VF2_P4_5 (Last Stable)
+# MyFin App – Phase 4.6A (REAL FIX BUILD)
+# Changes vs P4.5: Dashboard hero, Rules selection, OCR toast timeout, richer palette
 # ======================================
 
 # ==============================
@@ -1552,20 +1551,23 @@ def logout() -> None:
 # -----------------------------
 BANK_CSS = r"""
 :root {
-  --mf-bg: #0b1220;
+  --mf-bg: #070A12;
+  --mf-bg-2: #0B1020;
   --mf-surface: rgba(255,255,255,0.05);
   --mf-surface-2: rgba(255,255,255,0.08);
   --mf-border: rgba(255,255,255,0.12);
   --mf-text: rgba(255,255,255,0.92);
   --mf-muted: rgba(255,255,255,0.62);
-  --mf-accent: #2e7dff;
+  --mf-accent: #20c997;
+  --mf-accent2: #8b5cf6;
   --mf-good: #22c55e;
   --mf-bad: #ef4444;
   --mf-warn: #fbbf24;
 }
 
 body, .q-layout, .q-page {
-  background: radial-gradient(1200px 700px at 20% 10%, rgba(46,125,255,0.18), transparent 60%),
+  background: radial-gradient(1200px 700px at 18% 12%, rgba(32,201,151,0.22), transparent 60%),
+              radial-gradient(900px 600px at 82% 18%, rgba(139,92,246,0.16), transparent 58%),
               radial-gradient(900px 600px at 80% 20%, rgba(34,197,94,0.12), transparent 55%),
               radial-gradient(900px 600px at 40% 90%, rgba(251,191,36,0.08), transparent 55%),
               var(--mf-bg) !important;
@@ -2016,6 +2018,31 @@ def dashboard_page():
                 spend["category"] = "Uncategorized"
             spend["category"] = spend["category"].astype(str).replace("", "Uncategorized")
 
+        # --- Phase 4.6A: Hero summary (reduces tile clutter, feels like a bank app) ---
+        try:
+            days_to_next = (next_pay - start_d).days if next_pay else None
+        except Exception:
+            days_to_next = None
+
+        with ui.card().classes('my-card p-5'):
+            ui.label('Overview').classes('text-xs uppercase').style('color: var(--mf-muted); letter-spacing: 0.12em')
+            with ui.row().classes('w-full items-end justify-between gap-4'):
+                with ui.column().classes('gap-1'):
+                    ui.label('Pay period net').classes('text-sm').style('color: var(--mf-muted)')
+                    ui.label(currency(net_pp)).classes('text-4xl font-extrabold')
+                    ui.label(f"{pp_start.strftime('%b %d')} → {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
+                with ui.column().classes('items-end gap-1'):
+                    if next_pay:
+                        ui.label('Next payday').classes('text-sm').style('color: var(--mf-muted)')
+                        ui.label(next_pay.strftime('%a, %b %d')).classes('text-xl font-bold')
+                        if days_to_next is not None:
+                            ui.badge(f"In {days_to_next} days").style('background: rgba(32,201,151,0.18); color: var(--mf-text); border: 1px solid var(--mf-border);')
+            ui.separator().classes('my-3 opacity-20')
+            with ui.row().classes('gap-2'):
+                ui.button('Add expense', icon='add').props('unelevated').on('click', lambda: nav_to('/add?mode=expense'))
+                ui.button('Add income', icon='add').props('outline').on('click', lambda: nav_to('/add?mode=income'))
+                ui.button('View transactions', icon='receipt_long').props('flat').on('click', lambda: nav_to('/tx'))
+
         with ui.row().classes("w-full gap-3"):
             for label, val in [
                 ("Income (this month)", income),
@@ -2042,35 +2069,7 @@ def dashboard_page():
 
 
         # Quick actions + data quality
-        unc_count = 0
-        try:
-            if "category" in mtx.columns:
-                unc_count = int((mtx["category"].astype(str).str.strip().replace("", "Uncategorized") == "Uncategorized").sum())
-        except Exception:
-            unc_count = 0
-
-        # Phase 4.2: in-app notifications (budget + uncategorized)
-        try:
-            if unc_count > 0:
-                ui.notify(f'You have {unc_count} Uncategorized items this month.', type='warning')
-        except Exception:
-            pass
-
-        with ui.row().classes("w-full gap-3"):
-            with ui.card().classes("my-card p-4 w-full"):
-                ui.label("Quick actions").classes("text-lg font-bold")
-                with ui.row().classes("gap-2"):
-                    ui.button("Add expense", icon="add").props("unelevated").on("click", lambda: nav_to('/add?mode=expense'))
-                    ui.button("Add income", icon="add").props("outline").on("click", lambda: nav_to('/add?mode=income'))
-                    ui.button("Transactions", icon="receipt_long").props("flat").on("click", lambda: nav_to('/tx'))
-            with ui.card().classes("my-card p-4 w-full"):
-                ui.label("Data quality").classes("text-lg font-bold")
-                ui.label(f"Uncategorized this month: {unc_count}").classes("text-sm").style("color: var(--mf-muted)")
-                def _go_fix_uncat() -> None:
-                    app.storage.user['tx_quick_filter'] = 'uncat'
-                    nav_to('/tx')
-                ui.button("Fix now", icon="construction").props("outline").on("click", _go_fix_uncat)
-
+        # Phase 4.6A: Quick actions moved into the Overview card to reduce clutter
         # Budgets (Phase 4)
         budgets = read_df_optional('budgets')
         if budgets is not None and not budgets.empty and (not spend.empty) and "category" in spend.columns:
@@ -2332,7 +2331,7 @@ def add_page():
                             if not scan_state.get('data_url'):
                                 ui.notify('Please upload a receipt image first.', type='warning')
                                 return
-                            ui.notify('Scanning…', type='info')
+                            ui.notify('Scanning…', type='info', timeout=1.2)
                             img_literal = json.dumps(str(scan_state.get('data_url', '')))
                             js = f"""
                                 // Client-side OCR (tesseract.js).
@@ -2407,9 +2406,9 @@ def add_page():
                             apply_btn.enable()
 
                             if conf < 3.0:
-                                ui.notify('Low confidence TOTAL detected — verify amount before applying.', type='warning')
+                                ui.notify('Low confidence TOTAL detected — verify amount before applying.', type='warning', timeout=2.0)
                             else:
-                                ui.notify('Scan complete. Review and tap Apply.', type='positive')
+                                ui.notify('Scan complete. Review and tap Apply.', type='positive', timeout=1.2)
 
                         def _apply_to_form() -> None:
                             parsed = parsed_state.get('parsed') or {}
@@ -3299,7 +3298,7 @@ def rules_page():
             table = ui.table(columns=[
                 {"name": "keyword", "label": "Keyword", "field": "keyword"},
                 {"name": "category", "label": "Category", "field": "category"},
-            ], rows=rdf.to_dict(orient="records") if not rdf.empty else [], row_key="keyword").classes("w-full")
+            ], rows=rdf.to_dict(orient="records") if not rdf.empty else [], row_key="keyword", selection="single").classes("w-full").props("dense flat")
 
             # Phase 4: quick rule tester
             with ui.card().classes('my-card p-4 mt-4'):
