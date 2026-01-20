@@ -1,25 +1,32 @@
 """
-MYFIN_NICEGUI_P5.1.2_WORKING.py
-Phase 5.1.2 — Bank-style UI Shell (SINGLE FILE, Render-safe, NiceGUI multi-page safe)
+MYFIN_NICEGUI_P5.1.3_HF.py
+Phase 5.1.3 — HOTFIX (Render + NiceGUI version safe)
 
-Fixes Render error:
-  RuntimeError: ui.page cannot be used ... when UI is defined in the global scope
+Fixes the Render error you hit:
+  AttributeError: module 'nicegui.ui' has no attribute 'open'
 
-Rule: When using @ui.page, DO NOT call any ui.* at import time.
-So this file:
-- contains ZERO ui calls at module import
-- injects CSS + enables dark mode inside each page handler (per client)
+Why it happened:
+- Some NiceGUI versions don't have ui.open() (or it behaves differently).
+- Redirects from "/" using ui.open("/dashboard") are not portable.
 
-Render start command:
-  python MYFIN_NICEGUI_P5.1.2_WORKING.py
-(or copy this file content into whatever file Render starts, e.g. MyFin_NiceGUI_VF3_FINAL.py)
+What this HF does:
+- NO ui.open() / NO redirects.
+- "/" renders the Dashboard directly.
+- Multi-page safe (no ui.* calls at import time).
+- Single-file, copy-paste friendly.
+
+How you should run it (your workflow):
+- Copy ALL contents of this file into: MyFin_NiceGUI_VF3_FINAL.py
+- Keep Render start command unchanged.
+
+Note:
+- This is still the Phase 5 UI shell (placeholders). No Phase 4 logic is wired yet.
 """
 
 from __future__ import annotations
 
 import os
 from typing import Callable, Optional, List, Tuple
-
 from nicegui import ui
 
 
@@ -47,11 +54,11 @@ TOKENS = {
 
 
 # ======================================================================================
-# UI helpers (must be called ONLY inside page functions)
+# UI helpers (call ONLY inside @ui.page functions)
 # ======================================================================================
 
 def inject_css_and_mode() -> None:
-    """Call inside each @ui.page handler."""
+    """Safe to call multiple times; execute per request/client."""
     ui.dark_mode().enable()
 
     c, s, r, fx, l = TOKENS["color"], TOKENS["space"], TOKENS["radius"], TOKENS["fx"], TOKENS["layout"]
@@ -65,6 +72,7 @@ def inject_css_and_mode() -> None:
       --blur:{fx['blur']}; --shadow:{fx['shadow']}; --shadowSoft:{fx['shadow_soft']};
       --maxW:{l['max_w']}; --navW:{l['nav_w']}; --headerH:{l['header_h']};
     }}
+
     body {{
       background:
         radial-gradient(1100px 650px at 18% 10%, rgba(91,140,255,0.22) 0%, rgba(91,140,255,0.00) 55%),
@@ -72,6 +80,7 @@ def inject_css_and_mode() -> None:
         linear-gradient(180deg, var(--bg0), var(--bg1));
       color: var(--text);
     }}
+
     .q-page {{ padding:0 !important; }}
 
     .mf-shell {{ display:flex; min-height:100vh; width:100%; }}
@@ -91,6 +100,7 @@ def inject_css_and_mode() -> None:
     .mf-navbtn .q-btn__content {{ flex-direction:column !important; gap:6px; }}
     .mf-navbtn {{ width:100%; min-height:58px; border-radius:var(--rmd) !important; border:1px solid transparent !important; }}
     .mf-navbtn.is-active {{ background: var(--accentSoft) !important; border:1px solid rgba(91,140,255,0.35) !important; }}
+    .mf-navbtn .q-btn__content span {{ font-size:11px; opacity:0.78; }}
 
     .mf-main {{ flex:1; padding: var(--2xl); }}
     .mf-header {{
@@ -107,6 +117,7 @@ def inject_css_and_mode() -> None:
       border-radius: var(--rxl); box-shadow: var(--shadow);
     }}
     .mf-card {{ padding: var(--xl); }}
+
     .mf-hero .h1 {{ font-size:34px; font-weight:950; letter-spacing:-0.6px; line-height:1.05; }}
     .mf-hero .sub {{ color: var(--muted); font-size:13px; }}
     .mf-section-title {{ font-size:13px; letter-spacing:0.18px; color:var(--muted); text-transform:uppercase; }}
@@ -141,7 +152,9 @@ def section(title: str, body: Callable[[], None]) -> None:
 
 
 def metric(label: str, value: str, hint: str = "") -> None:
-    with ui.column().classes("mf-glass").style("padding:16px; border-radius: var(--rlg); box-shadow: var(--shadowSoft); min-width:220px;"):
+    with ui.column().classes("mf-glass").style(
+        "padding:16px; border-radius: var(--rlg); box-shadow: var(--shadowSoft); min-width:220px;"
+    ):
         ui.label(label).style("color: var(--muted); font-size:12px;")
         ui.label(value).style("font-size:22px; font-weight:950;")
         if hint:
@@ -149,7 +162,7 @@ def metric(label: str, value: str, hint: str = "") -> None:
 
 
 NAV: List[Tuple[str, str, str]] = [
-    ("Dashboard", "dashboard", "/dashboard"),
+    ("Dashboard", "dashboard", "/"),
     ("Cards", "credit_card", "/cards"),
     ("Rules", "tune", "/rules"),
     ("Admin", "settings", "/admin"),
@@ -168,7 +181,7 @@ def shell(active_path: str, page_title: str, page_subtitle: str, content: Callab
                     with ui.link(target=href).classes("no-underline w-full"):
                         ui.button(label, icon=icon).props("flat").classes(btn_cls).style("text-transform:none;")
                 ui.separator().props("dark").classes("opacity-20 my-1")
-                ui.label("Phase 5.1.2").style("color: var(--muted); font-size:11px; text-align:center;")
+                ui.label("Phase 5.1.3 HF").style("color: var(--muted); font-size:11px; text-align:center;")
 
         with ui.element("main").classes("mf-main"):
             with ui.element("div").classes("mf-header"):
@@ -176,30 +189,28 @@ def shell(active_path: str, page_title: str, page_subtitle: str, content: Callab
                     ui.label(page_title).classes("t1")
                     ui.label(page_subtitle).classes("t2")
                 with ui.row().classes("items-center gap-2"):
-                    ui.button("", icon="search").props("flat round").style("border:1px solid var(--border); background: rgba(255,255,255,0.04);")
-                    ui.button("Add", icon="add").props("unelevated").style("background: var(--accent); color:#071022; border-radius:12px; font-weight:950;")
+                    ui.button("", icon="search").props("flat round").style(
+                        "border:1px solid var(--border); background: rgba(255,255,255,0.04);"
+                    )
+                    ui.button("Add", icon="add").props("unelevated").style(
+                        "background: var(--accent); color:#071022; border-radius:12px; font-weight:950;"
+                    )
             with ui.element("div").classes("mf-canvas"):
                 content()
 
 
 # ======================================================================================
-# PAGES
+# PAGES (no redirects, no ui.open)
 # ======================================================================================
 
 @ui.page("/")
-def _root():
-    inject_css_and_mode()
-    ui.open("/dashboard")
-
-
-@ui.page("/dashboard")
-def _dashboard():
+def dashboard_root():
     inject_css_and_mode()
 
     def content():
         hero(
             "Am I okay right now?",
-            "Phase 5.1.2 shell live • Phase 5.2 will plug real numbers here",
+            "Phase 5.1.3 HF • This page is / (no redirect)",
             right=lambda: ui.button("View details", icon="north_east").props("flat").style("border:1px solid var(--border);"),
         )
 
@@ -211,56 +222,50 @@ def _dashboard():
 
         section("Financial snapshot", body)
 
-    shell("/dashboard", "Dashboard", "Hero-first financial state", content)
+        section("Next", lambda: ui.label("Once this shell is stable, we mount P4_6A_v2 logic into it (Phase 5.2).").style("color: var(--muted);"))
+
+    shell("/", "Dashboard", "Hero-first financial state", content)
 
 
 @ui.page("/cards")
-def _cards():
+def cards():
     inject_css_and_mode()
-
-    def content():
-        hero("Cards", "Bank-style widgets • Phase 5.3 will use real balances")
-        section("Your cards", lambda: ui.label("Placeholder widgets").style("color: var(--muted);"))
-
-    shell("/cards", "Cards", "Card-as-widget layout", content)
+    shell("/cards", "Cards", "Card-as-widget layout", lambda: (
+        hero("Cards", "Bank-style widgets • Phase 5.3 will use real balances"),
+        section("Your cards", lambda: ui.label("Placeholder widgets").style("color: var(--muted);")),
+    ))
 
 
 @ui.page("/rules")
-def _rules():
+def rules():
     inject_css_and_mode()
-
-    def content():
-        hero("Rules", "Correct layout: LEFT list • RIGHT editor (Phase 5.4)")
-        section("Rules layout", lambda: ui.label("Placeholder split view").style("color: var(--muted);"))
-
-    shell("/rules", "Rules", "Left list / Right editor", content)
+    shell("/rules", "Rules", "Left list / Right editor", lambda: (
+        hero("Rules", "Correct layout: LEFT list • RIGHT editor (Phase 5.4)"),
+        section("Rules layout", lambda: ui.label("Placeholder split view").style("color: var(--muted);")),
+    ))
 
 
 @ui.page("/admin")
-def _admin():
+def admin():
     inject_css_and_mode()
-
-    def content():
-        hero("Admin", "Control Center layout (Phase 5.4+)")
-        section("Modules", lambda: ui.label("Placeholder tiles").style("color: var(--muted);"))
-
-    shell("/admin", "Admin", "Productized control center", content)
+    shell("/admin", "Admin", "Productized control center", lambda: (
+        hero("Admin", "Control Center layout (Phase 5.4+)"),
+        section("Modules", lambda: ui.label("Placeholder tiles").style("color: var(--muted);")),
+    ))
 
 
 @ui.page("/transactions")
-def _tx():
+def transactions():
     inject_css_and_mode()
-
-    def content():
-        hero("Transactions", "Clean rows/cards (no tables)")
-        section("Recent", lambda: ui.label("Placeholder rows").style("color: var(--muted);"))
-
-    shell("/transactions", "Transactions", "Card rows", content)
+    shell("/transactions", "Transactions", "Card rows", lambda: (
+        hero("Transactions", "Clean rows/cards (no tables)"),
+        section("Recent", lambda: ui.label("Placeholder rows").style("color: var(--muted);")),
+    ))
 
 
 # ======================================================================================
-# START
+# START (Render-safe PORT)
 # ======================================================================================
 
 PORT = int(os.environ.get("PORT", "8080"))
-ui.run(host="0.0.0.0", port=PORT, title="MyFin — Phase 5.1.2", reload=False)
+ui.run(host="0.0.0.0", port=PORT, title="MyFin — Phase 5.1.3 HF", reload=False)
