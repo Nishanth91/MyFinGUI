@@ -1,6 +1,13 @@
+# ==============================
+# MyFin App – Phase 4.5 (P4.4 + P4.5 combined)
+# Base: Myfin_NICEGUI_VF2_P4_2 (last stable)
+# Changes: Budgets setup UX, Transactions table mobile UX, Rules edit, Cards utilization bars,
+#          Dashboard pay-period view, Premium login styling
+# ==============================
+
 """
 MyFin — NiceGUI Stable
-File: Myfin_NICEGUI_VF2_P4_3.py
+File: Myfin_NICEGUI_VF2_P4_2.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
@@ -1794,10 +1801,17 @@ def methods_list() -> List[str]:
 # -----------------------------
 @ui.page("/login")
 def login_page():
-    with ui.column().classes("w-full max-w-[520px] mx-auto mt-10 p-4 gap-4"):
-        with ui.card().classes("my-card p-6"):
-            ui.label("Sign in").classes("text-xl font-bold")
-            ui.label("Use your admin credentials.").classes("text-sm").style("color: var(--mf-muted)")
+    with ui.column().classes('w-full max-w-[640px] mx-auto mt-12 p-4 gap-4'):
+        with ui.card().classes('my-card p-8'):
+            with ui.row().classes('w-full items-center justify-between'):
+                with ui.row().classes('items-center gap-3'):
+                    ui.label('💳').classes('text-3xl')
+                    with ui.column().classes('gap-0'):
+                        ui.label('Welcome to MyFin').classes('text-2xl font-bold')
+                        ui.label('Sign in to continue').classes('text-sm').style('color: var(--mf-muted)')
+                ui.badge('Secure').style('background: rgba(46,125,255,0.18); color: var(--mf-text); border: 1px solid var(--mf-border);')
+            ui.separator().classes('my-4 opacity-30')
+            ui.label('Use your admin credentials.').classes('text-sm').style('color: var(--mf-muted)')
             u_in = ui.input("Username").classes("w-full")
             p_in = ui.input("Password", password=True, password_toggle_button=True).classes("w-full")
 
@@ -1945,6 +1959,50 @@ def dashboard_page():
         invest = amt[typ.isin(["investment"])].sum()
         net = income - expense - invest
 
+
+        # --- Pay-period view (smarter than calendar month for end-of-month salaries) ---
+        # Build a combined payday calendar (Salary 1: semimonthly, Salary 2: biweekly anchor)
+        try:
+            start_d = today()
+            # compute paydays ~90 days around today to find previous/next
+            window_start = start_d - dt.timedelta(days=60)
+            window_end = start_d + dt.timedelta(days=60)
+            all_pays: list[dt.date] = []
+            yy, mm = window_start.year, window_start.month
+            for _ in range(6):
+                for p in abhi_pay_dates_for_month(yy, mm):
+                    if window_start <= p <= window_end:
+                        all_pays.append(p)
+                mm += 1
+                if mm == 13:
+                    yy += 1
+                    mm = 1
+            for p in wife_pay_dates_between(window_start, window_end):
+                if window_start <= p <= window_end:
+                    all_pays.append(p)
+            all_pays = sorted(set(all_pays))
+            prev_pay = max([p for p in all_pays if p <= start_d], default=None)
+            next_pay = min([p for p in all_pays if p > start_d], default=None)
+            if prev_pay is None:
+                prev_pay = start_d - dt.timedelta(days=14)
+            if next_pay is None:
+                next_pay = start_d + dt.timedelta(days=14)
+            pp_start = prev_pay
+            pp_end = next_pay
+
+            ptx = tx[(tx['date_parsed'] >= pp_start) & (tx['date_parsed'] < pp_end)].copy()
+            ptyp = ptx['type_l']
+            pamt = ptx['amount_num']
+            # broaden type matching
+            income_pp = pamt[ptyp.isin(['credit','income'])].sum()
+            expense_pp = pamt[ptyp.isin(['debit','expense'])].sum()
+            invest_pp = pamt[ptyp.isin(['investment'])].sum()
+            net_pp = income_pp - expense_pp - invest_pp
+        except Exception:
+            pp_start = today() - dt.timedelta(days=14)
+            pp_end = today() + dt.timedelta(days=14)
+            income_pp = expense_pp = invest_pp = net_pp = 0.0
+
         # Expenses for this month (reused by budgets + breakdown)
         spend = mtx[mtx["type_l"].isin(["debit", "expense"])].copy()
         if not spend.empty:
@@ -1963,6 +2021,19 @@ def dashboard_page():
                     ui.label(label).classes("text-sm").style("color: var(--mf-muted)")
                     ui.label(currency(val)).classes("text-2xl font-bold")
                     ui.label(mkey).classes("text-xs").style("color: var(--mf-muted)")
+
+        with ui.row().classes('w-full gap-3'):
+            for label, val in [
+                ('Income (pay period)', income_pp),
+                ('Expenses (pay period)', expense_pp),
+                ('Investments (pay period)', invest_pp),
+                ('Net (pay period)', net_pp),
+            ]:
+                with ui.card().classes('my-card p-4 kpi w-full'):
+                    ui.label(label).classes('text-sm').style('color: var(--mf-muted)')
+                    ui.label(currency(val)).classes('text-2xl font-bold')
+                    ui.label(f"{pp_start.strftime('%b %d')} → {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
+
 
         # Quick actions + data quality
         unc_count = 0
@@ -2046,12 +2117,10 @@ def dashboard_page():
                                     ui.label(f"{currency(spent_amt)} / {currency(bud_amt)}").classes('text-xs').style('color: var(--mf-muted)')
                                 ui.linear_progress(value=pct).props('size=10px')
 
-        # Upcoming paydays (next 45 days)
+        # Upcoming paydays
         start = today()
         end = start + dt.timedelta(days=45)
         pays: List[Tuple[str, dt.date]] = []
-
-        # NOTE: Keep internal pay logic, but keep labels neutral in the UI.
         y, m = start.year, start.month
         for _ in range(3):
             for p in abhi_pay_dates_for_month(y, m):
@@ -2064,36 +2133,15 @@ def dashboard_page():
         for p in wife_pay_dates_between(start, end):
             if start <= p <= end:
                 pays.append(("Salary 2", p))
-
         pays = sorted(set(pays), key=lambda x: x[1])
-        next_pay = min((d for _, d in pays), default=None)
 
         with ui.card().classes("my-card p-5"):
-            with ui.row().classes('w-full items-center justify-between'):
-                ui.label("Upcoming paydays").classes("text-lg font-bold")
-                ui.badge("Next 45 days").classes('bg-white/10 text-white')
-
-            ui.separator().classes('my-3 opacity-30')
-
+            ui.label("Upcoming paydays").classes("text-lg font-bold")
             if not pays:
                 ui.label("No paydays in the next 45 days.").style("color: var(--mf-muted)")
             else:
                 for who, d in pays[:12]:
-                    days_left = (d - start).days
-                    badge_text = 'Today' if days_left == 0 else (f"In {days_left} days" if days_left > 0 else f"{abs(days_left)} days ago")
-                    row_cls = 'w-full items-center justify-between rounded-xl px-3 py-2 transition-colors'
-                    # Highlight the nearest upcoming payday
-                    if next_pay and d == next_pay:
-                        row_cls += ' bg-white/12'
-                    else:
-                        row_cls += ' bg-white/0'
-
-                    with ui.row().classes(row_cls):
-                        with ui.row().classes('items-center gap-3'):
-                            ui.icon('event').classes('opacity-80')
-                            ui.label(who).classes('text-sm font-semibold')
-                            ui.label(d.strftime('%a, %b %d, %Y')).classes('text-sm').style('color: var(--mf-muted)')
-                        ui.badge(badge_text).classes('bg-white/10 text-white')
+                    ui.label(f"{who}: {d.strftime('%a, %b %d, %Y')}").classes("text-sm")
 
         # Spending breakdown
         with ui.card().classes("my-card p-5"):
@@ -2806,16 +2854,36 @@ def transactions_page():
             # Phase 4: export + quick fix tools (wired after the table is created)
             last_view: Dict[str, Any] = {'df': None}
 
-            table = ui.table(columns=[
-                {"name": "date", "label": "Date", "field": "date"},
-                {"name": "type", "label": "Type", "field": "type"},
-                {"name": "amount", "label": "Amount", "field": "amount"},
-                {"name": "method", "label": "Method", "field": "method"},
-                {"name": "account", "label": "Account", "field": "account"},
-                {"name": "category", "label": "Category", "field": "category"},
-                {"name": "notes", "label": "Notes", "field": "notes"},
-                {"name": "id", "label": "ID", "field": "id"},
-            ], rows=[], row_key="id", selection='single').classes("w-full")
+            # Table: show compact columns by default (mobile-friendly). Use Details to view/edit full row.
+            with ui.element('div').classes('w-full overflow-x-auto'):
+                table = ui.table(columns=[
+                    {"name": "date", "label": "Date", "field": "date"},
+                    {"name": "type", "label": "Type", "field": "type"},
+                    {"name": "amount", "label": "Amount", "field": "amount", "align": "right"},
+                    {"name": "category", "label": "Category", "field": "category"},
+                ], rows=[], row_key="id", selection='single').classes("w-full")
+                table.props('dense flat bordered')
+
+            def _open_details(row: Dict[str, Any]) -> None:
+                with ui.dialog() as d, ui.card().classes('my-card p-4 w-[92vw] max-w-3xl'):
+                    ui.label('Transaction details').classes('text-lg font-bold')
+                    def line(k, v):
+                        with ui.row().classes('w-full justify-between'):
+                            ui.label(k).classes('text-xs').style('color: var(--mf-muted)')
+                            ui.label(v).classes('text-sm')
+                    line('Date', str(row.get('date','')))
+                    line('Type', str(row.get('type','')))
+                    line('Amount', str(row.get('amount','')))
+                    line('Method', str(row.get('method','')))
+                    line('Account', str(row.get('account','')))
+                    line('Category', str(row.get('category','')))
+                    ui.separator().classes('my-2 opacity-30')
+                    ui.label('Notes').classes('text-xs').style('color: var(--mf-muted)')
+                    ui.label(str(row.get('notes',''))).classes('text-sm')
+                    with ui.row().classes('w-full justify-end gap-2 mt-3'):
+                        ui.button('Edit', icon='edit', on_click=lambda: (d.close(), open_edit(row))).props('unelevated')
+                        ui.button('Close', on_click=d.close).props('flat')
+                d.open()
             # Make tapping a row select it (helps on mobile where the checkbox can be fiddly).
             def _on_row_click(e):
                 row = e.args.get('row') if isinstance(e.args, dict) else None
@@ -3013,6 +3081,57 @@ def cards_page() -> None:
             bd = str(billing_days[i]).strip()
             lim = parse_money(limits[i])
 
+            # Utilization (approx): sum Debit spending by method_name minus CC Repay where account matches card
+            tx = cached_df('transactions')
+            txu = tx.copy()
+            if not txu.empty:
+                txu['type_l'] = txu.get('type','').astype(str).str.strip().str.lower()
+                txu['amount_num'] = txu.get('amount','').apply(to_float)
+                txu['date_parsed'] = txu.get('date','').apply(parse_date)
+            method_key = str(method).strip()
+            card_key = str(name).strip()
+            # billing cycle start
+            cycle_start = None
+            try:
+                bd_int = int(float(bd)) if str(bd).strip() else None
+            except Exception:
+                bd_int = None
+            if bd_int and bd_int >= 1 and bd_int <= 31:
+                today_d = today()
+                y,m = today_d.year, today_d.month
+                # last statement day
+                import calendar as _cal
+                last_day = _cal.monthrange(y,m)[1]
+                stmt_this = dt.date(y,m, min(bd_int,last_day))
+                if today_d >= stmt_this:
+                    last_stmt = stmt_this
+                else:
+                    pm = m-1
+                    py = y
+                    if pm==0:
+                        pm=12; py=y-1
+                    last_day2 = _cal.monthrange(py,pm)[1]
+                    last_stmt = dt.date(py,pm, min(bd_int,last_day2))
+                cycle_start = last_stmt + dt.timedelta(days=1)
+            if cycle_start is None:
+                cycle_start = today() - dt.timedelta(days=30)
+
+            util_used = 0.0
+            util_paid = 0.0
+            if not txu.empty:
+                scope = txu[txu['date_parsed'].notna() & (txu['date_parsed'] >= cycle_start)].copy()
+                # spending: Debit/Expense on this method
+                spend_mask = scope['type_l'].isin(['debit','expense']) & (scope.get('method','').astype(str).str.strip() == method_key)
+                util_used = float(scope.loc[spend_mask, 'amount_num'].sum())
+                # repayments: CC Repay variants where account equals card name (best-effort)
+                repay_mask = scope['type_l'].isin(['cc repay','cc_repay','credit card repay','credit card repayment','cc repayment']) & (scope.get('account','').astype(str).str.strip() == card_key)
+                util_paid = float(scope.loc[repay_mask, 'amount_num'].sum())
+            balance = max(0.0, util_used - util_paid)
+            remaining = max(0.0, (lim - balance)) if lim else 0.0
+            pct = (balance/lim) if lim else 0.0
+            pct = max(0.0, min(1.0, pct))
+
+
             with grid:
                 with ui.card().classes('my-card').style('width: 320px; max-width: 100%;'):
                     with ui.row().classes('items-center justify-between'):
@@ -3028,6 +3147,18 @@ def cards_page() -> None:
                         with ui.column().classes('q-gutter-xs'):
                             ui.label('Limit').classes('text-xs').style('color: var(--mf-muted);')
                             ui.label(f'${lim:,.2f}' if lim else '—').classes('text-sm').style('color: var(--mf-text);')
+
+                    ui.separator().classes('my-3 opacity-30')
+                    with ui.row().classes('w-full items-center justify-between'):
+                        ui.label('Used').classes('text-xs').style('color: var(--mf-muted)')
+                        ui.label(currency(balance)).classes('text-sm font-semibold')
+                    with ui.element('div').classes('w-full mf-progress'):
+                        ui.element('div').style(f'width: {pct*100:.1f}%;')
+                    with ui.row().classes('w-full items-center justify-between mt-2'):
+                        ui.label('Remaining').classes('text-xs').style('color: var(--mf-muted)')
+                        ui.label(currency(remaining) if lim else '—').classes('text-sm')
+                    ui.label(f'Cycle start: {cycle_start.isoformat()}').classes('text-xs').style('color: var(--mf-muted)')
+
 
     shell(content)
 
@@ -3197,9 +3328,54 @@ def rules_page():
                 else:
                     ui.notify("Delete failed", type="negative")
 
+            
+
+            def _load_selected_rule() -> None:
+                if not table.selected:
+                    ui.notify('Select a row', type='warning')
+                    return
+                r = table.selected[0]
+                k.value = str(r.get('keyword', '') or '')
+                c.value = str(r.get('category', '') or '')
+
+            def edit_rule() -> None:
+                if not table.selected:
+                    ui.notify('Select a row', type='warning')
+                    return
+                orig_kw = str(table.selected[0].get('keyword', '') or '').strip()
+                new_kw = str(k.value or '').strip()
+                new_cat = str(c.value or '').strip()
+                if not orig_kw:
+                    ui.notify('Selected row missing keyword', type='negative')
+                    return
+                if not new_kw:
+                    ui.notify('Keyword required', type='warning')
+                    return
+                if not new_cat:
+                    ui.notify('Category required', type='warning')
+                    return
+                try:
+                    if new_kw.lower() == orig_kw.lower():
+                        ok = update_row_by_id('rules', 'keyword', orig_kw, {'keyword': new_kw, 'category': new_cat})
+                        if not ok:
+                            ui.notify('Update failed', type='negative')
+                            return
+                    else:
+                        # keyword changed: delete old + add new (keeps sheet simple)
+                        if not delete_row_by_id('rules', 'keyword', orig_kw):
+                            ui.notify('Could not replace rule (delete failed)', type='negative')
+                            return
+                        append_row('rules', {'keyword': new_kw, 'category': new_cat})
+                    invalidate('rules')
+                    ui.notify('Rule updated', type='positive')
+                    nav_to('/rules')
+                except Exception as e:
+                    ui.notify(f'Edit failed: {e}', type='negative')
             with ui.row().classes("gap-2 mt-3"):
-                ui.button("Add rule", on_click=add_rule).props("unelevated")
-                ui.button("Delete selected", on_click=del_rule).props("flat")
+                ui.button('Load selected', on_click=_load_selected_rule).props('flat')
+                ui.button('Save changes', on_click=edit_rule).props('unelevated')
+                ui.button('Add rule', on_click=add_rule).props('outline')
+                ui.button('Delete selected', on_click=del_rule).props('flat')
 
     shell(content)
 
@@ -3235,6 +3411,24 @@ def ensure_optional_sheet(title: str, headers: list[str]) -> bool:
     except Exception:
         pass
     return True
+
+def force_create_optional_sheet(title: str, headers: list[str]) -> bool:
+    '''Create an optional worksheet even when ALLOW_CREATE_MISSING_SHEETS is disabled.
+
+    This is used to provide a one-click setup UX (e.g., Budgets) so users never see hard errors.
+    '''
+    ss = get_spreadsheet()
+    want = title.strip().lower()
+    for w in ss.worksheets():
+        if w.title.strip().lower() == want:
+            return True
+    w = ss.add_worksheet(title=title, rows=1000, cols=max(10, len(headers)))
+    try:
+        w.append_row(headers)
+    except Exception:
+        pass
+    return True
+
 
 
 def write_df_to_sheet(sheet_title: str, df: pd.DataFrame, headers: list[str]) -> None:
@@ -3378,7 +3572,18 @@ def budgets_page() -> None:
 
             ok = ensure_optional_sheet('budgets', OPTIONAL_SHEETS['budgets'])
             if not ok:
-                ui.label('Budgets sheet not found. Set ALLOW_CREATE_MISSING_SHEETS=1 to let the app create it.').classes('text-sm text-red-300')
+                ui.label('Budgets are not set up yet.').classes('text-sm').style('color: var(--mf-muted)')
+                ui.label('Tap Initialize to create the Budgets sheet in Google Sheets.').classes('text-sm').style('color: var(--mf-muted)')
+                def _init_budgets():
+                    try:
+                        force_create_optional_sheet('budgets', OPTIONAL_SHEETS['budgets'])
+                        ui.notify('Budgets sheet created.', type='positive')
+                        nav_to('/budgets')
+                    except Exception as e:
+                        ui.notify(f'Could not create Budgets sheet: {e}', type='negative')
+                with ui.row().classes('gap-2 mt-3'):
+                    ui.button('Initialize Budgets', icon='auto_fix_high', on_click=_init_budgets).props('unelevated')
+                    ui.button('Back', icon='arrow_back', on_click=lambda: nav_to('/admin')).props('flat')
                 return
 
             budgets = read_df_optional('budgets')
