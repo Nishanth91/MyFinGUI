@@ -1,3688 +1,2583 @@
-"""
-MyFin — NiceGUI Stable
-File: Myfin_NICEGUI_VF2_P4_2.py
-
-Purpose
-- A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
-- Focus on correctness + usability + a consistent dark “banking style” UI.
-
-Key behavior changes (requested)
-1) Recurring:
-   - Marking an entry as recurring creates/updates a TEMPLATE in the "recurring" sheet.
-   - The app auto-creates the actual transaction ONLY when the due date arrives (and only once per month).
-   - No backfilling past months. No creating future months in advance.
-
-2) Pay cycles
-   - Kept as "family" (no owner split). Any pay-cycle specific dashboards are deferred to later phases.
-
-Required Render environment variables
-- SERVICE_ACCOUNT_JSON: Paste your service_account.json contents (full JSON).
-- NICEGUI_STORAGE_SECRET: Any long random string (32+ chars recommended).
-
-Optional environment variables
-- SPREADSHEET_NAME (default: nishanthfintrack_2026)
-- APP_USER (default: admin)
-- APP_PASS (default: admin)
-- TIMEZONE (default: America/Winnipeg)
-
-Expected Google Sheet tabs (auto-created if missing)
-- transactions
-- cards
-- recurring
-- rules
-
-Render start command
-- python Myfin_NICEGUI_VF2_P3_12_3.py
-"""
+# ==============================
+# MyFin App – Phase 4.3
+# Base: Phase 4.2.1 (Stable)
+# Notes: UI/UX refinement phase
+# ==============================
 
 from __future__ import annotations
+#"""
+#NishanthFinTrack 2026 — Premium Dark • Fast • Google Sheets
+#FINALIZED single-file app.py (end-to-end)
+#
+#Includes (fully):
+#- All Corrections (C1–C8) + Enhancements (E1–E10) you listed
+#- All additional enhancements suggested: Quick Add defaults, keyboard-first, soft #toasts, bill-cycle utilization,
+#  safe-to-spend, utilization warnings, hero insight, MoM deltas, undo, confidence #tags, Admin Insights & Rules lock,
+#  backup export, smooth-ish UX (no chip multiselect; Apply filters).
+#- Major performance improvements: session-state data store + explicit Refresh + #Apply filters + isolated forms.
+#  No heavy reruns on every selection; Sheets is re-read only on explicit refresh or #after write operations.
+#
+#Prereqs:
+#- .streamlit/secrets.toml must contain:
+#  [gcp_service_account]
+#  type="service_account"
+#  project_id="..."
+#  private_key_id="..."
+#  private_key="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+#  client_email="...@....iam.gserviceaccount.com"
+#  client_id="..."
+#  token_uri="https://oauth2.googleapis.com/token"
+#  ...
+#
+#- Create a Google Sheet named SHEET_NAME (or change it) and share it with #client_email.
+#Run:
+#  streamlit run app.py
+#"""
 
-import uuid
-import datetime
-import logging
-
-# Lightweight logger used across the app
-logging.basicConfig(level=logging.INFO)
-_logger = logging.getLogger("myfin")
-
-def log(message: str) -> None:
-    """Log a message to stdout and the configured logger."""
-    try:
-        _logger.info(message)
-    except Exception:
-        print(message)
-
-# Simple in-memory cache for worksheet->DataFrame
-_df_cache: dict[tuple[str, str], object] = {}
-
-
-import os
+import calendar
+import hmac
 import json
 import re
-import math
+import uuid
 import time
-import calendar
-import hashlib
-import base64
-import asyncio
-import datetime as dt
-from typing import Any, Dict, List, Optional, Tuple, cast
+import random
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
 
 import gspread
-
-# NOTE: Receipt scanning uses free, client-side OCR (tesseract.js) loaded from a CDN.
-# No paid APIs are used.
-
-
-# -------------------- Google Sheets retry helpers --------------------
-from gspread.exceptions import APIError as GSpreadAPIError
-
-def gs_retry(fn, *, retries: int = 6, base_sleep: float = 0.8):
-    """Retry wrapper for Google Sheets API calls.
-
-    Handles transient 429/5xx errors by backing off. Raises the last exception on failure.
-    """
-    import time
-    import random
-
-    last = None
-    for i in range(retries):
-        try:
-            return fn()
-        except GSpreadAPIError as e:
-            last = e
-            msg = str(e)
-            # common transient cases: 429 quota, 500/502/503/504
-            transient = any(code in msg for code in ['429', '500', '502', '503', '504'])
-            if not transient or i == retries - 1:
-                raise
-            sleep_s = base_sleep * (2 ** i) + random.uniform(0, 0.35)
-            time.sleep(sleep_s)
-
-    if last:
-        raise last
-
-from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
-from nicegui import ui, app
-
-
-# -----------------------------
-
-# -----------------------------
-# Navigation helper (NiceGUI API compatibility)
-# -----------------------------
-def nav_to(path: str) -> None:
-    """Navigate within the app across different NiceGUI versions."""
-    try:
-        # NiceGUI v2+ style
-        if hasattr(ui, 'navigate') and hasattr(ui.navigate, 'to'):
-            ui.navigate.to(path)
-            return
-    except Exception:
-        pass
-    try:
-        # Older style (if present)
-        if hasattr(ui, 'open'):
-            ui.open(path)  # type: ignore[attr-defined]
-            return
-    except Exception:
-        pass
-    # Last resort: browser redirect
-    ui.run_javascript(f"window.location.href='{path}'")
-
-
-# Config
-# -----------------------------
-TZ = os.environ.get("TIMEZONE", "America/Winnipeg")
-
-# Spreadsheet identification
-# Prefer an ID (the long id in the Google Sheets URL). If not available, fall back to a spreadsheet name.
-SPREADSHEET_ID = (
-    os.environ.get('SPREADSHEET_ID')
-    or os.environ.get('GOOGLE_SHEET_ID')
-    or os.environ.get('GOOGLE_SHEETID')
-)
-SPREADSHEET_NAME = (
-    os.environ.get('SPREADSHEET_NAME')
-    or os.environ.get('GOOGLE_SHEET_NAME')
-    or 'nishanthfintrack_2026'
-)
-
-# When worksheets are missing, the app currently creates them. This can hide an ID/name mismatch by creating
-# new empty tabs. Setting this to "0" will enforce that existing sheets must be present.
-ALLOW_CREATE_MISSING_SHEETS = os.environ.get('ALLOW_CREATE_MISSING_SHEETS', '1').strip() not in {'0', 'false', 'False'}
-SERVICE_ACCOUNT_JSON = (os.environ.get("SERVICE_ACCOUNT_JSON") or os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or os.environ.get("GOOGLE_SERVICE_ACCOUNT") or "")
-STORAGE_SECRET = os.environ.get("NICEGUI_STORAGE_SECRET")  # set on Render; will be auto-derived if empty
-PORT = int(os.environ.get("PORT", "10000"))
-
-# If no storage secret provided (e.g., local dev), derive a stable secret so sessions/login work.
-if not STORAGE_SECRET:
-    seed = SERVICE_ACCOUNT_JSON or os.environ.get("SPREADSHEET_NAME", "") or "local-dev"
-    STORAGE_SECRET = hashlib.sha256(seed.encode("utf-8")).hexdigest()
-
-APP_TITLE = "MyFin"
-APP_SUBTITLE = "Finance Tracker"
-
-# Pay cycle config
-ABHI_PAY_DAYS = (15, 30)              # semimonthly
-WIFE_PAY_ANCHOR = dt.date(2026, 1, 16)  # biweekly Friday anchor
-
-
-# -----------------------------
-# Data cache (prevents repeated Google Sheets reads)
-# -----------------------------
-# Default to 5 minutes to avoid Google Sheets "Read requests per minute" quota issues.
-CACHE_TTL = int(os.environ.get("CACHE_TTL_SECONDS", "300"))  # seconds
-
-# Safety switch: when a sheet/tab name mismatch happens, auto-creating blank worksheets makes the app
-# look like it "has no data" while actually reading a new empty tab. Default is OFF so we fail loudly.
-ALLOW_CREATE_MISSING_SHEETS = os.environ.get('ALLOW_CREATE_MISSING_SHEETS', '0').strip().lower() in {'1', 'true', 'yes', 'y'}
-_cache: Dict[str, Tuple[float, pd.DataFrame]] = {}
-
-# -----------------------------
-# Utilities
-# -----------------------------
-def today() -> dt.date:
-    return dt.date.today()
-
-def month_key(d: dt.date) -> str:
-    return f"{d.year:04d}-{d.month:02d}"
-
-def parse_date(x: Any) -> Optional[dt.date]:
-    if x is None:
-        return None
-    if isinstance(x, dt.datetime):
-        return x.date()
-    if isinstance(x, dt.date):
-        return x
-    s = str(x).strip()
-    if not s:
-        return None
-
-    # Google Sheets can sometimes deliver dates as serial numbers (e.g., 45567)
-    # depending on formatting. Convert these to real dates.
-    if s.isdigit() and len(s) >= 5:
-        try:
-            serial = int(s)
-            # Excel/Sheets serial date origin (1899-12-30) works for modern dates.
-            origin = dt.date(1899, 12, 30)
-            return origin + dt.timedelta(days=serial)
-        except Exception:
-            pass
-    # Fast path for common explicit formats
-    for fmt in (
-        "%Y-%m-%d",
-        "%d-%m-%Y",
-        "%m/%d/%Y",
-        "%d/%m/%Y",
-        "%d-%b-%Y",     # 16-Jan-2026
-        "%d %b %Y",     # 16 Jan 2026
-        "%b %d, %Y",    # Jan 16, 2026
-        "%d %B %Y",     # 16 January 2026
-        "%B %d, %Y",    # January 16, 2026
-    ):
-        try:
-            return dt.datetime.strptime(s, fmt).date()
-        except Exception:
-            pass
-
-    # Google Sheets sometimes returns date-like serial numbers
-    # (days since 1899-12-30). If the value looks numeric, try that.
-    try:
-        if re.fullmatch(r"\d+(?:\.\d+)?", s):
-            n = float(s)
-            if 20000 <= n <= 60000:  # reasonable range for modern dates
-                base = dt.date(1899, 12, 30)
-                return base + dt.timedelta(days=int(n))
-    except Exception:
-        pass
-
-    # Robust fallback: try pandas with both day-first and month-first
-    try:
-        d = pd.to_datetime(s, errors='coerce', dayfirst=False)
-        if pd.notna(d):
-            return d.date()
-    except Exception:
-        pass
-    try:
-        d = pd.to_datetime(s, errors='coerce', dayfirst=True)
-        if pd.notna(d):
-            return d.date()
-    except Exception:
-        pass
-    return None
-
-
-
-
-def now_iso() -> str:
-    """Return current UTC timestamp as ISO-8601 string with timezone."""
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
-def parse_money(value: object, default: float = 0.0) -> float:
-    """Parse money-ish values like '$25,000', '25000', 25000 into float."""
-    if value is None:
-        return default
-    if isinstance(value, (int, float)):
-        try:
-            return float(value)
-        except Exception:
-            return default
-    s = str(value).strip()
-    if not s or s.lower() in ('nan', 'none'):
-        return default
-    # keep digits, minus, dot
-    s = s.replace(',', '')
-    if s.startswith('$'):
-        s = s[1:].strip()
-    # remove any remaining currency symbols/spaces
-    s = ''.join(ch for ch in s if (ch.isdigit() or ch in '.-'))
-    if not s or s in ('-', '.', '-.'):
-        return default
-    try:
-        return float(s)
-    except Exception:
-        return default
-
-
-def _guess_merchant_from_text(text: str) -> str:
-    """Best-effort merchant extraction from OCR text."""
-    t = text.upper()
-    # prefer known merchants if present
-    known = [
-        "WALMART",
-        "DOLLARAMA",
-        "COSTCO",
-        "SUPERSTORE",
-        "LOBLAWS",
-        "NO FRILLS",
-        "FRESHCO",
-        "CANADIAN TIRE",
-        "TIM HORTONS",
-        "MCDONALD",
-        "STARBUCKS",
-        "GILL",
-    ]
-    for k in known:
-        if k in t:
-            # keep original casing style
-            return k.title() if k != "WALMART" else "Walmart"
-
-    # fallback: first non-empty line that isn't obviously an address/phone/terminal
-    bad = ("WINNIPEG", "MB", "MANITOBA", "CANADA", "TEL", "PHONE", "STORE", "POS", "TERMINAL")
-    for line in [ln.strip() for ln in text.splitlines() if ln.strip()]:
-        up = line.upper()
-        if any(b in up for b in bad):
-            continue
-        # skip if mostly digits
-        digits = sum(ch.isdigit() for ch in line)
-        if len(line) > 0 and digits / max(1, len(line)) > 0.5:
-            continue
-        if 2 <= len(line) <= 40:
-            return line.strip().title()
-    return ""
-
-
-def _extract_date_from_text(text: str) -> Optional[dt.date]:
-    """Extract a receipt date from OCR text using candidate scoring.
-
-    Supported formats (most common in your receipts):
-      - MM/DD/YYYY (e.g., Gill’s 12/8/2025)
-      - MM/DD/YY   (e.g., Walmart 1/17/26)
-      - YY/MM/DD   (e.g., Dollarama 26/01/17 -> 2026-01-17)
-      - YYYY/MM/DD, YYYY-MM-DD
-
-    We avoid false positives from terminal/store IDs by:
-      - strict month/day/year validation
-      - scoring candidates with DATE keywords / time proximity / recency
-      - rejecting ID-heavy lines unless they include date keywords
-
-    Returns a dt.date or None (safe: we prefer empty over wrong).
-    """
-    if not text:
-        return None
-
-    lines = [ln.strip() for ln in str(text).splitlines() if ln.strip()]
-    if not lines:
-        return None
-
-    ignore_tokens = (
-        'st#', 'store', 'term', 'tran', 'ref', 'seq', 'tc#',
-        'lane', 'op', 'auth', 'invoice', 'order', 'reg', 'terminal', 'cashier', 'till'
-    )
-    date_keywords = ('date', 'dte', 'trans', 'transaction', 'purchase', 'time', 'issued')
-
-    def norm_year(y: int) -> int:
-        return 2000 + y if 0 <= y <= 99 else y
-
-    def valid_date(yy: int, mm: int, dd: int) -> Optional[dt.date]:
-        yy = norm_year(yy)
-        if not (2020 <= yy <= 2032):
-            return None
-        if not (1 <= mm <= 12 and 1 <= dd <= 31):
-            return None
-        try:
-            return dt.date(yy, mm, dd)
-        except Exception:
-            return None
-
-    patterns = [
-        ('YMD4', re.compile(r'(?<!\d)(\d{4})[\-/](\d{1,2})[\-/](\d{1,2})(?!\d)')),
-        ('MDY4', re.compile(r'(?<!\d)(\d{1,2})[\-/](\d{1,2})[\-/](\d{4})(?!\d)')),
-        ('MDY2', re.compile(r'(?<!\d)(\d{1,2})[\-/](\d{1,2})[\-/](\d{2})(?!\d)')),
-        ('YMD2', re.compile(r'(?<!\d)(\d{2})[\-/](\d{1,2})[\-/](\d{1,2})(?!\d)')),
-    ]
-
-    today_d = today()
-    candidates: list[tuple[float, dt.date]] = []
-
-    for i, ln in enumerate(lines):
-        low = ln.lower()
-        has_kw = any(k in low for k in date_keywords)
-        has_time = bool(re.search(r'(?<!\d)\d{1,2}:\d{2}(?::\d{2})?(?!\d)', ln))
-
-        # Skip ID-heavy lines unless they contain date keywords
-        if any(tok in low for tok in ignore_tokens) and not has_kw:
-            continue
-
-        digit_ratio = sum(ch.isdigit() for ch in ln) / max(1, len(ln))
-
-        for kind, rx in patterns:
-            for m in rx.finditer(ln):
-                try:
-                    if kind == 'YMD4':
-                        yy, mm, dd = int(m.group(1)), int(m.group(2)), int(m.group(3))
-                    elif kind == 'MDY4':
-                        mm, dd, yy = int(m.group(1)), int(m.group(2)), int(m.group(3))
-                    elif kind == 'MDY2':
-                        mm, dd, yy = int(m.group(1)), int(m.group(2)), int(m.group(3))
-                        yy = norm_year(yy)
-                    else:  # YMD2 (Dollarama-style)
-                        yy, mm, dd = int(m.group(1)), int(m.group(2)), int(m.group(3))
-                        yy = norm_year(yy)
-
-                    d = valid_date(yy, mm, dd)
-                    if not d:
-                        continue
-
-                    score = 0.0
-                    if has_kw:
-                        score += 6.0
-                    if has_time:
-                        score += 3.5
-
-                    delta = abs((today_d - d).days)
-                    if delta <= 7:
-                        score += 5.0
-                    elif delta <= 31:
-                        score += 3.0
-                    elif delta <= 120:
-                        score += 1.0
-                    else:
-                        score -= 2.0
-
-                    # Walmart often prints date near bottom; some merchants at top
-                    if i <= 4:
-                        score += 1.0
-                    if i >= len(lines) - 5:
-                        score += 1.0
-
-                    # Penalize ID-heavy lines
-                    if digit_ratio > 0.55 and not has_kw:
-                        score -= 2.0
-
-                    # Penalize if lots of digits remain aside from the matched date
-                    if re.search(r'\d{6,}', rx.sub('', ln)):
-                        score -= 2.0
-
-                    candidates.append((score, d))
-                except Exception:
-                    continue
-
-    if not candidates:
-        return None
-
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    best_score, best_date = candidates[0]
-
-    # Safety: don't guess if confidence too low
-    if best_score < 2.0:
-        return None
-
-    return best_date
-
-def _extract_total_amount(text: str) -> Tuple[Optional[float], float, str]:
-    """Try to find the final total.
-
-    Returns (amount, confidence, source).
-
-    Confidence is a heuristic score in [0..10]. Source is the keyword bucket used.
-    """
-    lines = [ln.strip() for ln in (text or '').splitlines() if ln.strip()]
-
-    # Prefer explicit totals; avoid SUBTOTAL/TAX unless nothing else exists.
-    # Scores tuned for receipts; higher is more trustworthy.
-    key_scores = [
-        ('GRAND TOTAL', 10.0),
-        ('AMOUNT DUE', 9.5),
-        ('BALANCE DUE', 9.5),
-        ('TOTAL', 8.5),
-        ('BALANCE', 7.5),
-        ('PAYMENT', 6.0),
-        # SUBTOTAL is only used if no better match exists
-        ('SUBTOTAL', 2.0),
-    ]
-
-    negative_markers = (
-        'SUBTOTAL', 'TAX', 'GST', 'PST', 'HST', 'TIP', 'CHANGE', 'CASH', 'REFUND', 'RETURN',
-        'DISCOUNT', 'SAVINGS', 'COUPON', 'POINTS', 'DEPOSIT',
-    )
-
-    # Currency-like values (prefer cents): 12.34, $12.34, 1,234.56
-    money_pat = re.compile(r"(?:(?:CAD|USD)\s*)?(\$?\s*-?\d{1,7}(?:[\,\s]\d{3})*(?:\.\d{2})?)")
-
-    candidates: list[tuple[float, float, int, str]] = []  # (amount, score, line_idx, source)
-
-    for i, ln in enumerate(lines):
-        up = ln.upper()
-        vals = money_pat.findall(ln)
-        if not vals:
-            continue
-
-        # Base score: if line has decimals and looks like a total line
-        base = 0.5
-        if re.search(r"\.\d{2}\b", ln):
-            base += 0.8
-
-        # Keyword-based scoring
-        source = ''
-        kscore = 0.0
-        for key, sc in key_scores:
-            if key in up:
-                # Special case: avoid catching TOTAL in SUBTOTAL (handled by explicit SUBTOTAL entry)
-                if key == 'TOTAL' and 'SUBTOTAL' in up:
-                    continue
-                kscore = max(kscore, sc)
-                source = key
-
-        # Penalize lines that are clearly not the final payable amount
-        penalty = 0.0
-        if any(m in up for m in negative_markers):
-            # If we matched SUBTOTAL explicitly, don't over-penalize
-            if source != 'SUBTOTAL':
-                penalty += 3.0
-
-        # Take the last amount on the line (receipts often show: TOTAL 12.34)
-        v = parse_money(vals[-1], default=float('nan'))
-        if math.isnan(v) or v == 0:
-            continue
-        v = abs(v)
-
-        score = max(base + kscore - penalty, 0.0)
-        candidates.append((v, score, i, source or 'LINE'))
-
-    if candidates:
-        # pick best score; tie-break by later line (totals tend to appear near the bottom)
-        candidates.sort(key=lambda t: (t[1], t[2]), reverse=True)
-        amt, score, _, source = candidates[0]
-        # Clamp score to 0..10 for display
-        score = max(0.0, min(10.0, score))
-        return amt, score, source
-
-    # Fallback: pick the largest plausible currency-like value anywhere
-    best: Optional[float] = None
-    for ln in lines:
-        for s in money_pat.findall(ln):
-            v = parse_money(s, default=float('nan'))
-            if math.isnan(v):
-                continue
-            v = abs(v)
-            if v <= 0:
-                continue
-            if best is None or v > best:
-                best = v
-
-    return best, (1.0 if best is not None else 0.0), 'MAX'
-
-
-def _extract_card_last4(text: str) -> str:
-    """Try to find last-4 digits of card, if printed."""
-    # common formats: **** 1234, XXXX1234, x1234
-    patterns = [
-        r"\*{2,}\s*(\d{4})",
-        r"X{2,}\s*(\d{4})",
-        r"(?:VISA|MASTERCARD|MASTER CARD|MC|DEBIT)\D{0,15}(\d{4})",
-    ]
-    for pat in patterns:
-        m = re.search(pat, text.upper())
-        if m:
-            return m.group(1)
-    return ""
-
-
-def pick_account_from_last4(cards_df: pd.DataFrame, last4: str) -> str:
-    """Return the matching card_name/account for a detected card last-4.
-
-    - Expects a column named 'card_last4' (recommended).
-      Also accepts common variants like 'last4', 'last_4'.
-    - Returns '' if no unique match.
-    - Safe with empty/missing columns.
-    """
-    try:
-        if cards_df is None or cards_df.empty:
-            return ''
-        digits = re.sub(r'[^0-9]', '', str(last4 or ''))
-        if len(digits) != 4:
-            return ''
-
-        # locate last-4 column
-        col_map = {str(c).strip().lower(): c for c in cards_df.columns}
-        last4_col = None
-        for k in ('card_last4', 'last4', 'last_4', 'cardlast4', 'ending4', 'ending_4'):
-            if k in col_map:
-                last4_col = col_map[k]
-                break
-        if not last4_col:
-            return ''
-
-        # locate card/account name column
-        name_col = None
-        for k in ('card_name', 'account', 'name'):
-            if k in col_map:
-                name_col = col_map[k]
-                break
-        if not name_col:
-            return ''
-
-        # match
-        def norm(v: object) -> str:
-            d = re.sub(r'[^0-9]', '', str(v or ''))
-            return d[-4:] if len(d) >= 4 else d
-
-        matches = cards_df[cards_df[last4_col].apply(norm) == digits]
-        if matches.empty:
-            return ''
-        # if multiple, pick first non-empty name
-        for v in matches[name_col].astype(str).tolist():
-            v = v.strip()
-            if v and v.lower() != 'nan':
-                return v
-        return ''
-    except Exception:
-        return ''
-
-
-def parse_receipt_text(text: str) -> Dict[str, Any]:
-    """Return best-effort parsed fields from OCR text.
-
-    Fields:
-      - merchant: str
-      - date: datetime.date|None
-      - amount: float|None
-      - amount_confidence: float (0..10)
-      - amount_source: str
-      - card_last4: str
-      - raw: str
-    """
-    cleaned = text or ""
-    amount, conf, source = _extract_total_amount(cleaned)
-    return {
-        "merchant": _guess_merchant_from_text(cleaned),
-        "date": _extract_date_from_text(cleaned),
-        "amount": amount,
-        "amount_confidence": conf,
-        "amount_source": source,
-        "card_last4": _extract_card_last4(cleaned),
-        "raw": cleaned,
-    }
-
-
-def to_float(x: Any) -> float:
-    try:
-        if x is None:
-            return 0.0
-        if isinstance(x, str):
-            x = x.replace(",", "").replace("$", "").strip()
-        return float(x)
-    except Exception:
-        return 0.0
-
-
-def wide_transactions_to_long(df: pd.DataFrame) -> pd.DataFrame:
-    """Convert a 'wide' Transactions sheet into the app's long format.
-
-    If the sheet already contains 'type' and 'amount' columns, this returns df unchanged.
-    Otherwise it looks for common MyFin columns like:
-    Date, International transaction, Credit, Investment, Credit card repay, Debit,
-    LOC Withdrawal, LOC Repayment, Account, Reason/Notes.
-    """
-    cols_norm = {c.strip().lower(): c for c in df.columns}
-    if 'type' in cols_norm and 'amount' in cols_norm:
-        return df
-
-    date_col = cols_norm.get('date')
-    if not date_col:
-        return df
-
-    # helper to find first matching column
-    # We support both:
-    # 1) exact header matches (e.g., "credit")
-    # 2) "contains" matches (e.g., "credit card repay (amount ...)" contains "credit card repay")
-    def pick(*names: str) -> Optional[str]:
-        # exact
-        for n in names:
-            if n in cols_norm:
-                return cols_norm[n]
-        # contains
-        for n in names:
-            for k_norm, orig in cols_norm.items():
-                if n and (n in k_norm):
-                    return orig
-        return None
-
-    notes_col = pick('reason/notes', 'reason', 'notes', 'note', 'description', 'remarks')
-    account_col = pick('account', 'accounts')
-    owner_col = pick('owner', 'person', 'who')
-
-    # category amount columns
-    mapping = [
-        ('international', pick('international transaction', 'international', 'intl', 'remittance')),
-        ('credit', pick('credit', 'income')),
-        ('investment', pick('investment', 'invest')),
-        ('cc_repay', pick('credit card repay', 'credit card repayment', 'creditcard repay', 'cc repay', 'cc repayment')),
-        ('debit', pick('debit', 'expense', 'spend')),
-        ('loc_withdrawal', pick('loc withdrawal', 'loc draw', 'line of credit withdrawal')),
-        ('loc_repayment', pick('loc repayment', 'loc repay', 'line of credit repayment')),
-    ]
-
-    # build long rows
-    out_rows: List[Dict[str, Any]] = []
-    for _, r in df.iterrows():
-        base = {
-            'date': r.get(date_col),
-            'notes': (str(r.get(notes_col)).strip() if notes_col and pd.notna(r.get(notes_col)) else ''),
-            'account': (str(r.get(account_col)).strip() if account_col and pd.notna(r.get(account_col)) else ''),
-            'owner': (str(r.get(owner_col)).strip() if owner_col and pd.notna(r.get(owner_col)) else 'Family'),
-        }
-
-        any_added = False
-        for t, c in mapping:
-            if not c:
-                continue
-            amt = to_float(r.get(c))
-            if abs(amt) > 1e-9:
-                row = dict(base)
-                row.update({'type': t, 'amount': amt})
-                out_rows.append(row)
-                any_added = True
-
-        # if no category columns found, keep row (helps surface schema issues)
-        if not any_added:
-            row = dict(base)
-            row.update({'type': str(r.get(pick('type')) or '').strip(), 'amount': to_float(r.get(pick('amount')) or 0)})
-            out_rows.append(row)
-
-    out = pd.DataFrame(out_rows)
-    # ensure expected columns exist
-    for c in ['date', 'type', 'amount', 'account', 'notes', 'owner']:
-        if c not in out.columns:
-            out[c] = '' if c != 'amount' else 0.0
-    return out
-
-def normalize_title(s: str) -> str:
-    # Normalize worksheet names for robust matching (ignore spaces/punctuation)
-    return ''.join(ch for ch in (s or '').lower() if ch.isalnum())
-
-
-
-def currency(x: float) -> str:
-    return f"${x:,.2f}"
-
-def is_weekend(d: dt.date) -> bool:
-    return d.weekday() >= 5
-
-def adjust_prev_workday(d: dt.date) -> dt.date:
-    # weekends only, move backward to Friday
-    while is_weekend(d):
-        d = d - dt.timedelta(days=1)
-    return d
-
-def abhi_pay_dates_for_month(year: int, month: int) -> List[dt.date]:
-    last_day = calendar.monthrange(year, month)[1]
-    out = []
-    for day in ABHI_PAY_DAYS:
-        dd = min(day, last_day)
-        out.append(adjust_prev_workday(dt.date(year, month, dd)))
-    return sorted(set(out))
-
-def wife_pay_dates_between(start: dt.date, end: dt.date) -> List[dt.date]:
-    # biweekly from anchor
-    if end < start:
-        return []
-    anchor = WIFE_PAY_ANCHOR
-    delta = (start - anchor).days
-    if delta <= 0:
-        cur = anchor
-    else:
-        k = math.ceil(delta / 14)
-        cur = anchor + dt.timedelta(days=14 * k)
-    out: List[dt.date] = []
-    while cur <= end:
-        out.append(cur)
-        cur += dt.timedelta(days=14)
-    return out
-
-def sha16(s: str) -> str:
-    return hashlib.sha256(s.encode("utf-8")).hexdigest()[:16]
-
-
-# -----------------------------
-# Google Sheets layer
-# -----------------------------
-SCOPE = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
-
-TABS = {
-    "transactions": ["id", "date", "owner", "type", "amount", "method", "account", "category", "notes",
-                     "is_recurring", "recurring_id", "created_at"],
-    "cards": ["card_name", "owner", "billing_day", "max_limit", "method_name"],
-    "recurring": ["recurring_id", "owner", "type", "amount", "method", "account", "category", "notes",
-                  "day_of_month", "start_date", "active", "last_generated_month"],
-    "rules": ["keyword", "category"],
-}
-
-_gc: Optional[gspread.Client] = None
-_ss = None
-_ws: Dict[str, gspread.Worksheet] = {}
-
-# Quota protection / memoization for Sheets metadata
-_tabs_ready: bool = False
-_tabs_ready_at: float = 0.0
-_header_cache: Dict[str, List[str]] = {}
-_migrated_tx_ids: bool = False
-
-
-def _col_to_letter(idx0: int) -> str:
-    """0-based column index -> Google Sheets column letter."""
-    n = idx0 + 1
-    s = ''
-    while n:
-        n, r = divmod(n - 1, 26)
-        s = chr(65 + r) + s
+from dateutil.relativedelta import relativedelta
+import datetime as dt
+
+def normalize_account_name(v: str) -> str:
+    if not v:
+        return ""
+    s = str(v).strip()
+
+    # Strip a leading emoji/prefix token (e.g., "💳 Canadian Tire Grey Card")
+    parts = s.split(" ", 1)
+    if len(parts) == 2 and not any(c.isalnum() for c in parts[0]):
+        s = parts[1].strip()
+
+    # Apply backward-compatible renames
+    s = ACCOUNT_ALIASES.get(s, s)
     return s
 
+def build_month_options(today: dt.date | None = None, past_months: int = 12, future_months: int = 3) -> list[str]:
+    """Return month strings YYYY-MM for (past_months) including current + (future_months)."""
+    if today is None:
+        today = dt.date.today()
+    first = dt.date(today.year, today.month, 1) - relativedelta(months=past_months-1)
+    last = dt.date(today.year, today.month, 1) + relativedelta(months=future_months)
+    months = []
+    cur = first
+    while cur <= last:
+        months.append(cur.strftime("%Y-%m"))
+        cur = cur + relativedelta(months=1)
+    return months
 
-def _migrate_transactions_id_column() -> None:
-    """Backfill transactions.id from legacy TxId/txid column.
 
-    Why: older sheets had a 'TxId' column; Phase 3 uses a canonical 'id' column.
-    Edit/update looked up rows by 'id', so legacy rows (id blank) could not be edited.
 
-    This runs once per process and only writes when it detects blanks.
-    """
-    global _migrated_tx_ids
-    if _migrated_tx_ids:
-        return
-    _migrated_tx_ids = True
 
+
+
+# =============================
+# Config
+# =============================
+st.set_page_config(page_title="NishanthFinTrack 2026", page_icon="💸", layout="wide", initial_sidebar_state="collapsed")
+st.set_option("client.showErrorDetails", False)
+st.set_option("client.toolbarMode", "minimal")
+
+APP_NAME = "NishanthFinTrack 2026"
+APP_VERSION = "VF3_1A_HF2"
+SHEET_NAME = "nishanthfintrack_2026"   # <-- change if your Sheet name differs
+
+# Hardcoded auth as requested
+AUTH_USERNAME = "Ajay"
+AUTH_PASSWORD = "1999"
+
+# Fixed accounts (E2) + emojis (E3)
+ACCOUNT_EMOJI_DEFAULT = {
+    "Canadian tire Mastercard - Grey": "🛒",
+    "Canadian tire Mastercard - Black": "🛒",
+    "RBC VISA": "🏦",
+    "RBC Mastercard": "🏦",
+    "Line of Credit": "📉",
+}
+
+# Backward-compatible aliases (old -> new). This keeps existing sheet rows working after renames.
+ACCOUNT_ALIASES = {
+    "Canadian Tire Grey Card": "Canadian tire Mastercard - Grey",
+    "Canadian Tire Black Card": "Canadian tire Mastercard - Black",
+    "Nishanth's RBC Card": "RBC VISA",
+    "Indhu's RBC Card": "RBC Mastercard",
+}
+ALLOWED_ACCOUNTS = list(ACCOUNT_EMOJI_DEFAULT.keys())
+
+# Types + emoji (C3 redesign)
+TYPE_EMOJI = {"Debit": "🧾", "Credit": "💰", "Investment": "💹", "CC Repay": "💳", "International": "🌍", "LOC Draw": "🏦", "LOC Repay": "↩️"}
+ENTRY_TYPES = list(TYPE_EMOJI.keys())
+PAY_METHODS = ["Card", "Bank", "Cash"]  # C7: Salary uses Bank label
+
+
+# Display labels (finance-style) — internal values remain the same in Sheets.
+TYPE_DISPLAY = {
+    "Debit": "Expense (−)",
+    "Credit": "Income (+)",
+    "Investment": "Invest",
+    "CC Repay": "Pay Credit Card",
+    "International": "Remit International",
+}
+DISPLAY_TO_TYPE = {v: k for k, v in TYPE_DISPLAY.items()}
+
+def type_to_display(t: str) -> str:
+    return TYPE_DISPLAY.get(t, t)
+
+def display_to_type(lbl: str) -> str:
+    return DISPLAY_TO_TYPE.get(lbl, lbl)
+
+def build_account_maps(acct_df: pd.DataFrame):
+    """Return (accounts_list, emoji_map) from Accounts sheet (fallback to defaults)."""
+    accounts = []
+    emoji_map = dict(ACCOUNT_EMOJI_DEFAULT)
+    if isinstance(acct_df, pd.DataFrame) and not acct_df.empty and "Account" in acct_df.columns:
+        accounts = [a for a in acct_df["Account"].astype(str).tolist() if a and a != "nan"]
+        if "Emoji" in acct_df.columns:
+            for _, r in acct_df.iterrows():
+                a = str(r.get("Account", "")).strip()
+                if a:
+                    e = str(r.get("Emoji", "")).strip()
+                    if e and e != "nan":
+                        emoji_map[a] = e
+    if not accounts:
+        accounts = list(ACCOUNT_EMOJI_DEFAULT.keys())
+    return accounts, emoji_map
+
+# Categories (E4,E5)
+CATEGORY_ICON = {
+    "Salary": "💼",
+    "Rent": "🏠",
+    "Groceries": "🛒",
+    "Food/Coffee": "☕",
+    "Fuel": "⛽",
+    "Car": "🚗",
+    "Utilities": "💡",
+    "Shopping": "🛍️",
+    "Medical": "🩺",
+    "Travel": "✈️",
+    "Investment": "💹",
+    "India Transfer": "🌍",
+    "Banking/Fees": "🏦",
+    "LOC Utilization": "🏦",
+    "Repayment": "↩️",
+    "Entertainment": "🎬",
+    "Uncategorized": "❓",
+}
+
+DEFAULT_CATEGORY_RULES = {
+    "Salary": ["salary", "payroll", "pay", "direct deposit", "fis"],
+    "Investment": ["tfsa", "fhsa", "rrsp", "investment", "contribution", "brokerage", "wealthsimple", "questrade"],
+    "Rent": ["rent", "lease"],
+    "Groceries": ["grocery", "superstore", "walmart", "costco", "freshco", "save on", "saveon", "no frills", "nofrills"],
+    "Food/Coffee": ["restaurant", "pizza", "ubereats", "doordash", "tim hortons", "tims", "starbucks", "coffee", "cafe", "food"],
+    "Fuel": ["fuel", "gas", "petro", "shell", "esso", "co-op", "coop", "costco gas"],
+    "Car": ["lanpro", "service", "oil", "tire", "tyre", "alignment", "repair", "mercedes", "insurance"],
+    "Utilities": ["hydro", "electric", "water", "internet", "wifi", "phone", "mobile", "bell", "rogers", "telus", "shaw"],
+    "Shopping": ["amazon", "ikea", "bestbuy", "best buy", "mall", "shopping"],
+    "Medical": ["pharmacy", "doctor", "clinic", "dental", "dentist", "hospital"],
+    "Travel": ["flight", "hotel", "airbnb", "uber", "lyft", "taxi"],
+    "India Transfer": ["wise", "remitly", "remit", "remittance", "money transfer", "india"],
+    "Banking/Fees": ["fee", "charges", "interest", "bank fee", "nsf", "overdraft"],
+    "Entertainment": ["netflix", "prime", "spotify", "movie", "theatre"],
+    "Uncategorized": [],
+}
+
+STOPWORDS = set("""
+a an and are as at be but by for from has have he her hers him his i if in into is it its
+me my of on or our ours she so than that the their them they this to up was we were what when where who why will with you your yours
+""".split())
+
+
+# =============================
+# Premium Dark UI (final)
+# =============================
+DARK_CSS = """
+<style>
+:root{color-scheme:dark;} html,body{color-scheme:dark;}
+:root{
+  --bg0:#070B14;
+  --bg1:#0B1220;
+  --panel:rgba(255,255,255,0.050);
+  --panel2:rgba(255,255,255,0.070);
+  --border:rgba(255,255,255,0.10);
+  --text:#E8EAED;
+  --muted:rgba(232,234,237,0.66);
+  --accent:rgba(99,102,241,1.0);
+  --accent2:rgba(56,189,248,1.0);
+  --good:rgba(34,197,94,1.0);
+  --warn:rgba(245,158,11,1.0);
+  --bad:rgba(239,68,68,1.0);
+}
+.block-container{ padding-top: 1rem; max-width: 1260px; }
+.stApp{
+  background:
+    radial-gradient(900px 650px at 15% 10%, rgba(56,189,248,0.12), transparent 60%),
+    radial-gradient(900px 650px at 80% 10%, rgba(99,102,241,0.12), transparent 60%),
+    radial-gradient(900px 650px at 80% 85%, rgba(34,197,94,0.08), transparent 60%),
+    linear-gradient(180deg, var(--bg0) 0%, var(--bg1) 100%);
+  color: var(--text);
+}
+section[data-testid="stSidebar"]{
+  background: linear-gradient(180deg, rgba(7,11,20,0.97), rgba(7,11,20,0.86));
+  border-right: 1px solid var(--border);
+}
+section[data-testid="stSidebar"] *{ color: var(--text); }
+
+h1,h2,h3,h4{ letter-spacing: -0.25px; color: var(--text); }
+p, label, .stMarkdown{ color: var(--text); }
+
+@keyframes mfFadeIn { from {opacity:0; transform: translateY(6px);} to {opacity:1; transform: translateY(0);} }
+.mf-anim{ animation: mfFadeIn 160ms ease-out; }
+
+.mf-topbrand{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:12px; padding: 14px 14px; border-radius: 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 46px rgba(0,0,0,0.40);
+}
+.mf-pill{
+  display:inline-block; padding:4px 10px; border-radius:999px;
+  background: rgba(99,102,241,0.14);
+  border:1px solid rgba(99,102,241,0.22);
+  color: rgba(199,210,254,1);
+  font-size:12px; font-weight:900;
+}
+.mf-card{
+  border-radius:18px; padding:16px;
+  border:1px solid var(--border);
+  background: var(--panel);
+  box-shadow:0 18px 50px rgba(0,0,0,0.40);
+}
+.mf-card.tight{ padding:14px; }
+.mf-card:hover{ border-color: rgba(99,102,241,0.28); box-shadow:0 20px 60px rgba(0,0,0,0.45); }
+.mf-card h4{ margin:0 0 8px 0; font-weight:950; }
+.mf-kpi{ font-size:30px; font-weight:950; margin:0; line-height:1.1; }
+.mf-sub{ margin:6px 0 0 0; font-size:13px; color: var(--muted); }
+
+.mf-tile{
+  border-radius:18px; padding:14px;
+  border:1px solid var(--border);
+  background: var(--panel);
+  box-shadow:0 18px 50px rgba(0,0,0,0.40);
+}
+.mf-tile-title{ font-weight:950; font-size:14px; margin:0; color: var(--text); }
+.mf-tile-num{ font-weight:950; font-size:22px; margin:6px 0 0 0; color: var(--text); }
+.mf-tile-sub{ font-size:12px; color: var(--muted); margin:8px 0 0 0; }
+.mf-hr{ height:1px; background: var(--border); margin:10px 0; }
+
+.mf-sync{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:10px 12px; border-radius: 16px;
+  background: rgba(255,255,255,0.045);
+  border: 1px solid var(--border);
+}
+.mf-sync small{ color: var(--muted); }
+
+.stButton > button{
+  border-radius: 14px !important;
+  border: 1px solid rgba(99,102,241,0.35) !important;
+  background: rgba(99,102,241,0.16) !important;
+  color: rgba(224,231,255,1) !important;
+  font-weight: 950 !important;
+  padding: 0.62rem 0.95rem !important;
+}
+.stButton > button:hover{
+  background: rgba(99,102,241,0.24) !important;
+  border-color: rgba(99,102,241,0.55) !important;
+}
+.stButton > button:active{ transform: scale(0.99); }
+
+div[data-baseweb="input"] input,
+div[data-baseweb="textarea"] textarea{
+  background: rgba(255,255,255,0.06) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+}
+div[data-baseweb="select"] > div{
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid var(--border) !important;
+}
+
+div[data-testid="stDataFrame"]{
+  border-radius:14px;
+  border:1px solid var(--border);
+  overflow:hidden;
+  background: rgba(255,255,255,0.03);
+}
+
+.mf-login-wrap{ max-width: 420px; margin: 5vh auto 0 auto; }
+.mf-login-title{ font-size: 26px; font-weight: 950; margin: 0; color: var(--text); }
+.mf-login-sub{ margin-top: 6px; color: var(--muted); font-size: 13px; }
+
+/* ===== VF2.2: Bigger sidebar pages navigation ===== */
+section[data-testid="stSidebar"] { min-width: 280px !important; max-width: 320px !important; }
+section[data-testid="stSidebar"] .stSidebarContent { padding-top: 0.5rem; }
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul { gap: 6px; }
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] li a {
+  font-size: 1.05rem !important;
+  line-height: 1.35rem !important;
+  padding: 12px 14px !important;
+  border-radius: 14px !important;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] li a svg {
+  width: 20px !important; height: 20px !important;
+}
+
+
+/* --- Force dark mode / high contrast (even when OS/browser is light) --- */
+:root, html, body {
+  color-scheme: dark;
+}
+[data-testid="stAppViewContainer"], .stApp, body {
+  background: radial-gradient(1200px 600px at 15% 10%, rgba(66,99,255,0.18), rgba(0,0,0,0) 55%),
+              radial-gradient(900px 500px at 85% 20%, rgba(0,180,140,0.14), rgba(0,0,0,0) 55%),
+              #0b0f14 !important;
+  color: #e9eef7 !important;
+}
+h1,h2,h3,h4,h5,h6,p,span,div,label,small,li {
+  color: #e9eef7 !important;
+}
+::placeholder { color: rgba(233,238,247,0.55) !important; opacity: 1 !important; }
+input, textarea, [data-baseweb="input"] input, [data-baseweb="textarea"] textarea, [data-baseweb="select"] > div {
+  background-color: rgba(255,255,255,0.06) !important;
+  color: #e9eef7 !important;
+  border-color: rgba(255,255,255,0.14) !important;
+}
+[data-baseweb="select"] svg { fill: rgba(233,238,247,0.7) !important; }
+[data-testid="stSidebar"], section[data-testid="stSidebar"] {
+  background: rgba(10,13,18,0.92) !important;
+}
+
+/* tiny pill */
+.pill { display:inline-block; padding:6px 10px; border-radius:999px; font-weight:600;
+  background: rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12); }
+.pill-auto { box-shadow: 0 0 0 1px rgba(66,99,255,0.25) inset; }
+
+/* Quick actions layout: keep as 2-column grid on mobile instead of a long list */
+.quick-actions div[data-testid="stHorizontalBlock"] { gap: 10px !important; }
+@media (max-width: 768px){
+  .quick-actions div[data-testid="stHorizontalBlock"] > div[data-testid="column"]{
+    flex: 1 1 calc(50% - 10px) !important;
+    width: calc(50% - 10px) !important;
+    min-width: calc(50% - 10px) !important;
+  }
+  .quick-actions button{
+    height: 44px !important;
+    font-size: 16px !important;
+  }
+}
+
+/* --- Force dark controls even when OS/browser prefers light --- */
+@media (prefers-color-scheme: light) {
+  :root, body, .stApp { background: #0b0f14 !important; color: #e9eef7 !important; }
+}
+
+/* Segmented controls (Streamlit) */
+div[data-testid="stSegmentedControl"] button {
+  background: rgba(255,255,255,0.06) !important;
+  color: #e9eef7 !important;
+  border: 1px solid rgba(255,255,255,0.18) !important;
+}
+div[data-testid="stSegmentedControl"] button[aria-checked="true"] {
+  background: rgba(99, 145, 255, 0.35) !important;
+  border-color: rgba(120,160,255,0.55) !important;
+}
+
+/* Radio/checkbox label text (avoid washed-out light theme) */
+label, [data-testid="stMarkdownContainer"] { color: #e9eef7 !important; }
+
+/* BaseWeb (used by selectbox etc.) */
+*[data-baseweb] { color-scheme: dark; }
+
+/* Quick actions: force grid-like layout on small screens (prevent full vertical stacking) */
+@media (max-width: 740px) {
+  .quick-actions [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
+  .quick-actions [data-testid="column"] {
+    flex: 0 0 calc(50% - 0.75rem) !important;
+    width: calc(50% - 0.75rem) !important;
+    min-width: 0 !important;
+  }
+}
+
+
+/* Force dark native controls on mobile even if OS is light */
+input, select, textarea, button { color-scheme: dark; }
+
+/* Fix light (white) segmented controls / radios on mobile */
+div[data-testid="stSegmentedControl"] button,
+div[data-testid="stRadio"] label,
+div[data-testid="stRadio"] div[role="radiogroup"] label,
+div[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+div[data-testid="stSelectbox"] div[data-baseweb="select"] * {
+  background-color: rgba(255,255,255,0.06) !important;
+  color: #e9eefc !important;
+  border-color: rgba(255,255,255,0.18) !important;
+}
+
+div[data-testid="stSegmentedControl"] button[aria-pressed="true"]{
+  background-color: rgba(255,255,255,0.12) !important;
+  border-color: rgba(255,90,90,0.55) !important;
+  color: #ffffff !important;
+}
+
+/* Some mobile browsers render native <select> with light palette unless color-scheme is dark */
+select { background-color: #0f1622 !important; color: #e9eefc !important; }
+
+/* --- Mobile: keep 2-column grids instead of collapsing to single column --- */
+@media (max-width: 768px){
+  /* Force Streamlit columns to remain in a 2-column grid where possible */
+  div[data-testid="stHorizontalBlock"]{
+    gap: 0.6rem !important;
+  }
+  div[data-testid="stHorizontalBlock"] > div[data-testid="column"]{
+    flex: 1 1 calc(50% - 0.6rem) !important;
+    width: calc(50% - 0.6rem) !important;
+    min-width: calc(50% - 0.6rem) !important;
+  }
+  /* If there is only one column, let it take full width */
+  div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:only-child{
+    flex-basis: 100% !important;
+    width: 100% !important;
+    min-width: 100% !important;
+  }
+}
+
+/* --- Darken radio/segmented controls on mobile (Safari sometimes forces light styles) --- */
+div[data-testid="stSegmentedControl"] div[role="radiogroup"]{
+  background: rgba(16,22,36,0.70) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+}
+div[data-testid="stSegmentedControl"] label{
+  color: rgba(235,240,255,0.92) !important;
+}
+div[data-testid="stSegmentedControl"] label[data-checked="true"]{
+  background: rgba(255,255,255,0.08) !important;
+  border: 1px solid rgba(255,255,255,0.20) !important;
+}
+
+/* Fallback for st.radio (pill-style) */
+div[data-testid="stRadio"] div[role="radiogroup"]{
+  background: rgba(16,22,36,0.70) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  border-radius: 12px !important;
+  padding: 2px !important;
+}
+div[data-testid="stRadio"] div[role="radiogroup"] label{
+  background: transparent !important;
+  color: rgba(235,240,255,0.92) !important;
+}
+div[data-testid="stRadio"] div[role="radiogroup"] label:hover{
+  background: rgba(255,255,255,0.05) !important;
+}
+div[data-testid="stRadio"] div[role="radiogroup"] label[data-checked="true"]{
+  background: rgba(255,255,255,0.08) !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(255,255,255,0.20) !important;
+}
+
+</style>
+"""
+st.markdown(DARK_CSS, unsafe_allow_html=True)
+# Mobile responsiveness (applies only on small screens)
+MOBILE_CSS = r"""
+<style>
+@media (max-width: 768px) {
+  /* HF5: hide sidebar overlay on mobile (we use in-page nav) */
+  section[data-testid="stSidebar"], div[data-testid="stSidebar"]{display:none !important;}
+  div[data-testid="collapsedControl"]{display:none !important;}
+
+  /* tighter page padding */
+  .block-container { padding-left: 0.85rem !important; padding-right: 0.85rem !important; padding-top: 0.75rem !important; }
+  /* full-width buttons */
+  .stButton>button { width: 100% !important; }
+
+  /* sidebar width on phones (if opened) */
+  section[data-testid="stSidebar"] { width: 82vw !important; max-width: 82vw !important; }
+
+  /* sidebar stays available on phones */
+  /* ensure main area uses full width */
+  div[data-testid="stAppViewContainer"] > .main { margin-left: 0 !important; }
+
+  /* make segmented controls wrap instead of clipping */
+  div[data-testid="stSegmentedControl"] div[data-baseweb="button-group"] { flex-wrap: wrap !important; }
+  div[data-testid="stSegmentedControl"] button { flex: 1 1 auto !important; min-width: 32% !important; }
+
+  /* prevent tables from breaking layout */
+  div[data-testid="stDataFrame"] { overflow-x: auto !important; }
+  /* slightly smaller headings */
+  h1 { font-size: 1.45rem !important; }
+  h2 { font-size: 1.20rem !important; }
+  h3 { font-size: 1.05rem !important; }
+
+  /* iOS Safari: ensure typed text is visible (fix white-input + white-text) */
+  input, textarea, select {
+    background-color: rgba(18,18,20,0.96) !important;
+    color: rgba(240,240,245,0.98) !important;
+    -webkit-text-fill-color: rgba(240,240,245,0.98) !important;
+    caret-color: rgba(240,240,245,0.98) !important;
+  }
+  /* Streamlit internal input wrappers */
+  div[data-baseweb="input"] input,
+  div[data-baseweb="textarea"] textarea,
+  div[data-baseweb="select"] input {
+    background-color: rgba(18,18,20,0.96) !important;
+    color: rgba(240,240,245,0.98) !important;
+    -webkit-text-fill-color: rgba(240,240,245,0.98) !important;
+  }
+  /* placeholder */
+  input::placeholder, textarea::placeholder {
+    color: rgba(240,240,245,0.55) !important;
+    -webkit-text-fill-color: rgba(240,240,245,0.55) !important;
+  }
+}
+</style>
+"""
+st.markdown(MOBILE_CSS, unsafe_allow_html=True)
+
+# --- Auto mobile hint (client-side) ---
+# Streamlit can't reliably detect screen size server-side. For phones, we set a query param once using JS.
+st.components.v1.html("""
+<script>
+(function() {
+  try {
+    const isSmall = window.innerWidth && window.innerWidth <= 768;
+    const url = new URL(window.location.href);
+    if (isSmall && !url.searchParams.has('mobile')) {
+      url.searchParams.set('mobile','1');
+      window.location.replace(url.toString());
+    }
+  } catch (e) {}
+})();
+</script>
+""", height=0)
+# If the URL indicates mobile, default view mode to Mobile.
+try:
+    if st.query_params.get("mobile") in ("1", ["1"]):
+        st.session_state["view_mode"] = "Mobile"
+except Exception:
+    pass
+
+
+# View mode override (lets you force card-layout on phones)
+if "view_mode" not in st.session_state:
+    st.session_state["view_mode"] = "Auto"  # Auto | Desktop | Mobile
+
+def is_mobile_view():
+    # Mobile-specific view is disabled for now to avoid navigation issues.
+    return False
+
+# =============================
+# Helpers
+# =============================
+def money(n: float) -> str:
+    sign = "-" if float(n or 0) < 0 else ""
+    n = abs(float(n or 0))
+    return f"{sign}${n:,.2f}"
+
+def cat_label(name: str) -> str:
+    return f"{CATEGORY_ICON.get(name,'•')} {name}"
+
+def clamp_day(year: int, month: int, day: int) -> int:
+    last = calendar.monthrange(year, month)[1]
+    return max(1, min(int(day), last))
+
+def auth_ok(u: str, p: str) -> bool:
+    return hmac.compare_digest(u or "", AUTH_USERNAME) and hmac.compare_digest(p or "", AUTH_PASSWORD)
+
+def parse_amount(text: str) -> Optional[float]:
+    t = (text or "").strip().replace(",", "")
+    if not t:
+        return None
     try:
-        w = ws('transactions')
-        hdr = sheet_headers('transactions')
-        if not hdr:
-            return
-
-        def _find_idx(names: List[str]) -> Optional[int]:
-            lowered = [h.strip().lower() for h in hdr]
-            for n in names:
-                if n.lower() in lowered:
-                    return lowered.index(n.lower())
+        v = float(t)
+        if v < 0:
             return None
-
-        id_idx = _find_idx(['id'])
-        legacy_idx = _find_idx(['txid', 'tx_id', 'TxId'])
-        if id_idx is None or legacy_idx is None:
-            return
-
-        # Read whole columns (1 API call each). Values include header at row 1.
-        id_col = w.col_values(id_idx + 1)
-        legacy_col = w.col_values(legacy_idx + 1)
-        n_rows = max(len(id_col), len(legacy_col))
-        if n_rows <= 1:
-            return
-
-        # Normalize lengths
-        id_col += [''] * (n_rows - len(id_col))
-        legacy_col += [''] * (n_rows - len(legacy_col))
-
-        new_vals: List[List[str]] = []
-        changed = False
-        for r in range(2, n_rows + 1):
-            cur = (id_col[r - 1] or '').strip()
-            leg = (legacy_col[r - 1] or '').strip()
-            # If both are empty, generate a stable id so edit/delete works for legacy rows.
-            val = cur or leg or uuid.uuid4().hex
-            if val != cur:
-                changed = True
-            new_vals.append([val])
-
-        if not changed:
-            return
-
-        col_letter = _col_to_letter(id_idx)
-        w.update(f'{col_letter}2:{col_letter}{n_rows}', new_vals)
-        _header_cache.pop('transactions', None)
-        _df_cache.pop('transactions', None)
-    except Exception as e:
-        # Never break the app because of a migration attempt.
-        print(f'[migrate_tx_ids] skipped due to: {e}')
-
-def get_client() -> gspread.Client:
-    global _gc
-    if _gc:
-        return _gc
-    if not SERVICE_ACCOUNT_JSON:
-        raise RuntimeError("Missing SERVICE_ACCOUNT_JSON env var")
-    info = json.loads(SERVICE_ACCOUNT_JSON)
-    creds = Credentials.from_service_account_info(info, scopes=SCOPE)
-    _gc = gspread.authorize(creds)
-    return _gc
-
-def get_spreadsheet():
-    global _ss
-    if _ss is not None:
-        return _ss
-    gc = get_client()
-    try:
-        if SPREADSHEET_ID:
-            _ss = gc.open_by_key(SPREADSHEET_ID)
-        else:
-            _ss = gc.open(SPREADSHEET_NAME)
-    except Exception as e:
-        # Surface spreadsheet open issues clearly in Render logs.
-        print(f"[MyFin] Failed to open spreadsheet. id={bool(SPREADSHEET_ID)} name={SPREADSHEET_NAME!r}: {e}")
-        raise
-
-    # Helpful diagnostics in logs so we can confirm the app is reading the correct file.
-    try:
-        titles = [w.title for w in _ss.worksheets()]
-        print(f"[MyFin] Opened spreadsheet: '{_ss.title}' | worksheets={titles}")
+        return v
     except Exception:
-        pass
-    return _ss
+        return None
 
-def ensure_tabs() -> None:
-    """Ensure required worksheets exist and map them case-insensitively.
+def normalize_merchant(notes: str) -> str:
+    t = (notes or "").lower().strip()
+    t = re.sub(r"\d+", " ", t)
+    t = re.sub(r"[^a-z\s]", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    if not t:
+        return ""
+    words = [w for w in t.split() if w not in STOPWORDS and len(w) > 2]
+    return " ".join(words[:2]).strip() if words else ""
 
-    Important: Many users already have sheets like "Transactions" with capital letters.
-    Earlier versions created new empty "transactions" tabs, which made the app look blank.
-    This function always reuses existing tabs (case-insensitive) when present.
-    """
-
-    # Avoid hammering the Sheets API: only (re)build the worksheet map occasionally.
-    global _ws, _tabs_ready, _tabs_ready_at
-    now = time.time()
-    if _tabs_ready and _ws and (now - _tabs_ready_at) < 300:
-        return
-
-    ss = get_spreadsheet()
-    existing = {normalize_title(w.title): w for w in ss.worksheets()}
-
-    _ws = {}
-    missing_tabs: list[str] = []
-
-    for tab, headers in TABS.items():
-        key = normalize_title(tab)
-        w = existing.get(key)
-
-        if w is None:
-            missing_tabs.append(tab)
-            if not ALLOW_CREATE_MISSING_SHEETS:
-                continue
-            # create new sheet (one-time)
-            w = ss.add_worksheet(title=tab, rows=2000, cols=max(12, len(headers) + 2))
-            w.append_row(headers)
-            _header_cache[tab] = headers
-        else:
-            # Do NOT call get_all_values() here (very expensive in quota terms).
-            # Only read the header row once and cache it.
-            try:
-                cur = [c.strip() for c in (w.row_values(1) or [])]
-            except Exception:
-                cur = []
-            if not cur:
-                try:
-                    w.append_row(headers)
-                except Exception:
-                    pass
-                _header_cache[tab] = headers
-            else:
-                _header_cache[tab] = cur
-
-        if w is not None:
-            _ws[tab] = w
-
-    if missing_tabs and not ALLOW_CREATE_MISSING_SHEETS:
-        existing_titles = [w.title for w in ss.worksheets()]
-        raise RuntimeError(
-            "Missing required Google Sheets tabs: "
-            + ", ".join(missing_tabs)
-            + ". Existing tabs: "
-            + ", ".join(existing_titles)
-            + ".\nFix: rename your sheets to match (Transactions, Rules, Cards, Recurring) "
-            + "or set ALLOW_CREATE_MISSING_SHEETS=1 to let the app create them."
-        )
-
-    _tabs_ready = True
-    _tabs_ready_at = now
-
-
-def ws(tab: str) -> gspread.Worksheet:
-    ensure_tabs()
-    return _ws[tab]
-
-
-def sheet_headers(tab: str) -> list[str]:
-    # Prefer cached header row to avoid repeated reads.
-    ensure_tabs()
-    if tab in _header_cache and _header_cache[tab]:
-        return [c.strip() for c in _header_cache[tab]]
-
-    w = ws(tab)
-    try:
-        headers = [c.strip() for c in (w.row_values(1) or [])]
-    except Exception:
-        headers = []
-
-    if not headers:
-        headers = TABS[tab]
-        try:
-            w.append_row(headers)
-        except Exception:
-            pass
-    _header_cache[tab] = headers
-    return headers
-
-
-def read_df_optional(sheet_title: str) -> pd.DataFrame:
-    """Read an arbitrary worksheet by title if it exists; otherwise return empty DF.
-
-    Used for legacy/admin sources (e.g., rules_text) without forcing new required tabs.
-    Matching is case-insensitive and tolerant of spaces/underscores.
-    """
-    def _norm(s: str) -> str:
-        return re.sub(r"\s+", "", str(s).strip().lower().replace('_', ' '))
-
-    try:
-        ss = get_spreadsheet()
-        want = _norm(sheet_title)
-        target = None
-        for w in ss.worksheets():
-            if _norm(w.title) == want:
-                target = w
-                break
-        if target is None:
-            return pd.DataFrame()
-
-        values = target.get_all_values()
-        if not values or len(values) < 2:
-            return pd.DataFrame()
-
-        headers = [str(h).strip() for h in values[0]]
-        rows = values[1:]
-        df = pd.DataFrame(rows, columns=headers)
-        df.columns = [c.strip() for c in df.columns]
-        return df
-    except Exception:
-        return pd.DataFrame()
-
-
-def read_df(tab: str) -> pd.DataFrame:
-    """Read a worksheet into a DataFrame (all values as strings initially).
-
-    This is intentionally tolerant of extra columns or different header casing/order.
-    """
-    w = ws(tab)
-    # Sheets quota is based on request count. NiceGUI can cause short bursts of reads
-    # (initial load + websocket reconnects). Retry a few times on HTTP 429.
-    values: List[List[str]]
-    last_err: Optional[Exception] = None
-    for delay in (0.0, 1.0, 2.0, 4.0):
-        if delay:
-            time.sleep(delay)
-        try:
-            values = w.get_all_values()
-            break
-        except APIError as e:
-            last_err = e
-            if '429' not in str(e):
-                raise
-    else:
-        # exhausted retries
-        raise cast(Exception, last_err)
-    if not values or len(values) == 0:
-        return pd.DataFrame(columns=sheet_headers(tab))
-
-    # Some sheets have a few header / notes rows before the actual header row. We try to detect the
-    # best header row within the first 10 rows by matching expected headers for this tab.
-    expected = {normalize_title(h) for h in sheet_headers(tab) if h.strip()}
-    header_row_idx = 0
-    best_score = -1
-    for i in range(min(10, len(values))):
-        row = values[i]
-        score = sum(1 for c in row if normalize_title(c) in expected)
-        if score > best_score:
-            best_score = score
-            header_row_idx = i
-    headers = [c.strip() for c in (values[header_row_idx] if values else [])]
-    rows = values[header_row_idx + 1 :]
-
-    if not headers or len(rows) == 0:
-        return pd.DataFrame(columns=sheet_headers(tab))
-
-    width = len(headers)
-    norm_rows = [r + [''] * (width - len(r)) if len(r) < width else r[:width] for r in rows]
-    df = pd.DataFrame(norm_rows, columns=headers)
-
-    # Coalesce duplicate header names (common during sheet migrations).
-    # Example: both "Emoji" and "emoji" can exist; then df['emoji'] returns a DataFrame,
-    # and card rendering may appear empty.
-    if df.columns.duplicated().any():
-        new_cols: list[str] = []
-        seen: set[str] = set()
-        for col in df.columns:
-            if col not in seen:
-                new_cols.append(col)
-                seen.add(col)
-        fixed = pd.DataFrame(index=df.index)
-        for col in new_cols:
-            if (df.columns == col).sum() == 1:
-                fixed[col] = df[col]
-            else:
-                # take the first, then fill with later duplicates if blank
-                dup = df.loc[:, df.columns == col]
-                s = dup.iloc[:, 0].copy()
-                for i in range(1, dup.shape[1]):
-                    s = s.where((s.astype(str).str.strip() != '') & s.notna(), dup.iloc[:, i])
-                fixed[col] = s
-        df = fixed
-    return df
-
-
-def append_row(tab: str, row: dict[str, Any]) -> None:
-    w = ws(tab)
-    headers = sheet_headers(tab)
-    # allow case-insensitive matching of provided keys
-    lower_map = {h.lower(): h for h in headers}
-    values = [''] * len(headers)
-    for k, v in row.items():
-        hk = lower_map.get(str(k).lower())
-        if hk is None:
+def classify(notes: str, rules: Dict[str, List[str]]) -> str:
+    t = (notes or "").lower()
+    for label, keys in rules.items():
+        if label == "Uncategorized":
             continue
-        i = headers.index(hk)
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            values[i] = str(v)
-        elif isinstance(v, dt.date):
-            values[i] = v.isoformat()
-        else:
-            values[i] = '' if v is None else str(v)
-    w.append_row(values, value_input_option='USER_ENTERED')
-
-
-
-def append_tx(tx: Optional[Dict[str, Any]] = None, **kwargs: Any) -> None:
-    """Append a transaction to the `transactions` worksheet.
-
-    This function accepts either:
-      1) a fully-formed transaction dict via `tx`, OR
-      2) keyword args (used by the Add page), e.g. tx_id=..., date=..., owner=..., etc.
-
-    Supported id keys: `tx_id` (legacy) and `id` (current).
-    """
-
-    # Build a transaction dict if called with kwargs (legacy call-sites used `tx_id=`).
-    if tx is None:
-        tx = dict(kwargs)
-    else:
-        # merge kwargs over tx (kwargs wins)
-        tx = {**tx, **kwargs}
-
-    # Normalize primary key
-    if 'id' not in tx or not str(tx.get('id', '')).strip():
-        if 'tx_id' in tx and str(tx.get('tx_id', '')).strip():
-            tx['id'] = tx['tx_id']
-
-    # Normalize common field names (some call-sites use `type_` / `date_`)
-    if 'date' not in tx and 'date_' in tx:
-        tx['date'] = tx.get('date_')
-    if 'type' not in tx and 'type_' in tx:
-        tx['type'] = tx.get('type_')
-
-    # Ensure required columns exist even if blank
-    tx.setdefault('owner', '')
-    tx.setdefault('type', '')
-    tx.setdefault('amount', '')
-    tx.setdefault('method', '')
-    tx.setdefault('account', '')
-    tx.setdefault('category', '')
-    tx.setdefault('notes', '')
-    tx.setdefault('is_recurring', False)
-    tx.setdefault('recurring_id', '')
-    tx.setdefault('created_at', tx.get('created_at', now_iso()))
-
-    # `append_row` expects a dict; it writes values in the sheet's header order.
-    append_row('transactions', tx)
-
-def find_row_index_by_id(tab: str, id_col: str, id_val: str) -> tuple[int, list[str]] | tuple[None, list[str]]:
-    w = ws(tab)
-    values = w.get_all_values()
-    if not values:
-        return None, []
-    headers = [c.strip() for c in values[0]]
-    # locate id column case-insensitively
-    col_idx = None
-    for i, h in enumerate(headers):
-        if h.strip().lower() == id_col.strip().lower():
-            col_idx = i
-            break
-    if col_idx is None:
-        return None, headers
-    for r_i, row in enumerate(values[1:], start=2):
-        if len(row) > col_idx and str(row[col_idx]).strip() == str(id_val).strip():
-            return r_i, headers
-    return None, headers
-
-
-def update_row_by_id(tab: str, id_col: str, id_val: str, updates: dict[str, Any]) -> bool:
-    w = ws(tab)
-    row_idx, headers = find_row_index_by_id(tab, id_col, id_val)
-    if row_idx is None and tab == 'transactions' and str(id_col).lower() == 'id':
-        # Backward compatibility: if the sheet still uses legacy id columns.
-        for alt in ('txid', 'TxId', 'TXID'):
-            row_idx, headers = find_row_index_by_id(tab, alt, id_val)
-            if row_idx is not None:
-                break
-    if row_idx is None:
-        return False
-    lower_map = {h.lower(): (i, h) for i, h in enumerate(headers)}
-    # build updates per cell
-    for k, v in updates.items():
-        key = str(k).lower()
-        if key not in lower_map:
-            continue
-        col_i, _ = lower_map[key]
-        # A1 notation: row_idx, col_i+1
-        cell = gspread.utils.rowcol_to_a1(row_idx, col_i + 1)
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            vv = str(v)
-        elif isinstance(v, dt.date):
-            vv = v.isoformat()
-        else:
-            vv = '' if v is None else str(v)
-        w.update_acell(cell, vv)
-    return True
-
-
-def delete_row_by_id(tab: str, id_col: str, id_val: str) -> bool:
-    w = ws(tab)
-    row_idx, _ = find_row_index_by_id(tab, id_col, id_val)
-    if row_idx is None and tab == 'transactions' and str(id_col).lower() == 'id':
-        for alt in ('txid', 'TxId', 'TXID'):
-            row_idx, _ = find_row_index_by_id(tab, alt, id_val)
-            if row_idx is not None:
-                break
-    if row_idx is None:
-        return False
-    gs_retry(lambda: w.delete_rows(row_idx))
-    return True
-
-
-def cached_df(tab: str, force: bool = False) -> pd.DataFrame:
-    """Return a cached copy of a tab DataFrame (read from Google Sheets).
-
-    On any Sheets error, we log to stdout and return an empty DataFrame with expected headers.
-    """
-    now = time.time()
-    if (not force) and tab in _cache and (now - _cache[tab][0] < CACHE_TTL):
-        return _cache[tab][1].copy()
-
-    # Lightweight retry for transient Google Sheets quota bursts.
-    def _is_quota_error(exc: Exception) -> bool:
-        s = str(exc)
-        return ('429' in s) or ('Quota exceeded' in s) or ('Read requests' in s)
-
-    try:
-        last_exc: Optional[Exception] = None
-        df: Optional[pd.DataFrame] = None
-
-        for attempt in range(3):
-            try:
-                df = read_df(tab)
-                break
-            except Exception as e:
-                last_exc = e
-                if _is_quota_error(e) and attempt < 2:
-                    time.sleep(1.0 * (2 ** attempt))  # 1s, 2s
-                    continue
-                break
-
-        if df is None:
-            raise last_exc or RuntimeError('Unknown Sheets read error')
-
-        if tab == 'transactions':
-            # Support the legacy "wide" sheet layout (category columns)
-            # by converting it into the app's long ledger format.
-            before_cols = list(df.columns)
-            df = wide_transactions_to_long(df)
-            print(f"[MyFin] transactions loaded: rows={len(df)} cols={list(df.columns)} (source cols={before_cols})")
-
-    except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        print('GOOGLE_SHEETS_READ_ERROR', tab, str(e))
-        print(tb)
-        # If we already have cached data, keep serving it (stale-but-usable)
-        if tab in _cache:
-            try:
-                ui.notify(f'Google Sheets temporarily unavailable for {tab}. Showing cached data.', type='warning')
-            except Exception:
-                pass
-            return _cache[tab][1].copy()
-        try:
-            ui.notify(f'Google Sheets read failed for {tab}: {e}', type='negative')
-        except Exception:
-            pass
-        df = pd.DataFrame(columns=TABS.get(tab, []))
-
-    _cache[tab] = (now, df.copy())
-    return df
-
-def invalidate(*tabs: str) -> None:
-
-    for t in tabs:
-        _cache.pop(t, None)
-
-
-# -----------------------------
-# Rules + Category inference
-# -----------------------------
-def load_rules(force: bool = False) -> List[Tuple[str, str]]:
-    """Load category rules from BOTH:
-
-    1) Primary **rules** sheet (keyword/category)
-    2) Legacy/admin **rules_text** sheet (Key/Category) if it exists
-
-    Rules sheet has priority; rules_text acts as fallback.
-    Missing/empty rules_text never errors.
-    """
-
-    # --- primary Rules sheet ---
-    df = cached_df('rules', force=force)
-
-    primary: list[tuple[str, str]] = []
-    if not df.empty:
-        cols = list(df.columns)
-        lmap = {str(c).strip().lower(): c for c in cols}
-
-        keyword_col = None
-        for k in ['keyword', 'keywords', 'key', 'keys', 'rule', 'match', 'pattern']:
-            if k in lmap:
-                keyword_col = lmap[k]
-                break
-
-        category_col = None
-        for k in ['category', 'cat', 'label', 'bucket', 'type']:
-            if k in lmap:
-                category_col = lmap[k]
-                break
-
-        if keyword_col is None or category_col is None:
-            log(f"Rules sheet missing expected columns. Found: {cols}")
-        else:
-            for _, r in df.iterrows():
-                raw_kw = str(r.get(keyword_col, '')).strip()
-                cat = str(r.get(category_col, '')).strip()
-                if not raw_kw or not cat or raw_kw.lower() == 'nan' or cat.lower() == 'nan':
-                    continue
-
-                parts = [p.strip() for p in re.split(r"[;,]", raw_kw) if p.strip()]
-                for p in parts:
-                    primary.append((p.lower(), cat))
-
-    # --- legacy/admin rules_text sheet ---
-    admin: list[tuple[str, str]] = []
-    adf = read_df_optional('rules_text')
-    if adf is not None and not adf.empty:
-        cols = list(adf.columns)
-        lmap = {str(c).strip().lower(): c for c in cols}
-
-        key_col = None
-        for k in ['key', 'keyword', 'keywords', 'rules', 'rule']:
-            if k in lmap:
-                key_col = lmap[k]
-                break
-
-        cat_col = None
-        for k in ['category', 'cat', 'label', 'bucket', 'type']:
-            if k in lmap:
-                cat_col = lmap[k]
-                break
-
-        if key_col and cat_col:
-            for _, r in adf.iterrows():
-                raw_kw = str(r.get(key_col, '')).strip()
-                cat = str(r.get(cat_col, '')).strip()
-                if not raw_kw or not cat or raw_kw.lower() == 'nan' or cat.lower() == 'nan':
-                    continue
-                parts = [p.strip() for p in re.split(r"[;,]", raw_kw) if p.strip()]
-                for p in parts:
-                    admin.append((p.lower(), cat))
-
-    return primary + admin
-
-
-
-def infer_category(notes: str, rules: List[Tuple[str, str]]) -> str:
-    n = (notes or "").lower()
-    for kw, cat in rules:
-        if kw in n:
-            return cat
+        for k in keys:
+            if k and k.lower() in t:
+                return label
     return "Uncategorized"
 
+def segmented(label: str, options: List[str], default: str, key: str):
+    if hasattr(st, "segmented_control"):
+        return st.segmented_control(label, options, default=default, key=key)
+    idx = options.index(default) if default in options else 0
+    return st.radio(label, options, index=idx, horizontal=True, key=key)
 
-# -----------------------------
-# Recurring logic (template -> real entries on/after due date)
-# -----------------------------
-def create_or_update_recurring_template(
-    *,
-    owner: str,
-    type_: str,
-    amount: float,
-    method: str,
-    account: str,
-    category: str,
-    notes: str,
-    day_of_month: int,
-    start_date: dt.date,
-    active: bool = True,
-) -> str:
-    rdf = cached_df("recurring")
-    # Key by owner+type+method+account+category+notes+day
-    key = f"{owner}|{type_}|{method}|{account}|{category}|{notes}|{day_of_month}"
-    rid = sha16(key)
+def prev_month_str(m: str) -> str:
+    try:
+        p = pd.Period(m, freq="M")
+        return str(p - 1)
+    except Exception:
+        return m
 
-    # if exists: update core fields
-    if not rdf.empty and (rdf["recurring_id"].astype(str) == rid).any():
-        update_row_by_id("recurring", "recurring_id", rid, {
-            "owner": owner,
-            "type": type_,
-            "amount": amount,
-            "method": method,
-            "account": account,
-            "category": category,
-            "notes": notes,
-            "day_of_month": str(day_of_month),
-            "start_date": start_date.isoformat(),
-            "active": "TRUE" if active else "FALSE",
-        })
-        invalidate("recurring")
-        return rid
+def delta_badge(delta: float) -> str:
+    if abs(delta) < 0.005:
+        return "—"
+    return ("▲ " if delta > 0 else "▼ ") + money(abs(delta))
 
-    # new template
-    append_row("recurring", {
-        "recurring_id": rid,
-        "owner": owner,
-        "type": type_,
-        "amount": amount,
-        "method": method,
-        "account": account,
-        "category": category,
-        "notes": notes,
-        "day_of_month": str(day_of_month),
-        "start_date": start_date.isoformat(),
-        "active": "TRUE" if active else "FALSE",
-        "last_generated_month": "",
-    })
-    invalidate("recurring")
-    return rid
 
-def generate_recurring_for_date(d: dt.date) -> int:
-    rdf = cached_df("recurring")
-    if rdf.empty:
+# =============================
+# Google Sheets schema
+# =============================
+TAB_TRANSACTIONS = "transactions"
+TAB_ACCOUNTS = "cards"
+TAB_ADMIN = "admin"
+
+TX_HEADERS = ["TxId", "Date", "Owner", "Type", "Amount", "Pay", "Account", "Category", "Notes", "CreatedAt", "AutoTag"]
+ACCT_HEADERS = ["Account", "Emoji", "Limit", "BillingDay"]
+ADMIN_HEADERS = ["Key", "Value"]  # locked_months, rules_text, rules_locked, recurring_prefs_json
+
+
+# =============================
+# Google auth
+# =============================
+@st.cache_resource
+def gclient() -> gspread.Client:
+    if "gcp_service_account" not in st.secrets:
+        st.error("Missing Streamlit secrets: [gcp_service_account].")
+        st.stop()
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
+    return gspread.authorize(creds)
+
+@st.cache_resource
+def open_sheet() -> gspread.Spreadsheet:
+    return gclient().open(SHEET_NAME)
+
+
+def gs_call(fn, *args, **kwargs):
+    """Google Sheets API call with exponential backoff on 429/5xx errors.
+
+    HF8: Streamlit reruns can spike read requests; this wrapper reduces crashes by retrying
+    with jittered exponential backoff.
+    """
+    last_err = None
+    for attempt in range(8):
+        try:
+            return fn(*args, **kwargs)
+        except gspread.exceptions.APIError as e:
+            last_err = e
+            s = str(e)
+            # Quota / rate limit or transient backend errors
+            if ("[429]" in s) or ("429" in s) or ("Quota exceeded" in s) or ("Read requests" in s) or ("[500]" in s) or ("[503]" in s):
+                # jittered exponential backoff, capped
+                sleep_s = min(30.0, (1.0 * (2 ** attempt)) + random.random())
+                time.sleep(sleep_s)
+                continue
+            raise
+    raise last_err
+
+def _get_ws_map(ss: gspread.Spreadsheet) -> Dict[str, gspread.Worksheet]:
+    """HF8: Cache worksheet objects to avoid repeated spreadsheet metadata reads."""
+    ws_map = st.session_state.get("_ws_map")
+    if ws_map is None or st.session_state.get("_ws_map_id") != ss.id:
+        wss = gs_call(ss.worksheets)  # one metadata call
+        ws_map = {w.title: w for w in wss}
+        st.session_state["_ws_map"] = ws_map
+        st.session_state["_ws_map_id"] = ss.id
+    return ws_map
+
+
+def ensure_ws(ss: gspread.Spreadsheet, title: str, headers: List[str], rows: int = 2000) -> gspread.Worksheet:
+    """Ensure worksheet exists and headers are correct (header check only once per session).
+
+    HF8: Uses cached worksheet map to reduce Google Sheets read requests.
+    """
+    ws_map = _get_ws_map(ss)
+
+    if title in ws_map:
+        ws = ws_map[title]
+        created = False
+    else:
+        ws = gs_call(ss.add_worksheet, title=title, rows=rows, cols=max(25, len(headers) + 10))
+        created = True
+        # refresh map once after creation
+        st.session_state.pop("_ws_map", None)
+        ws_map = _get_ws_map(ss)
+        ws_map[title] = ws
+        st.session_state["_ws_map"] = ws_map
+
+    ensured = st.session_state.setdefault("_ensured_headers", set())
+    if created or title not in ensured:
+        row1 = gs_call(ws.row_values, 1)
+        if row1 != headers:
+            gs_call(ws.update, "A1", [headers])
+        ensured.add(title)
+    return ws
+
+
+
+# =============================
+# Admin storage
+# =============================
+def ensure_admin_defaults(ws_admin: gspread.Worksheet) -> None:
+    data = ws_admin.get_all_records()
+    keys = {str(r.get("Key", "")).strip() for r in data}
+
+    updates = []
+    if "locked_months" not in keys:
+        updates.append(["locked_months", ""])
+    if "rules_locked" not in keys:
+        updates.append(["rules_locked", "false"])
+    if "rules_text" not in keys:
+        rules_text = "\n".join([f"{k}: {', '.join(v)}" for k, v in DEFAULT_CATEGORY_RULES.items()])
+        updates.append(["rules_text", rules_text])
+    if "recurring_prefs_json" not in keys:
+        updates.append(["recurring_prefs_json", "[]"])
+
+    if updates:
+        ws_admin.append_rows(updates, value_input_option="USER_ENTERED")
+
+def get_admin_value(ws_admin: gspread.Worksheet, key: str) -> str:
+    for r in ws_admin.get_all_records():
+        if str(r.get("Key", "")).strip() == key:
+            return str(r.get("Value", "") or "")
+    return ""
+
+def set_admin_value(ws_admin: gspread.Worksheet, key: str, value: str) -> None:
+    rows = ws_admin.get_all_records()
+    idx = None
+    for i, r in enumerate(rows, start=2):
+        if str(r.get("Key", "")).strip() == key:
+            idx = i
+            break
+    if idx is None:
+        ws_admin.append_row([key, value], value_input_option="USER_ENTERED")
+    else:
+        ws_admin.update(f"A{idx}:B{idx}", [[key, value]])
+
+def parse_rules_text(text: str) -> Dict[str, List[str]]:
+    rules: Dict[str, List[str]] = {}
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        cat, rest = line.split(":", 1)
+        keys = [x.strip() for x in rest.split(",") if x.strip()]
+        rules[cat.strip()] = keys
+    if not rules:
+        rules = DEFAULT_CATEGORY_RULES.copy()
+    if "Uncategorized" not in rules:
+        rules["Uncategorized"] = []
+    return rules
+
+
+# =============================
+# Session-state DATA STORE (performance)
+# =============================
+def ss_get(key: str, default):
+    if key not in st.session_state:
+        st.session_state[key] = default
+    return st.session_state[key]
+
+def set_last_sync(ts: datetime):
+    st.session_state["last_sync_at"] = ts
+
+def last_sync_text() -> str:
+    ts = st.session_state.get("last_sync_at")
+    if not ts:
+        return "Not synced yet"
+    return ts.strftime("%Y-%m-%d %H:%M:%S")
+
+def refresh_admin_from_sheets() -> None:
+    """Read Admin sheet (small)."""
+    ss = open_sheet()
+    ws_admin = ensure_ws(ss, TAB_ADMIN, ADMIN_HEADERS, rows=400)
+    ensure_admin_defaults(ws_admin)
+
+    locked_raw = get_admin_value(ws_admin, "locked_months").strip()
+    locked_months = [x.strip() for x in locked_raw.split(",") if x.strip()]
+
+    rules_text = get_admin_value(ws_admin, "rules_text")
+    rules = parse_rules_text(rules_text)
+
+    rules_locked = (get_admin_value(ws_admin, "rules_locked").strip().lower() == "true")
+
+    prefs_raw = get_admin_value(ws_admin, "recurring_prefs_json").strip() or "[]"
+    try:
+        prefs = json.loads(prefs_raw)
+        if not isinstance(prefs, list):
+            prefs = []
+    except Exception:
+        prefs = []
+
+    st.session_state["rules"] = rules
+    st.session_state["locked_months"] = locked_months
+    st.session_state["rules_locked"] = rules_locked
+    st.session_state["prefs_list"] = prefs
+    st.session_state["admin_dirty"] = False
+    set_last_sync(datetime.utcnow())
+
+
+def refresh_accounts_from_sheets() -> None:
+    """Read Accounts sheet (small)."""
+    ss = open_sheet()
+    ws_acct = ensure_ws(ss, TAB_ACCOUNTS, ACCT_HEADERS, rows=200)
+    rows = gs_call(ws_acct.get_all_records)
+    acct_df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=ACCT_HEADERS)
+
+    acct_df["Account"] = acct_df["Account"].astype(str) if "Account" in acct_df.columns else ""
+    acct_df["Emoji"] = acct_df["Emoji"].astype(str).replace({"": "💳"}) if "Emoji" in acct_df.columns else "💳"
+    acct_df["Limit"] = pd.to_numeric(acct_df.get("Limit", 0), errors="coerce").fillna(0.0)
+    acct_df["BillingDay"] = pd.to_numeric(acct_df.get("BillingDay", 1), errors="coerce").fillna(1).astype(int)
+
+    st.session_state["acct_df"] = acct_df
+    st.session_state["accounts_dirty"] = False
+    set_last_sync(datetime.utcnow())
+
+
+def refresh_transactions_from_sheets() -> None:
+    """Read Transactions sheet (largest).
+
+    HF7: Make header handling robust.
+    - If sheet headers differ by casing/spacing or common synonyms, map them.
+    - If headers are unrecognized but column counts match, assume the sheet is already in TX_HEADERS order.
+    """
+    ss = open_sheet()
+    ws_tx = ensure_ws(ss, TAB_TRANSACTIONS, TX_HEADERS, rows=10000)
+    values = gs_call(ws_tx.get_all_values)
+
+    def _norm(h: str) -> str:
+        return re.sub(r"\s+", "", str(h or "").strip().lower())
+
+    # Common header synonyms from older versions / user-edits
+    synonyms = {
+        "txid": "TxId",
+        "transactionid": "TxId",
+        "transaction_id": "TxId",
+        "id": "TxId",
+        "created": "CreatedAt",
+        "createdat": "CreatedAt",
+        "created_at": "CreatedAt",
+        "autotag": "AutoTag",
+        "auto_tag": "AutoTag",
+        "merchant": "Notes",
+        "reason": "Notes",
+        "description": "Notes",
+        "payment": "Pay",
+        "paymenttype": "Pay",
+        "paymentmethod": "Pay",
+    }
+    norm_to_canon = {_norm(k): v for k, v in synonyms.items()}
+    for c in TX_HEADERS:
+        norm_to_canon[_norm(c)] = c  # exact canonical
+
+    if not values or len(values) < 2:
+        tx_df = pd.DataFrame(columns=TX_HEADERS + ["_row", "Month"])
+    else:
+        raw_hdr = values[0]
+        rows = values[1:]
+
+        # Build mapping from sheet columns -> canonical TX_HEADERS
+        sheet_norm = [_norm(h) for h in raw_hdr]
+        mapped_cols = [norm_to_canon.get(n, "") for n in sheet_norm]
+
+        # Case 1: We can map at least Date/Amount (minimum viable)
+        can_map = ("Date" in mapped_cols) and ("Amount" in mapped_cols)
+
+        if can_map:
+            df_raw = pd.DataFrame(rows, columns=raw_hdr)
+            df = pd.DataFrame()
+            for canon in TX_HEADERS:
+                try:
+                    src_idx = mapped_cols.index(canon)
+                    df[canon] = df_raw[raw_hdr[src_idx]]
+                except ValueError:
+                    df[canon] = ""
+        else:
+            # Case 2: headers unrecognized; fall back to positional if widths align
+            if len(raw_hdr) >= len(TX_HEADERS):
+                df = pd.DataFrame([r[:len(TX_HEADERS)] for r in rows], columns=TX_HEADERS)
+            else:
+                padded = [r + [""] * (len(TX_HEADERS) - len(r)) for r in rows]
+                df = pd.DataFrame(padded, columns=TX_HEADERS)
+
+        df["_row"] = [i + 2 for i in range(len(df))]
+        tx_df = df
+
+        tx_df["Date"] = pd.to_datetime(tx_df["Date"], errors="coerce").dt.normalize()
+        tx_df["Amount"] = pd.to_numeric(tx_df["Amount"], errors="coerce").fillna(0.0)
+
+        if "Month" not in tx_df.columns:
+            tx_df["Month"] = ""
+        tx_df["Month"] = tx_df["Date"].dt.to_period("M").astype(str)
+
+    st.session_state["tx_df"] = tx_df
+    st.session_state["tx_dirty"] = False
+    set_last_sync(datetime.utcnow())
+
+
+def refresh_all_from_sheets() -> None:
+    """Explicit heavy read."""
+    refresh_admin_from_sheets()
+    refresh_accounts_from_sheets()
+    refresh_transactions_from_sheets()
+
+
+def admin_update(key: str, value: str) -> None:
+    ss = open_sheet()
+    ws_admin = ensure_ws(ss, TAB_ADMIN, ADMIN_HEADERS, rows=400)
+    ensure_admin_defaults(ws_admin)
+    set_admin_value(ws_admin, key, value)
+
+def admin_update_and_refresh(key: str, value: str) -> None:
+    admin_update(key, value)
+    st.session_state["admin_dirty"] = True
+    refresh_admin_from_sheets()
+
+def save_accounts(df: pd.DataFrame) -> None:
+    ss = open_sheet()
+    ws = ensure_ws(ss, TAB_ACCOUNTS, ACCT_HEADERS, rows=200)
+    gs_call(ws.clear)
+    gs_call(ws.update, "A1", [ACCT_HEADERS])
+    gs_call(ws.append_rows, df[ACCT_HEADERS].values.tolist(), value_input_option="USER_ENTERED")
+    st.session_state["accounts_dirty"] = True
+    refresh_accounts_from_sheets()
+
+def append_transaction(entry_date: date, entry_type: str, amount: float, pay: str, account: str,
+                       category: str, notes: str, auto_tag: str = "") -> str:
+    ss = open_sheet()
+    ws = ensure_ws(ss, TAB_TRANSACTIONS, TX_HEADERS, rows=10000)
+    txid = str(uuid.uuid4())
+    ws.append_row(
+        [
+            txid,
+            entry_date.isoformat(),
+            "Family",
+            entry_type,
+            float(amount),
+            pay,
+            account or "",
+            category,
+            notes or "",
+            datetime.utcnow().isoformat(timespec="seconds"),
+            auto_tag or "",
+        ],
+        value_input_option="USER_ENTERED",
+    )
+    refresh_all_from_sheets()
+    return txid
+
+def delete_transaction_by_row(row_num: int) -> None:
+    ss = open_sheet()
+    ws = ensure_ws(ss, TAB_TRANSACTIONS, TX_HEADERS, rows=10000)
+    gs_call(ws.delete_rows, row_num)
+    st.session_state["tx_dirty"] = True
+    refresh_transactions_from_sheets()
+
+def update_transaction_by_row(row_num: int, values: Dict[str, object]) -> None:
+    ss = open_sheet()
+    ws = ensure_ws(ss, TAB_TRANSACTIONS, TX_HEADERS, rows=10000)
+    row = [
+        str(values.get("TxId", "")),
+        str(values.get("Date", "")),
+        "Family",
+        str(values.get("Type", "")),
+        float(values.get("Amount", 0.0) or 0.0),
+        str(values.get("Pay", "")),
+        str(values.get("Account", "")),
+        str(values.get("Category", "")),
+        str(values.get("Notes", "")),
+        str(values.get("CreatedAt", "")),
+        str(values.get("AutoTag", "")),
+    ]
+    ws.update(f"A{row_num}:K{row_num}", [row], value_input_option="USER_ENTERED")
+    st.session_state["tx_dirty"] = True
+    refresh_transactions_from_sheets()
+
+
+# =============================
+# Recurring
+# =============================
+def upsert_pref(prefs_list: List[dict], pref: dict) -> List[dict]:
+    mk = str(pref.get("MerchantKey", "")).strip()
+    if not mk:
+        return prefs_list
+    out = []
+    replaced = False
+    for r in prefs_list:
+        if str(r.get("MerchantKey", "")).strip() == mk:
+            out.append(pref)
+            replaced = True
+        else:
+            out.append(r)
+    if not replaced:
+        out.append(pref)
+    return out
+
+def ensure_recurring_for_month(month_str: str) -> int:
+    """Auto-add recurring items for month_str if missing. Runs when app opens or month changes."""
+    tx = st.session_state["tx_df"]
+    prefs_list = st.session_state["prefs_list"]
+    try:
+        p = pd.Period(month_str, freq="M")
+    except Exception:
         return 0
 
-    tx = cached_df("transactions")
-    existing = set(tx["id"].astype(str).tolist()) if not tx.empty else set()
-
+    year, month = p.year, p.month
+    existing_tags = set(tx.loc[(tx["Month"] == month_str) & (tx["AutoTag"].str.startswith("AUTO:")), "AutoTag"].tolist())
     created = 0
-    this_month = month_key(d)
 
-    for _, r in rdf.iterrows():
-        active = str(r.get("active", "TRUE")).strip().upper() in ("TRUE", "1", "YES", "Y")
-        if not active:
+    for pref in prefs_list:
+        if not bool(pref.get("IsRecurring", False)):
+            continue
+        mk = str(pref.get("MerchantKey", "")).strip()
+        if not mk:
+            continue
+        dom = pref.get("DayOfMonth", 1)
+        try:
+            dom = int(float(dom)) if dom is not None and str(dom).strip() != "" else 1
+        except Exception:
+            dom = 1
+        dom = clamp_day(year, month, dom)
+
+        tag = f"AUTO:{mk}:{month_str}"
+        if tag in existing_tags:
             continue
 
-        rid = str(r.get("recurring_id", "")).strip()
-        if not rid:
+        amt = pref.get("Amount", None)
+        try:
+            amt = float(amt) if amt is not None and str(amt).strip() != "" else None
+        except Exception:
+            amt = None
+        if amt is None or amt <= 0:
             continue
 
-        # already generated this month?
-        last_gen = str(r.get("last_generated_month", "")).strip()
-        if last_gen == this_month:
-            continue
+        cat = str(pref.get("Category", "")).strip() or "Uncategorized"
+        pay = str(pref.get("Pay", "")).strip() or "Bank"
+        acct = str(pref.get("Account", "")).strip()
+        nick = str(pref.get("Nickname", "")).strip() or mk.title()
 
-        dom = int(to_float(r.get("day_of_month", 0)))
-        if dom <= 0:
-            continue
+        due = date(year, month, dom)
+        note = f"[AUTO] {nick}"
 
-        last_day = calendar.monthrange(d.year, d.month)[1]
-        dd = min(dom, last_day)
-        target = dt.date(d.year, d.month, dd)
-
-        start_date = parse_date(r.get("start_date")) or target
-        if d < start_date:
-            continue
-
-        if d < target:
-            continue  # only when date arrives
-
-        tx_id = f"R-{rid}-{this_month}"
-        if tx_id in existing:
-            # mark generated
-            update_row_by_id("recurring", "recurring_id", rid, {"last_generated_month": this_month})
-            invalidate("recurring")
-            continue
-
-        append_row("transactions", {
-            "id": tx_id,
-            "date": target.isoformat(),
-            "owner": str(r.get("owner", "")).strip(),
-            "type": str(r.get("type", "Debit")).strip(),
-            "amount": float(to_float(r.get("amount", 0))),
-            "method": str(r.get("method", "Other")).strip(),
-            "account": str(r.get("account", "")).strip(),
-            "category": str(r.get("category", "Uncategorized")).strip(),
-            "notes": str(r.get("notes", "")).strip(),
-            "is_recurring": "TRUE",
-            "recurring_id": rid,
-            "created_at": dt.datetime.now().isoformat(timespec="seconds"),
-        })
+        append_transaction(due, "Debit", amt, pay, acct, cat, note, auto_tag=tag)
         created += 1
-        update_row_by_id("recurring", "recurring_id", rid, {"last_generated_month": this_month})
-        invalidate("transactions", "recurring")
 
     return created
 
 
-# -----------------------------
-# Auth
-# -----------------------------
-def check_login(username: str, password: str) -> bool:
-    u = os.environ.get('APP_USER') or os.environ.get('APP_USERNAME') or 'admin'
-    p = os.environ.get('APP_PASS') or os.environ.get('APP_PASSWORD') or 'admin'
-    return username == u and password == p
+# =============================
+# Credit cycle / utilization
+# =============================
+def compute_balance_events(tx: pd.DataFrame) -> pd.DataFrame:
+    df = tx[tx["Account"].isin(allowed_accounts_live)].copy()
+    charges = df[((df["Type"] == "Debit") & (df["Pay"] == "Card")) | (df["Type"] == "LOC Draw")].copy()
+    charges["Delta"] = charges["Amount"]
+    charges["Kind"] = "Charge"
 
-def require_login() -> bool:
-    return bool(app.storage.user.get("logged_in"))
+    pays = df[(df["Type"] == "CC Repay") | (df["Type"] == "LOC Repay")].copy()
+    pays["Delta"] = -pays["Amount"]
+    pays["Kind"] = "Payment"
 
-def logout() -> None:
-    app.storage.user["logged_in"] = False
-    nav_to("/login")
+    use = pd.concat([charges, pays], ignore_index=True)
+    if use.empty:
+        return pd.DataFrame(columns=["Date","Month","Account","Delta","Balance","Kind"])
 
+    use["_sort"] = use["CreatedAt"].fillna("")
+    use.sort_values(["Date","_sort"], inplace=True)
 
-# -----------------------------
-# UI Theme
-# -----------------------------
-BANK_CSS = r"""
-:root {
-  --mf-bg: #0b1220;
-  --mf-surface: rgba(255,255,255,0.05);
-  --mf-surface-2: rgba(255,255,255,0.08);
-  --mf-border: rgba(255,255,255,0.12);
-  --mf-text: rgba(255,255,255,0.92);
-  --mf-muted: rgba(255,255,255,0.62);
-  --mf-accent: #2e7dff;
-  --mf-good: #22c55e;
-  --mf-bad: #ef4444;
-  --mf-warn: #fbbf24;
-}
+    bal = {a: 0.0 for a in allowed_accounts_live}
+    out = []
+    for _, r in use.iterrows():
+        a = r.get("Account", "")
+        d = float(r.get("Delta", 0.0))
+        bal[a] = max(0.0, bal.get(a, 0.0) + d)
+        out.append({"Date": r.get("Date"), "Month": r.get("Month"), "Account": a, "Delta": d, "Balance": bal[a], "Kind": r.get("Kind", "")})
+    return pd.DataFrame(out)
 
-body, .q-layout, .q-page {
-  background: radial-gradient(1200px 700px at 20% 10%, rgba(46,125,255,0.18), transparent 60%),
-              radial-gradient(900px 600px at 80% 20%, rgba(34,197,94,0.12), transparent 55%),
-              radial-gradient(900px 600px at 40% 90%, rgba(251,191,36,0.08), transparent 55%),
-              var(--mf-bg) !important;
-  color: var(--mf-text) !important;
-}
+def cycle_bounds(month_str: str, billing_day: int) -> Tuple[date, date]:
+    p = pd.Period(month_str, freq="M")
+    y, m = p.year, p.month
+    this_bill = date(y, m, clamp_day(y, m, billing_day))
+    prev_p = p - 1
+    prev_bill = date(prev_p.year, prev_p.month, clamp_day(prev_p.year, prev_p.month, billing_day))
+    return prev_bill, this_bill
 
-.my-card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04)) !important;
-  border: 1px solid var(--mf-border) !important;
-  border-radius: 18px !important;
-  box-shadow: 0 18px 50px rgba(0,0,0,0.35);
-  backdrop-filter: blur(10px);
-}
+def next_bill_date(month_str: str, billing_day: int) -> date:
+    p = pd.Period(month_str, freq="M")
+    y, m = p.year, p.month
+    return date(y, m, clamp_day(y, m, billing_day))
 
-.kpi {
-  border-radius: 16px;
-  border: 1px solid var(--mf-border);
-  background: rgba(255,255,255,0.05);
-}
+def upcoming_recurring_total(month_str: str, bill_day: int, account: str) -> float:
+    prefs = st.session_state["prefs_list"]
+    p = pd.Period(month_str, freq="M")
+    nb = next_bill_date(month_str, bill_day)
+    today = date.today()
+    total = 0.0
+    for r in prefs:
+        if not r.get("IsRecurring", False):
+            continue
+        if str(r.get("Account","")).strip() != account:
+            continue
+        amt = r.get("Amount", None)
+        if amt is None:
+            continue
+        try:
+            amt = float(amt)
+        except Exception:
+            continue
+        dom = r.get("DayOfMonth", 1)
+        try:
+            dom = int(float(dom)) if dom is not None else 1
+        except Exception:
+            dom = 1
+        due = date(p.year, p.month, clamp_day(p.year, p.month, dom))
+        if today <= due <= nb:
+            total += amt
+    return float(total)
 
-.q-field--outlined .q-field__control,
-.q-field--filled .q-field__control {
-  background: rgba(255,255,255,0.04) !important;
-  border: 1px solid var(--mf-border) !important;
-  border-radius: 12px !important;
-}
+def util_table(balance_events: pd.DataFrame, month: str, acct_df: pd.DataFrame) -> pd.DataFrame:
+    limits = {r["Account"]: float(r["Limit"]) for _, r in acct_df.iterrows()}
+    billing = {r["Account"]: int(r["BillingDay"]) for _, r in acct_df.iterrows()}
+    emoji = {r["Account"]: str(r["Emoji"]) for _, r in acct_df.iterrows()}
 
-.q-field__native, .q-field__input, .q-field__label, .q-field__prefix, .q-field__suffix, .q-select__dropdown-icon {
-  color: var(--mf-text) !important;
-}
-.q-field__control-container {
-  color: var(--mf-text) !important;
-}
-.q-field__append, .q-field__prepend {
-  color: var(--mf-muted) !important;
-}
+    out = []
+    for acct in allowed_accounts_live:
+        lim = float(limits.get(acct, 0.0))
+        bill = int(billing.get(acct, 1))
+        ev = balance_events[balance_events["Account"] == acct] if not balance_events.empty else pd.DataFrame()
 
-.q-field__bottom, .q-field__hint, .q-field__messages, .text-grey, .text-grey-7 {
-  color: var(--mf-muted) !important;
-}
+        in_m = ev[ev["Month"] == month] if not ev.empty else pd.DataFrame()
+        before = ev[ev["Month"] < month] if not ev.empty else pd.DataFrame()
+        opening = float(before["Balance"].iloc[-1]) if not before.empty else 0.0
+        closing = float(in_m["Balance"].iloc[-1]) if not in_m.empty else opening
+        peak = float(in_m["Balance"].max()) if not in_m.empty else opening
+        charges = float(in_m.loc[in_m["Kind"] == "Charge", "Delta"].sum()) if not in_m.empty else 0.0
+        payments = float(-in_m.loc[in_m["Kind"] == "Payment", "Delta"].sum()) if not in_m.empty else 0.0
 
-/* Force dark surfaces for Quasar components that default to white */
-.q-menu, .q-dialog__inner > div, .q-card {
-  background: rgba(12, 18, 32, 0.96) !important;
-  color: var(--mf-text) !important;
-}
-.q-table__container {
-  background: rgba(255,255,255,0.04) !important;
-  border: 1px solid var(--mf-border) !important;
-  border-radius: 14px !important;
-}
-.q-table__top, .q-table__bottom {
-  background: transparent !important;
-  color: var(--mf-text) !important;
-}
-.q-table thead tr th {
-  color: var(--mf-text) !important;
-  background: rgba(255,255,255,0.06) !important;
-}
-.q-table tbody td {
-  color: var(--mf-text) !important;
-}
-.q-table tbody tr:nth-child(odd) {
-  background: rgba(255,255,255,0.02) !important;
-}
-.q-table tbody tr:hover {
-  background: rgba(46,125,255,0.10) !important;
-}
-.q-btn {
-  text-transform: none !important;
-}
+        util_pct = (closing / lim * 100.0) if lim > 0 else None
 
-.mf-top-menu { display: none; }
-@media (max-width: 899px) {
-  .mf-top-menu { display: inline-flex; }
-}
+        c_start, c_end = cycle_bounds(month, bill)
+        cyc = ev[(ev["Date"] >= pd.Timestamp(c_start)) & (ev["Date"] < pd.Timestamp(c_end))] if not ev.empty else pd.DataFrame()
+        cyc_charges = float(cyc.loc[cyc["Kind"] == "Charge", "Delta"].sum()) if not cyc.empty else 0.0
+        cyc_pay = float(-cyc.loc[cyc["Kind"] == "Payment", "Delta"].sum()) if not cyc.empty else 0.0
+        cyc_peak = float(cyc["Balance"].max()) if not cyc.empty else closing
 
-.mf-bottom-nav {
-  position: fixed;
-  bottom: 10px;
-  left: 10px;
-  right: 10px;
-  z-index: 1000;
-}
-@media (min-width: 900px) {
-  .mf-bottom-nav { display: none; }
-}
+        upcoming = upcoming_recurring_total(month, bill, acct)
+        safe_to_spend = None if lim <= 0 else max(0.0, lim - closing - upcoming)
 
-.tile {
-  cursor: pointer;
-  transition: transform .12s ease, background .12s ease;
-}
-.tile:hover { transform: translateY(-2px); background: rgba(255,255,255,0.07) !important; }
-
-/* Glassy dialogs (used for Add sub-flows like receipt scan) */
-.q-dialog__backdrop {
-  backdrop-filter: blur(10px) !important;
-  background: rgba(0,0,0,0.55) !important;
-}
-.q-dialog__inner > div {
-  background: rgba(16, 23, 40, 0.70) !important;
-  border: 1px solid rgba(255,255,255,0.14) !important;
-  box-shadow: 0 24px 70px rgba(0,0,0,0.55) !important;
-}
-.q-dialog__inner > div .q-card {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-
-/* Nicer KPI blocks */
-.kpi {
-  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03)) !important;
-  border: 1px solid rgba(255,255,255,0.12) !important;
-}
-.kpi .kpi-value { letter-spacing: 0.2px; }
-
-/* Budget progress bar */
-.mf-progress {
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.10);
-  overflow: hidden;
-}
-.mf-progress > div {
-  height: 100%;
-  background: rgba(46,125,255,0.85);
-  border-radius: 999px;
-}
-"""
-ui.add_head_html(f"<style>{BANK_CSS}</style>", shared=True)
-
-# Client-side OCR (free): used only when user scans a receipt on Expense form.
-ui.add_head_html(
-    "<script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>",
-    shared=True,
-)
+        out.append({
+            "Account": acct,
+            "Emoji": emoji.get(acct, ACCOUNT_EMOJI_DEFAULT.get(acct,"💳")),
+            "BillingDay": bill,
+            "BillDate": str(next_bill_date(month, bill)),
+            "Limit": lim,
+            "Balance": closing,
+            "UtilPct": util_pct,
+            "SafeToSpend": safe_to_spend,
+            "MonthCharges": charges,
+            "MonthPayments": payments,
+            "MonthPeak": peak,
+            "CycleStart": str(c_start),
+            "CycleEnd": str(c_end),
+            "CycleCharges": cyc_charges,
+            "CyclePayments": cyc_pay,
+            "CyclePeak": cyc_peak,
+            "UpcomingRecurringToBill": upcoming,
+        })
+    return pd.DataFrame(out)
 
 
-# -----------------------------
-# Layout
-# -----------------------------
-def topbar():
-    with ui.row().classes("w-full items-center justify-between px-3 py-2"):
-        with ui.row().classes("items-center gap-3"):
-            ui.label("💳").classes("text-2xl")
-            with ui.column().classes("gap-0"):
-                ui.label(APP_TITLE).classes("text-lg font-bold")
-                ui.label(APP_SUBTITLE).classes("text-xs").style("color: var(--mf-muted)")
-        with ui.row().classes("items-center gap-2"):
-            ui.button("Refresh", on_click=lambda: refresh_all()).props("flat").classes("text-sm")
-            ui.button("Logout", on_click=logout).props("flat").classes("text-sm")
+# =============================
+# Undo stack
+# =============================
+@dataclass
+class UndoAction:
+    kind: str  # add/edit/delete
+    txid: Optional[str] = None
+    row_num: Optional[int] = None
+    old_row: Optional[List[object]] = None
 
-def nav_button(label: str, icon: str, path: str):
-    ui.button(label, on_click=lambda: nav_to(path)).props(f"flat icon={icon}").classes("w-full")
+def push_undo(action: UndoAction):
+    st.session_state["undo"] = action
 
-def shell(content_fn):
-    with ui.header().classes("bg-transparent"):
-        topbar()
+def confidence_tag(auto_tag: str) -> str:
+    tag = (auto_tag or "").strip()
+    if tag.startswith("AUTO:"):
+        return "🔁 Auto-recurring"
+    if tag.startswith("RULE:"):
+        return "🧠 Auto-categorized"
+    if tag.startswith("MANUAL:"):
+        return "✍️ Manual"
+    return "—"
 
-    drawer = ui.left_drawer(value=False).classes("bg-transparent")
-    with drawer:
-        with ui.column().classes("p-3 gap-2"):
-            with ui.card().classes("my-card p-3"):
-                ui.label("Navigation").classes("font-bold")
-                ui.separator()
-                nav_button("Dashboard", "dashboard", "/")
-                nav_button("Add", "add_circle", "/add")
-                nav_button("Transactions", "receipt_long", "/tx")
-                nav_button("Cards", "credit_card", "/cards")
-                nav_button("Recurring", "autorenew", "/recurring")
-                nav_button("Rules", "rule", "/rules")
-                nav_button("Admin", "settings", "/admin")
-
-    
-    with ui.page_sticky(position="top-left", x_offset=14, y_offset=14):
-        ui.button(icon="menu").props("round").on("click", drawer.toggle).classes("mf-top-menu")
-
-    with ui.page_sticky(position="bottom-left", x_offset=18, y_offset=18):
-        ui.button(icon="menu").props("round").on("click", drawer.toggle)
-
-
-    with ui.column().classes("w-full max-w-[1100px] mx-auto p-3 gap-3"):
-        content_fn()
-
-
-    # Bottom navigation for mobile
-    with ui.footer().classes('my-card q-pa-xs mf-bottom-nav'):
-        with ui.row().classes('w-full justify-around items-center'):
-            ui.button('Dashboard', icon='dashboard').props('flat').on('click', lambda: nav_to('/'))
-            ui.button('Add', icon='add_circle').props('flat').on('click', lambda: nav_to('/add'))
-            ui.button('Admin', icon='settings').props('flat').on('click', lambda: nav_to('/admin'))
-
-
-
-
-# -----------------------------
-# Shared actions
-# -----------------------------
-def refresh_all():
-    invalidate("transactions", "cards", "recurring", "rules")
-    ui.notify("Refreshed", type="positive")
+def render_undo():
+    ua: Optional[UndoAction] = st.session_state.get("undo")
+    if not ua:
+        return
+    c1, c2 = st.columns([1, 5])
+    with c1:
+        if st.button("Undo", key="undo_btn"):
+            try:
+                if ua.kind == "add" and ua.txid:
+                    df = st.session_state["tx_df"]
+                    hit = df[df["TxId"] == ua.txid]
+                    if not hit.empty:
+                        delete_transaction_by_row(int(hit.iloc[0]["_row"]))
+                elif ua.kind == "edit" and ua.row_num and ua.old_row:
+                    r = ua.old_row
+                    update_transaction_by_row(ua.row_num, {
+                        "TxId": r[0], "Date": r[1], "Type": r[3], "Amount": float(r[4]),
+                        "Pay": r[5], "Account": r[6], "Category": r[7], "Notes": r[8],
+                        "CreatedAt": r[9], "AutoTag": r[10],
+                    })
+                elif ua.kind == "delete" and ua.row_num and ua.old_row:
+                    # insert row back at position
+                    ss = open_sheet()
+                    ws = ensure_ws(ss, TAB_TRANSACTIONS, TX_HEADERS, rows=10000)
+                    ws.insert_row(ua.old_row, index=ua.row_num)
+                    refresh_all_from_sheets()
+                st.session_state["undo"] = None
+                st.toast("Undone ✅", icon="↩️")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Undo failed: {e}")
+    with c2:
+        st.caption("Undo last action (until the next action).")
 
 
-def owners_list() -> List[str]:
-    # Phase 2+: treat everything as family-wide (no per-person owner split)
-    return ["Family"]
-
-
-def accounts_list() -> List[str]:
-    tx = cached_df("transactions")
-    accts = set()
-    if not tx.empty:
-        accts |= set(tx["account"].astype(str).tolist())
-    accts = {a.strip() for a in accts if a and a.strip()}
-    return sorted(accts)
-
-
-def categories_list() -> List[str]:
-    tx = cached_df("transactions")
-    cats = set()
-    if not tx.empty:
-        cats |= set(tx["category"].astype(str).tolist())
-    cats = {c.strip() for c in cats if c and c.strip()}
-    base = ["Uncategorized", "Groceries", "Rent", "Utilities", "Subscriptions", "Dining", "Fuel", "Shopping", "Travel", "Health", "Salary", "Transfer"]
-    return sorted(set(base) | cats)
-
-
-def methods_list() -> List[str]:
-    cards = cached_df("cards")
-    methods = set(["Debit", "Card", "Other"])
-    if not cards.empty and "method_name" in cards.columns:
-        methods |= set(cards["method_name"].astype(str).tolist())
-    return sorted({m.strip() for m in methods if m and m.strip()})
-
-
-# -----------------------------
-# Pages
-# -----------------------------
-@ui.page("/login")
-def login_page():
-    with ui.column().classes("w-full max-w-[520px] mx-auto mt-10 p-4 gap-4"):
-        with ui.card().classes("my-card p-6"):
-            ui.label("Sign in").classes("text-xl font-bold")
-            ui.label("Use your admin credentials.").classes("text-sm").style("color: var(--mf-muted)")
-            u_in = ui.input("Username").classes("w-full")
-            p_in = ui.input("Password", password=True, password_toggle_button=True).classes("w-full")
-
-            def attempt():
-                if check_login(u_in.value or "", p_in.value or ""):
-                    app.storage.user["logged_in"] = True
-                    ui.notify("Welcome 👋", type="positive")
-                    nav_to("/")
-                else:
-                    ui.notify("Invalid login", type="negative")
-
-            ui.button("Login", on_click=attempt).classes("w-full").props("unelevated")
-
-
-@ui.page("/")
-def dashboard_page():
-    if not require_login():
-        nav_to("/login")
+# =============================
+# Login
+# =============================
+def require_login():
+    if st.session_state.get("authed", False):
         return
 
-    def content():
-        # Safe: run recurring generation for today once per page load
-        try:
-            created = generate_recurring_for_date(today())
-            if created:
-                ui.notify(f"Auto-added {created} recurring entries for {today().isoformat()}", type="positive")
-        except Exception:
-            pass
+    # Lightweight login UI (mobile-friendly)
+    st.markdown(f"## 🔐 {APP_NAME}  ·  {APP_VERSION}")
+    st.caption("Sign in to continue.")
 
-        tx = cached_df("transactions")
-        if tx.empty:
-            with ui.card().classes("my-card p-5"):
-                ui.label("No transactions yet").classes("text-lg font-bold")
-                ui.label("Go to Add to create your first entry.").style("color: var(--mf-muted)")
-            return
+    with st.form("login_form", clear_on_submit=False, border=True):
+        u = st.text_input("Username", value="", autocomplete="username")
+        p = st.text_input("Password", value="", type="password", autocomplete="current-password")
+        ok = st.form_submit_button("Sign in", width="stretch")
 
-        # --- normalize expected columns (robust to sheet header variations) ---
-        def _first_col(df, candidates):
-            for c in candidates:
-                if c in df.columns:
-                    return c
-            # try case-insensitive match
-            lower_map = {str(col).strip().lower(): col for col in df.columns}
-            for c in candidates:
-                key = str(c).strip().lower()
-                if key in lower_map:
-                    return lower_map[key]
-            return None
-
-        c_date = _first_col(tx, ["date", "Date", "DATE", "transaction_date", "Transaction Date"])
-        c_amount = _first_col(tx, ["amount", "Amount", "AMOUNT", "amt", "Amt", "value", "Value"])
-        c_type = _first_col(tx, ["type", "Type", "TYPE", "transaction_type", "Transaction Type", "Type (+/-)", "type (+/-)"])
-
-        if c_date and c_date != "date":
-            tx["date"] = tx[c_date]
-        if c_amount and c_amount != "amount":
-            tx["amount"] = tx[c_amount]
-        if c_type and c_type != "type":
-            tx["type"] = tx[c_type]
-
-        # ensure columns exist even if the sheet is missing them
-        if "date" not in tx.columns:
-            tx["date"] = ""
-        if "amount" not in tx.columns:
-            tx["amount"] = 0
-        if "type" not in tx.columns:
-            tx["type"] = ""
-
-        tx["date_parsed"] = tx["date"].apply(parse_date)
-        tx = tx[tx["date_parsed"].notna()].copy()
-        tx["amount_num"] = tx["amount"].apply(to_float)
-        # Normalize "type" column (sheet headers may vary in casing/spaces)
-        if "type" not in tx.columns:
-            _colmap = {str(c).strip().lower(): c for c in tx.columns}
-            _src = None
-            for _k in ("type", "txn type", "transaction type", "tx type"):
-                if _k in _colmap:
-                    _src = _colmap[_k]
-                    break
-            if _src is None:
-                for _k, _orig in _colmap.items():
-                    if "type" in _k:
-                        _src = _orig
-                        break
-            if _src is not None:
-                tx["type"] = tx[_src]
-            else:
-                tx["type"] = ""
-        tx["type_l"] = tx["type"].astype(str).str.lower().str.strip()
-
-        mkey = month_key(today())
-        mtx = tx[tx["date_parsed"].apply(lambda d: month_key(d) == mkey)].copy()
-
-        # Defensive normalization: some sheets may have different header casing/spacing
-        if "type_l" not in mtx.columns:
-            # try to locate a type-like column (case/space-insensitive)
-            colmap = {str(c).strip().lower(): c for c in mtx.columns}
-            src = None
-            for key in ("type", "txn type", "transaction type", "tx type", "category type"):
-                if key in colmap:
-                    src = colmap[key]
-                    break
-            if src is None:
-                # fallback: any column containing "type"
-                for k, orig in colmap.items():
-                    if "type" in k:
-                        src = orig
-                        break
-            if src is not None:
-                mtx["type_l"] = mtx[src].astype(str).str.strip().str.lower()
-            else:
-                mtx["type_l"] = ""
-        if "amount_num" not in mtx.columns:
-            # try amount-like columns
-            colmap2 = {str(c).strip().lower(): c for c in mtx.columns}
-            src_amt = None
-            for key in ("amount", "amt", "value", "cad", "amount_cad"):
-                if key in colmap2:
-                    src_amt = colmap2[key]
-                    break
-            if src_amt is not None:
-                mtx["amount_num"] = pd.to_numeric(mtx[src_amt], errors="coerce").fillna(0.0)
-            else:
-                mtx["amount_num"] = 0.0
-        typ = None
-        if "type_l" in mtx.columns:
-            typ = mtx["type_l"].astype(str).str.strip().str.lower()
+    if ok:
+        if auth_ok(u, p):
+            st.session_state["authed"] = True
+            st.toast("Signed in ✅", icon="✅")
+            st.rerun()
         else:
-            # fallback: use any type-like column
-            _colmap = {str(c).strip().lower(): c for c in mtx.columns}
-            _src = None
-            for _k in ("type", "txn type", "transaction type", "tx type"):
-                if _k in _colmap:
-                    _src = _colmap[_k]; break
-            if _src is None:
-                for _k, _orig in _colmap.items():
-                    if "type" in _k: _src = _orig; break
-            if _src is not None:
-                typ = mtx[_src].astype(str).str.strip().str.lower()
-            else:
-                typ = pd.Series([""] * len(mtx))
-        amt = mtx["amount_num"] if "amount_num" in mtx.columns else pd.Series([0.0] * len(mtx))
-        income = amt[typ.isin(["credit", "income"])].sum()
-        expense = amt[typ.isin(["debit", "expense"])].sum()
-        invest = amt[typ.isin(["investment"])].sum()
-        net = income - expense - invest
+            st.error("Invalid username or password.")
 
-        # Expenses for this month (reused by budgets + breakdown)
-        spend = mtx[mtx["type_l"].isin(["debit", "expense"])].copy()
-        if not spend.empty:
-            if "category" not in spend.columns:
-                spend["category"] = "Uncategorized"
-            spend["category"] = spend["category"].astype(str).replace("", "Uncategorized")
+    st.stop()
 
-        with ui.row().classes("w-full gap-3"):
-            for label, val in [
-                ("Income (this month)", income),
-                ("Expenses (this month)", expense),
-                ("Investments (this month)", invest),
-                ("Net (this month)", net),
-            ]:
-                with ui.card().classes("my-card p-4 kpi w-full"):
-                    ui.label(label).classes("text-sm").style("color: var(--mf-muted)")
-                    ui.label(currency(val)).classes("text-2xl font-bold")
-                    ui.label(mkey).classes("text-xs").style("color: var(--mf-muted)")
+require_login()
 
-        # Quick actions + data quality
-        unc_count = 0
-        try:
-            if "category" in mtx.columns:
-                unc_count = int((mtx["category"].astype(str).str.strip().replace("", "Uncategorized") == "Uncategorized").sum())
-        except Exception:
-            unc_count = 0
 
-        # Phase 4.2: in-app notifications (budget + uncategorized)
-        try:
-            if unc_count > 0:
-                ui.notify(f'You have {unc_count} Uncategorized items this month.', type='warning')
-        except Exception:
-            pass
 
-        with ui.row().classes("w-full gap-3"):
-            with ui.card().classes("my-card p-4 w-full"):
-                ui.label("Quick actions").classes("text-lg font-bold")
-                with ui.row().classes("gap-2"):
-                    ui.button("Add expense", icon="add").props("unelevated").on("click", lambda: nav_to('/add?mode=expense'))
-                    ui.button("Add income", icon="add").props("outline").on("click", lambda: nav_to('/add?mode=income'))
-                    ui.button("Transactions", icon="receipt_long").props("flat").on("click", lambda: nav_to('/tx'))
-            with ui.card().classes("my-card p-4 w-full"):
-                ui.label("Data quality").classes("text-lg font-bold")
-                ui.label(f"Uncategorized this month: {unc_count}").classes("text-sm").style("color: var(--mf-muted)")
-                def _go_fix_uncat() -> None:
-                    app.storage.user['tx_quick_filter'] = 'uncat'
-                    nav_to('/tx')
-                ui.button("Fix now", icon="construction").props("outline").on("click", _go_fix_uncat)
 
-        # Budgets (Phase 4)
-        budgets = read_df_optional('budgets')
-        if budgets is not None and not budgets.empty and (not spend.empty) and "category" in spend.columns:
-            # Map budgets
-            bcols = {str(c).strip().lower(): c for c in budgets.columns}
-            c_cat = bcols.get('category') or bcols.get('cat')
-            c_budget = bcols.get('budget_monthly') or bcols.get('monthly_budget') or bcols.get('budget')
-            if c_cat and c_budget:
-                bmap: dict[str, float] = {}
-                for _, r in budgets.iterrows():
-                    k = str(r.get(c_cat, '')).strip()
-                    if not k:
-                        continue
-                    bmap[k] = parse_money(r.get(c_budget, 0), default=0.0)
-                if bmap:
-                    with ui.card().classes('my-card p-5'):
-                        ui.label('Budgets (this month)').classes('text-lg font-bold')
-                        # build progress list for categories that have a budget
-                        spend_by_cat = spend.groupby('category', as_index=False)['amount_num'].sum()
-                        # show only budgeted categories
-                        rows = []
-                        for _, r in spend_by_cat.iterrows():
-                            cat = str(r['category'])
-                            if cat in bmap and bmap[cat] > 0:
-                                rows.append((cat, float(r['amount_num']), float(bmap[cat])))
-                        # include budget categories with 0 spend yet
-                        present = set([x[0] for x in rows])
-                        for cat, bud in bmap.items():
-                            if cat not in present and bud > 0:
-                                rows.append((cat, 0.0, float(bud)))
-                        rows.sort(key=lambda x: (x[1]/x[2]) if x[2] else 0.0, reverse=True)
-                        if not rows:
-                            ui.label('No budget categories matched your spending yet.').style('color: var(--mf-muted)')
-                        else:
-                            # Phase 4.2: in-app budget alerts
-                            try:
-                                alerts80 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 0.80 and (s/b) < 1.0]
-                                alerts100 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 1.0]
-                                if alerts100:
-                                    ui.notify(f'Over budget: {alerts100[0][0]} ({currency(alerts100[0][1])} / {currency(alerts100[0][2])})', type='negative')
-                                elif alerts80:
-                                    ui.notify(f'Budget warning (80%+): {alerts80[0][0]} ({currency(alerts80[0][1])} / {currency(alerts80[0][2])})', type='warning')
-                            except Exception:
-                                pass
+# =============================
+# First sync (only once per session)
+# =============================
+if "tx_df" not in st.session_state and not st.session_state.get("did_initial_refresh"):
+    # Mark immediately to prevent multiple rapid reruns from re-triggering a full refresh.
+    st.session_state["did_initial_refresh"] = True
+    try:
+        refresh_all_from_sheets()
+    except gspread.exceptions.APIError as e:
+        # If Google throttles reads (429), show a friendly message instead of crashing.
+        s = str(e)
+        if ("[429]" in s) or ("429" in s) or ("Quota exceeded" in s) or ("Read requests" in s):
+            st.error("Google Sheets rate limit reached (HTTP 429). Please wait ~60 seconds and click Refresh.")
+            # Allow the user to retry manually.
+            st.session_state["tx_df"] = pd.DataFrame(columns=TX_HEADERS + ["_row", "Month"])
+            st.session_state["accounts_df"] = pd.DataFrame(columns=ACCT_HEADERS + ["_row"])
+            st.session_state["admin_df"] = pd.DataFrame(columns=ADMIN_HEADERS + ["_row"])
+            st.stop()
+        raise
 
-                            for cat, spent_amt, bud_amt in rows[:10]:
-                                pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
-                                with ui.row().classes('w-full items-center justify-between'):
-                                    ui.label(cat).classes('text-sm')
-                                    ui.label(f"{currency(spent_amt)} / {currency(bud_amt)}").classes('text-xs').style('color: var(--mf-muted)')
-                                ui.linear_progress(value=pct).props('size=10px')
+# Dirty-flag refreshes (avoid full re-read after small mutations)
+if st.session_state.get("admin_dirty"):
+    refresh_admin_from_sheets()
+if st.session_state.get("accounts_dirty"):
+    refresh_accounts_from_sheets()
+if st.session_state.get("tx_dirty"):
+    refresh_transactions_from_sheets()
 
-        # Upcoming paydays
-        start = today()
-        end = start + dt.timedelta(days=45)
-        pays: List[Tuple[str, dt.date]] = []
-        y, m = start.year, start.month
-        for _ in range(3):
-            for p in abhi_pay_dates_for_month(y, m):
-                if start <= p <= end:
-                    pays.append(("Abhi", p))
-            m += 1
-            if m == 13:
-                y += 1
-                m = 1
-        for p in wife_pay_dates_between(start, end):
-            if start <= p <= end:
-                pays.append(("Indhu", p))
-        pays = sorted(set(pays), key=lambda x: x[1])
+rules = st.session_state["rules"]
+locked_months = st.session_state["locked_months"]
+rules_locked = st.session_state["rules_locked"]
+prefs_list = st.session_state["prefs_list"]
+acct_df = st.session_state["acct_df"]
+tx_df = st.session_state["tx_df"]
 
-        with ui.card().classes("my-card p-5"):
-            ui.label("Upcoming paydays").classes("text-lg font-bold")
-            if not pays:
-                ui.label("No paydays in the next 45 days.").style("color: var(--mf-muted)")
-            else:
-                for who, d in pays[:12]:
-                    ui.label(f"{who}: {d.strftime('%a, %b %d, %Y')}").classes("text-sm")
+allowed_accounts_live, emoji_map_live = build_account_maps(acct_df)
 
-        # Spending breakdown
-        with ui.card().classes("my-card p-5"):
-            ui.label("Spending breakdown (this month)").classes("text-lg font-bold")
-            if spend.empty:
-                ui.label("No expenses this month.").style("color: var(--mf-muted)")
-            else:
-                agg = spend.groupby("category", as_index=False)["amount_num"].sum()
-                fig = px.pie(agg, names="category", values="amount_num", hole=0.55)
-                fig.update_layout(
-                    margin=dict(l=10, r=10, t=10, b=10),
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    font_color="rgba(255,255,255,0.88)",
-                )
-                ui.plotly(fig).classes("w-full")
 
-        # Top merchants (best-effort from Notes)
-        with ui.card().classes("my-card p-5"):
-            ui.label("Top merchants (this month)").classes("text-lg font-bold")
-            if spend.empty or "notes" not in spend.columns:
-                ui.label("No merchant data available.").style("color: var(--mf-muted)")
-            else:
-                def _merchant_from_notes(n: str) -> str:
-                    s = str(n or "").strip()
-                    if not s:
-                        return "(blank)"
-                    # common separators: '|', '-', '•'
-                    for sep in ("|", "•", "-"):
-                        if sep in s:
-                            s = s.split(sep, 1)[0].strip()
-                    s = re.sub(r"\s+", " ", s)
-                    return (s[:28] + "…") if len(s) > 28 else s
+# =============================
+# Sidebar nav + fast filters
+# =============================
+def current_month_default(df: pd.DataFrame) -> str:
+    # Robust default: handle empty frames or missing derived columns
+    cur = str(pd.Period(date.today(), freq="M"))
+    if df is None or df.empty:
+        return cur
+    if "Month" not in df.columns:
+        # Derive on the fly from Date if possible
+        if "Date" in df.columns:
+            d = pd.to_datetime(df["Date"], errors="coerce")
+            months = sorted(d.dropna().dt.to_period("M").astype(str).unique().tolist())
+            return months[-1] if months else cur
+        return cur
+    months = sorted(pd.Series(df["Month"]).dropna().unique().tolist())
+    return months[-1] if months else cur
 
-                spend["_merchant"] = spend["notes"].apply(_merchant_from_notes)
-                topm = spend.groupby("_merchant", as_index=False)["amount_num"].sum().sort_values("amount_num", ascending=False)
-                if topm.empty:
-                    ui.label("No merchant data available.").style("color: var(--mf-muted)")
-                else:
-                    rows = []
-                    for _, r in topm.head(8).iterrows():
-                        rows.append({"merchant": r["_merchant"], "spend": currency(float(r["amount_num"]))})
-                    ui.table(
-                        columns=[
-                            {"name": "merchant", "label": "Merchant", "field": "merchant", "align": "left"},
-                            {"name": "spend", "label": "Spend", "field": "spend", "align": "right"},
-                        ],
-                        rows=rows,
-                        row_key="merchant",
-                    ).classes("w-full")
+ss_get("flt_month", current_month_default(tx_df))
+ss_get("flt_types", ENTRY_TYPES.copy())
+ss_get("admin_section", "Monthly Lock")
+ss_get("auto_recurring_done_for", "")
 
-        # Trend
-        with ui.card().classes("my-card p-5"):
-            ui.label("Cashflow trend (last 90 days)").classes("text-lg font-bold")
-            recent = tx[tx["date_parsed"] >= (today() - dt.timedelta(days=90))].copy()
-            recent["day"] = recent["date_parsed"].astype(str)
-            recent["sign"] = recent["type_l"].map(lambda t: 1 if t in ("credit", "income") else (-1 if t in ("debit", "expense", "investment") else 0))
-            recent["signed_amount"] = recent["amount_num"] * recent["sign"]
-            daily = recent.groupby("day", as_index=False)["signed_amount"].sum()
-            fig2 = px.area(daily, x="day", y="signed_amount")
-            fig2.update_layout(
-                margin=dict(l=10, r=10, t=10, b=10),
-                paper_bgcolor="rgba(0,0,0,0)",
-                font_color="rgba(255,255,255,0.88)",
+# Quick add defaults (suggestion #1)
+ss_get("quick_defaults", {"Type": "Debit", "Pay": "Card", "Account": (allowed_accounts_live[0] if allowed_accounts_live else ALLOWED_ACCOUNTS[0]), "Category": "Uncategorized"})
+ss_get("undo", None)
+
+with st.sidebar:
+    st.markdown(
+        f"""
+        <div class="mf-topbrand mf-anim">
+          <div>
+            <div style="font-size:18px; font-weight:950;">{APP_NAME}</div>
+            <div style="font-size:12px; color:rgba(232,234,237,0.65); margin-top:2px;">Family ledger • 2026</div>
+          </div>
+          <div style="text-align:right;">
+            <span class="mf-pill">Sheets</span>
+            <div style="height:6px;"></div>
+            <span class="mf-pill">Fast</span>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.write("")
+
+    # sync bar (explicit, premium)
+    st.markdown(
+        f"""
+        <div class="mf-sync mf-anim">
+          <div>
+            <div style="font-weight:950;">Sync</div>
+            <small>Last: {last_sync_text()} UTC</small>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    cA, cB, cC = st.columns([1, 1, 1])
+    with cA:
+        if st.button("Refresh", width="stretch"):
+            refresh_all_from_sheets()
+            st.toast("Refreshed ✓", icon="🔄")
+            st.rerun()
+    with cB:
+        if st.button("Logout", width="stretch"):
+            st.session_state["authed"] = False
+            st.rerun()
+    with cC:
+        view_mode = "Auto"  # locked to Auto (mobile toggle removed)
+        st.markdown('<span class="pill pill-auto">Auto</span>', unsafe_allow_html=True)
+
+
+    st.divider()
+    months = sorted(tx_df["Month"].unique().tolist()) if not tx_df.empty else [str(pd.Period(date.today(), freq="M"))]
+
+    # PERFORMANCE: Filters in form + Apply
+    with st.form("sidebar_filters", border=False):
+        st.markdown("### Filters")
+        month_sel = st.selectbox("📅 Month", months, index=months.index(st.session_state["flt_month"]) if st.session_state["flt_month"] in months else len(months) - 1)
+
+        st.markdown("### Focus (Types)")
+        # C3 redesigned: premium toggles, no chips, no red
+        selected = []
+        cols = st.columns(2)
+        for i, t in enumerate(ENTRY_TYPES):
+            with cols[i % 2]:
+                on = st.toggle(f"{TYPE_EMOJI[t]} {t}", value=(t in st.session_state["flt_types"]), key=f"tg_{t}")
+            if on:
+                selected.append(t)
+
+        apply = st.form_submit_button("Apply")
+
+    if apply:
+        st.session_state["flt_month"] = month_sel
+        st.session_state["flt_types"] = selected if selected else ENTRY_TYPES.copy()
+        st.toast("Filters applied", icon="🎛️")
+        st.rerun()
+
+month_sel = st.session_state["flt_month"]
+type_filter = st.session_state["flt_types"]
+
+locked_now = month_sel in set(locked_months)
+if locked_now:
+    st.warning(f"🔒 **{month_sel} is LOCKED** — Add/Edit/Delete disabled for this month.")
+
+# Auto-add recurring for chosen month (C6 + suggestion)
+if st.session_state["auto_recurring_done_for"] != month_sel:
+    created = ensure_recurring_for_month(month_sel)
+    st.session_state["auto_recurring_done_for"] = month_sel
+    if created > 0:
+        st.toast(f"Auto-added {created} recurring item(s)", icon="🔁")
+        st.rerun()
+
+# Filtered views (cheap, in-memory)
+view_df = tx_df[tx_df["Type"].isin(type_filter)].copy() if not tx_df.empty else tx_df.copy()
+month_df = view_df[view_df["Month"] == month_sel].copy() if not view_df.empty else view_df.copy()
+
+
+# =============================
+# Dashboard helpers
+# =============================
+def _dash_type_series(df: pd.DataFrame) -> pd.Series:
+    """Dashboard-only normalization of Type.
+
+    We treat Salary/Payroll-like categories as Income even if they were entered as Debit by mistake,
+    so the dashboard does not show Salary under Outflow / Highest debit spend.
+    """
+    if df is None or df.empty or "Type" not in df.columns:
+        return pd.Series([], dtype=str)
+
+    t = df["Type"].astype(str)
+
+    if "Category" in df.columns:
+        # Normalize category text so emojis / punctuation don't break matching.
+        raw_cat = df["Category"].astype(str).fillna("").str.strip().str.lower()
+        # Keep only letters/spaces for robust matching (e.g., "💼 Salary" -> "salary").
+        norm_cat = raw_cat.str.replace(r"[^a-z\s]", " ", regex=True).str.replace(r"\s+", " ", regex=True).str.strip()
+
+        # If category/notes look like common income labels, force as Credit for dashboard purposes.
+        # We check both Category and Notes/Reason text because some rows may store "Salary" in notes.
+        search_text = norm_cat
+
+        # Try common note columns
+        for note_col in ("Notes", "Reason/Notes", "Reason", "Description"):
+            if note_col in df.columns:
+                raw_note = df[note_col].astype(str).fillna("").str.strip().str.lower()
+                norm_note = raw_note.str.replace(r"[^a-z\s]", " ", regex=True).str.replace(r"\s+", " ", regex=True).str.strip()
+                search_text = (search_text + " " + norm_note).str.strip()
+                break
+
+        income_tokens = ("salary", "payroll", "pay cheque", "paycheck", "paycheque", "wages", "bonus")
+        is_income = pd.Series(False, index=df.index)
+        for tok in income_tokens:
+            is_income = is_income | search_text.str.contains(rf"\b{re.escape(tok)}\b", regex=True, na=False)
+
+        t = t.mask(is_income, "Credit")
+
+    return t
+
+
+def _is_nonexpense_movement(df: pd.DataFrame) -> pd.Series:
+    """Rows that should NOT be counted as 'Expense' even if Type is Debit.
+
+    HF9: Exclude LOC utilization and transfers from expense charts while still tracking them.
+    """
+    if df is None or df.empty:
+        return pd.Series([], dtype=bool)
+
+    # normalize helpers
+    cat = df.get("Category", "").astype(str).fillna("").str.strip().str.lower()
+    acc = df.get("Account", "").astype(str).fillna("").str.strip().str.lower()
+    pay = df.get("Pay", "").astype(str).fillna("").str.strip().str.lower()
+    typ = df.get("Type", "").astype(str).fillna("").str.strip()
+
+    # Non-expense by Type
+    is_move = (typ == "International") | (typ == "CC Repay") | (typ == "LOC Draw") | (typ == "LOC Repay")
+
+    # LOC utilization: any Debit 'Card' charge posted to LOC account
+    is_loc = acc.str.contains(r"\bline\s*of\s*credit\b|\bloc\b", regex=True, na=False) & (pay == "card") & (typ == "Debit")
+
+    # Remittance / transfer categories (these are movements, not consumption)
+    is_remit = cat.str.contains(r"india|remit|remittance|international\s*transfer|transfer\s*abroad|send\s*home", regex=True, na=False)
+
+    # Repayments are not expenses
+    is_repay_cat = cat.str.contains(r"repay|repayment", regex=True, na=False)
+
+    return is_move | is_loc | is_remit | is_repay_cat
+
+
+def monthly_summary(df: pd.DataFrame) -> Dict[str, float]:
+    if df is None or df.empty:
+        return {"Credit": 0.0, "Debit": 0.0, "Investment": 0.0, "CC Repay": 0.0, "International": 0.0}
+
+    t = _dash_type_series(df)
+    amt = pd.to_numeric(df.get("Amount", 0), errors="coerce").fillna(0.0)
+
+    return {
+        "Credit": float(amt[t == "Credit"].sum()),
+        "Debit": float(amt[(t == "Debit") & (~_is_nonexpense_movement(df))].sum()),
+        "Investment": float(amt[t == "Investment"].sum()),
+        "CC Repay": float(amt[t == "CC Repay"].sum()),
+        "International": float(amt[t == "International"].sum()),
+    }
+
+
+def hero_insight(df_all: pd.DataFrame, month: str) -> str:
+    mdf = df_all[df_all["Month"] == month].copy()
+    if mdf.empty:
+        return "No transactions yet. Add your first one ✨"
+
+    t = _dash_type_series(mdf)
+    ddf = mdf[t == "Debit"].copy()
+
+    if not ddf.empty:
+        by_cat = ddf.groupby("Category", as_index=False)["Amount"].sum().sort_values("Amount", ascending=False)
+        top = by_cat.iloc[0]
+        return f"Highest debit spend: **{cat_label(top['Category'])}** ({money(float(top['Amount']))})"
+
+    return f"Transactions captured: **{len(mdf)}**"
+
+
+# =============================
+# Pages
+# =============================
+def render_debit_categories_chart(month_df: pd.DataFrame) -> None:
+    st.markdown("### 🧩 Debit categories (this month)")
+    _t = _dash_type_series(month_df)
+    # Only true expenses (exclude Income even if mis-typed as Debit)
+    ddf = month_df[_t == "Debit"].copy()
+    if ddf.empty:
+        st.caption("No debit transactions this month.")
+    else:
+        by_cat = ddf.groupby("Category", as_index=False)["Amount"].sum().sort_values("Amount", ascending=False)
+        by_cat["CategoryLabel"] = by_cat["Category"].apply(cat_label)
+        fig_cat = px.bar(by_cat, x="CategoryLabel", y="Amount", title="Debit by Category", height=420, template="plotly_dark", color_discrete_sequence=px.colors.qualitative.Set2)
+        fig_cat.update_layout(bargap=0.35, margin=dict(l=10,r=10,t=50,b=10))
+        st.plotly_chart(fig_cat, width="stretch")
+
+
+def page_dashboard():
+    # V3_1A Dashboard (visual-only)
+    st.markdown("## 🧭 Dashboard")
+    # Assume globals: tx_df, month_df, month_sel, acct_df
+    # Friendly insight card
+    try:
+        insight = hero_insight(tx_df, month_sel)
+    except Exception:
+        insight = "Overview for the selected month."
+
+    # Compute month summaries
+    cur = monthly_summary(tx_df[tx_df["Month"] == month_sel]) if not tx_df.empty else monthly_summary(tx_df)
+    pm = prev_month_str(month_sel)
+    prev = monthly_summary(tx_df[tx_df["Month"] == pm]) if (not tx_df.empty and pm) else {"Credit":0,"Debit":0,"Investment":0,"CC Repay":0,"International":0}
+
+    outflow = float(cur.get("Debit",0)) + float(cur.get("Investment",0)) + float(cur.get("CC Repay",0)) + float(cur.get("International",0))
+    prev_outflow = float(prev.get("Debit",0)) + float(prev.get("Investment",0)) + float(prev.get("CC Repay",0)) + float(prev.get("International",0))
+    incoming = float(cur.get("Credit",0))
+    prev_incoming = float(prev.get("Credit",0))
+    net = incoming - outflow
+    prev_net = prev_incoming - prev_outflow
+
+    def _delta(a, b):
+        d = float(a) - float(b)
+        sign = "+" if d >= 0 else "−"
+        return f"{sign}{money(abs(d))}"
+
+
+    net_color = "#00e676" if net >= 0 else "#ff5252"
+    # HERO
+    left, right = st.columns([1.35, 1.0], gap="large")
+    with left:
+        st.markdown(
+            f"""<div class='mf-card mf-anim'>
+            <div style='display:flex;justify-content:space-between;align-items:flex-start;gap:16px;'>
+              <div>
+                <div class='mf-sub'>This month • {month_sel}</div>
+                <div style='font-size:34px;font-weight:800;line-height:1.15;margin-top:6px;'>Net: <span style='color:{net_color};'>{money(net)}</span></div>
+                <div class='mf-sub' style='margin-top:6px;'>Δ {_delta(net, prev_net)} vs last month</div>
+              </div>
+              <div style='text-align:right;'>
+                <div class='mf-sub'>Incoming</div>
+                <div style='font-size:22px;font-weight:750;line-height:1.2;'>{money(incoming)}</div>
+                <div class='mf-sub'>Outflow</div>
+                <div style='font-size:22px;font-weight:750;line-height:1.2;'>{money(outflow)}</div>
+              </div>
+            </div>
+            <div style='margin-top:12px;'>
+              <div class='mf-pill'>Spend focus</div>
+              <span class='mf-sub' style='margin-left:10px;'>{insight}</span>
+            </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+    with right:
+        # Spend composition / health
+        debit = float(cur.get("Debit",0))
+        invest = float(cur.get("Investment",0))
+        repay = float(cur.get("CC Repay",0))
+        remit = float(cur.get("International",0))
+        st.markdown(
+            f"""<div class='mf-card mf-anim'>
+            <div style='display:flex;justify-content:space-between;align-items:center;'>
+              <div>
+                <div class='mf-sub'>Spending (Expenses only)</div>
+                <div style='font-size:26px;font-weight:800;margin-top:4px;'>{money(debit)}</div>
+                <div class='mf-sub'>Δ {_delta(debit, float(prev.get("Debit",0)))} vs last month</div>
+              </div>
+              <div class='mf-pill'>Clean view</div>
+            </div>
+            <div style='margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;'>
+              <div style='padding:10px;border-radius:14px;background:rgba(255,255,255,0.04);'>
+                <div class='mf-sub'>Invest</div>
+                <div style='font-weight:750;font-size:18px;'>{money(invest)}</div>
+              </div>
+              <div style='padding:10px;border-radius:14px;background:rgba(255,255,255,0.04);'>
+                <div class='mf-sub'>Repay</div>
+                <div style='font-weight:750;font-size:18px;'>{money(repay)}</div>
+              </div>
+              <div style='padding:10px;border-radius:14px;background:rgba(255,255,255,0.04);'>
+                <div class='mf-sub'>Remit</div>
+                <div style='font-weight:750;font-size:18px;'>{money(remit)}</div>
+              </div>
+              <div style='padding:10px;border-radius:14px;background:rgba(255,255,255,0.04);'>
+                <div class='mf-sub'>Safe-to-spend*</div>
+                <div style='font-weight:750;font-size:18px;'>{money(max(0.0, incoming - (invest + repay + remit)))}</div>
+              </div>
+            </div>
+            <div class='mf-sub' style='margin-top:10px;'>*Excludes essential bills if you categorize them under Expenses.</div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+
+    # Interactive spending snapshot (V3_1A_HF2)
+    st.markdown("### 🧾 Spending snapshot")
+    ddf = tx_df[(tx_df["Month"] == month_sel) & (tx_df["Type"] == "Debit")].copy() if not tx_df.empty else pd.DataFrame()
+    if ddf.empty:
+        st.caption("No expense (Debit) transactions for this month.")
+    else:
+        by_cat = (
+            ddf.groupby("Category", as_index=False)["Amount"]
+            .sum()
+            .sort_values("Amount", ascending=False)
+        )
+        by_cat["CategoryLabel"] = by_cat["Category"].apply(cat_label)
+        top = by_cat.head(8).copy()
+
+        # Keep selection sticky across reruns
+        if "dash_spend_cat" not in st.session_state or st.session_state["dash_spend_cat"] not in by_cat["Category"].tolist():
+            st.session_state["dash_spend_cat"] = top.iloc[0]["Category"]
+
+        cL, cR = st.columns([1, 1], gap="large")
+
+        with cL:
+            st.markdown("<div class='mf-card mf-anim'><div class='mf-sub'>Top categories (tap to view details)</div></div>", unsafe_allow_html=True)
+            fig1 = px.bar(
+                top.iloc[::-1],
+                x="Amount",
+                y="CategoryLabel",
+                orientation="h",
             )
-            ui.plotly(fig2).classes("w-full")
-
-    shell(content)
-
-
-@ui.page("/add")
-def add_page():
-    if not require_login():
-        nav_to("/login")
-        return
-
-    def open_add_dialog(entry_type: str, *, preset_category: str | None = None, preset_method: str | None = None, preset_account: str | None = None):
-        rules = load_rules()
-        owners = owners_list()
-        accounts = accounts_list()
-        categories = categories_list()
-        methods = methods_list()
-
-        # Remember last-used method/account for Expense (Debit) so you don't reselect every time.
-        last_debit_method = str(app.storage.user.get('last_debit_method', '') or '').strip()
-        last_debit_account = str(app.storage.user.get('last_debit_account', '') or '').strip()
-
-        dlg = ui.dialog()
-        with dlg, ui.card().classes("my-card p-5 w-[620px] max-w-[95vw]"):
-            ui.label(f"Add: {entry_type}").classes("text-lg font-bold")
-
-            d_date = ui.input("Date", value=today().isoformat()).props("type=date").classes("w-full")
-            d_amount = ui.number("Amount", value=0.0, format="%.2f").classes("w-full")
-
-            is_debit = entry_type.lower() == 'debit'
-            default_method = ("Card" if is_debit else "Other")
-            # Presets override remembered defaults.
-            method_default = (preset_method or (last_debit_method if (is_debit and last_debit_method in methods) else default_method))
-            account_default = (preset_account or (last_debit_account if (is_debit and last_debit_account in accounts) else (accounts[0] if accounts else "")))
-            d_method = ui.select(methods, value=method_default, label="Method").classes("w-full")
-            d_account = ui.select(accounts or [""], value=account_default, label="Account").classes("w-full")
-            d_category = ui.select(categories, value="Uncategorized", label="Category").classes("w-full")
-            d_notes = ui.textarea("Notes", value="").classes("w-full")
-            d_rec = ui.checkbox("Mark as recurring (creates template for future cycles only)")
-
-            # Receipt scan (Expense only): opens camera on mobile, runs free OCR in the browser (tesseract.js)
-            if entry_type.lower() == 'debit':
-                scan_state: Dict[str, Any] = {"data_url": None}
-
-                scan_dlg = ui.dialog()
-                parsed_state: Dict[str, Any] = {"parsed": None}
-                with scan_dlg, ui.card().classes('my-card p-4 w-[720px] max-w-[95vw]'):
-                    # Keep action buttons visible on mobile by making the content area scrollable.
-                    with ui.column().classes('w-full max-h-[70vh] overflow-y-auto pr-1'):
-                        ui.label('Scan receipt').classes('text-lg font-bold')
-                        ui.label('Tip: on iPhone, this will prompt for camera access.').classes('text-xs').style('color: var(--mf-muted)')
-
-                        preview = ui.image('').classes('w-full rounded').style('display:none')
-
-                        # Parsed preview (filled after OCR)
-                        with ui.card().classes('my-card p-3 w-full').style('display:none') as parsed_card:
-                            ui.label('Detected fields (review before applying)').classes('text-sm font-bold')
-                            pv_merchant = ui.input('Merchant', value='').props('readonly').classes('w-full')
-                            pv_date = ui.input('Date', value='').props('readonly').classes('w-full')
-                            pv_amount = ui.input('Total amount', value='').props('readonly').classes('w-full')
-                            pv_last4 = ui.input('Card last-4', value='').props('readonly').classes('w-full')
-                            pv_conf = ui.label('').classes('text-xs').style('color: var(--mf-muted)')
-
-                        raw_out = ui.textarea('OCR text (debug)', value='').props('readonly').classes('w-full')
-                        raw_out.style('max-height: 160px')
-
-                        async def _on_upload(e: Any) -> None:
-                            """Store uploaded image as a data URL for client-side OCR (tesseract.js).
-
-                            NOTE: On Render/iOS, NiceGUI's upload content reader is async.
-                            If we don't await it, we end up passing a coroutine (not bytes) and the
-                            OCR pipeline fails with: "a bytes-like object is required, not 'coroutine'".
-                            """
-
-                            async def _read_bytes(obj: Any) -> Optional[bytes]:
-                                if obj is None:
-                                    return None
-                                if isinstance(obj, (bytes, bytearray)):
-                                    return bytes(obj)
-                                if hasattr(obj, 'read'):
-                                    res = obj.read()
-                                    if asyncio.iscoroutine(res):
-                                        res = await res
-                                    if isinstance(res, (bytes, bytearray)):
-                                        return bytes(res)
-                                return None
-
-                            try:
-                                data: Optional[bytes] = None
-                                if hasattr(e, 'content'):
-                                    data = await _read_bytes(getattr(e, 'content'))
-                                if data is None and hasattr(e, 'file'):
-                                    f = getattr(e, 'file')
-                                    data = await _read_bytes(f)
-                                    if data is None and hasattr(f, 'file'):
-                                        data = await _read_bytes(getattr(f, 'file'))
-                                if data is None and isinstance(e, dict):
-                                    c = e.get('content') or e.get('file')
-                                    data = await _read_bytes(c)
-
-                                if not data:
-                                    raise ValueError('no file bytes received')
-
-                                mime = getattr(e, 'type', None) or getattr(e, 'mime_type', None) or 'image/jpeg'
-                                scan_state['data_url'] = f"data:{mime};base64,{base64.b64encode(data).decode('utf-8')}"
-                                preview.set_source(scan_state['data_url'])
-                                preview.style('display:block')
-                                raw_out.value = ''
-                                parsed_state['parsed'] = None
-                                parsed_card.style('display:none')
-                                apply_btn.disable()
-                            except Exception as ex:
-                                ui.notify(f'Upload failed: {ex}', type='negative')
-
-                        ui.upload(on_upload=_on_upload, auto_upload=True, label='Capture / Upload receipt')                         .props("accept='image/*' capture='environment'")                         .classes('w-full')
-
-                        async def _run_ocr() -> None:
-                            if not scan_state.get('data_url'):
-                                ui.notify('Please upload a receipt image first.', type='warning')
-                                return
-                            ui.notify('Scanning…', type='info')
-                            img_literal = json.dumps(str(scan_state.get('data_url', '')))
-                            js = f"""
-                                // Client-side OCR (tesseract.js).
-                                // We downscale large images first to avoid timeouts on mobile Safari.
-                                const img = {img_literal};
-                                if (!window.Tesseract) {{ return {{ ok: false, error: 'tesseract.js not loaded' }}; }}
-                                const downscale = async (dataUrl) => new Promise((resolve) => {{
-                                  const im = new Image();
-                                  im.onload = () => {{
-                                    try {{
-                                      const maxW = 1200;
-                                      const maxH = 1600;
-                                      let w = im.width, h = im.height;
-                                      const scale = Math.min(1, maxW / w, maxH / h);
-                                      w = Math.max(1, Math.floor(w * scale));
-                                      h = Math.max(1, Math.floor(h * scale));
-                                      const c = document.createElement('canvas');
-                                      c.width = w; c.height = h;
-                                      const ctx = c.getContext('2d');
-                                      ctx.drawImage(im, 0, 0, w, h);
-                                      resolve(c.toDataURL('image/jpeg', 0.85));
-                                    }} catch (e) {{
-                                      resolve(dataUrl);
-                                    }}
-                                  }};
-                                  im.onerror = () => resolve(dataUrl);
-                                  im.src = dataUrl;
-                                }});
-                                try {{
-                                  const small = await downscale(img);
-                                  const res = await Tesseract.recognize(small, 'eng');
-                                  return {{ ok: true, text: res.data.text || '' }};
-                                }} catch (e) {{
-                                  return {{ ok: false, error: String(e) }};
-                                }}
-                            """
-                            try:
-                                # Mobile/browser OCR can easily take several seconds; 1s default is too low.
-                                result = await ui.run_javascript(js, timeout=60.0)
-                            except TimeoutError:
-                                ui.notify('OCR timed out (slow device/network). Try retaking closer or smaller image.', type='negative')
-                                return
-                            except Exception as ex:
-                                ui.notify(f'OCR failed: {ex}', type='negative')
-                                return
-
-                            if not result or not isinstance(result, dict) or not result.get('ok'):
-                                err = (result or {}).get('error', 'Unknown OCR error') if isinstance(result, dict) else 'Unknown OCR error'
-                                ui.notify(f'OCR failed: {err}', type='negative')
-                                return
-
-                            text = str(result.get('text') or '')
-                            raw_out.value = text
-
-                            parsed = parse_receipt_text(text)
-                            parsed_state['parsed'] = parsed
-
-                            merch = str(parsed.get('merchant') or '').strip()
-                            last4 = str(parsed.get('card_last4') or '').strip()
-                            rdate = parsed.get('date')
-                            amt = parsed.get('amount')
-                            conf = float(parsed.get('amount_confidence') or 0.0)
-                            src = str(parsed.get('amount_source') or '')
-
-                            # Update preview UI
-                            pv_merchant.value = merch
-                            pv_date.value = (rdate.isoformat() if rdate else '')
-                            pv_amount.value = (f"{float(amt):.2f}" if amt is not None else '')
-                            pv_last4.value = last4
-                            pv_conf.text = f"Amount confidence: {conf:.1f}/10 (source: {src})" + (" — please double-check" if conf < 3.0 else "")
-                            parsed_card.style('display:block')
-                            apply_btn.enable()
-
-                            if conf < 3.0:
-                                ui.notify('Low confidence TOTAL detected — verify amount before applying.', type='warning')
-                            else:
-                                ui.notify('Scan complete. Review and tap Apply.', type='positive')
-
-                        def _apply_to_form() -> None:
-                            parsed = parsed_state.get('parsed') or {}
-                            if not parsed:
-                                ui.notify('Nothing to apply yet.', type='warning')
-                                return
-
-                            merch = str(parsed.get('merchant') or '').strip()
-                            last4 = str(parsed.get('card_last4') or '').strip()
-                            rdate = parsed.get('date')
-                            amt = parsed.get('amount')
-                            conf = float(parsed.get('amount_confidence') or 0.0)
-
-                            if rdate:
-                                d_date.value = rdate.isoformat()
-                            if amt is not None:
-                                # Even when low confidence, pre-fill but warn. User can edit before saving.
-                                try:
-                                    d_amount.value = float(amt)
-                                except Exception:
-                                    pass
-
-                            # Notes hint
-                            if merch or last4:
-                                prefix = []
-                                if merch:
-                                    prefix.append(merch)
-                                if last4:
-                                    prefix.append(f"****{last4}")
-                                hint = ' '.join(prefix)
-                                if not str(d_notes.value or '').strip():
-                                    d_notes.value = hint
-                                else:
-                                    d_notes.value = f"{hint} | {d_notes.value}"
-
-                            # Try auto-pick account from detected last-4 (optional).
-                            # If no mapping exists / no match, we keep the remembered default selection.
-                            if last4:
-                                try:
-                                    cards_df = cached_df('cards', force=True)
-                                    acct = pick_account_from_last4(cards_df, last4)
-                                    if acct and (acct in accounts):
-                                        d_account.value = acct
-                                        # Most receipts are card-based; set method if available.
-                                        if 'Card' in methods:
-                                            d_method.value = 'Card'
-                                except Exception:
-                                    pass
-
-                            # Refresh category suggestion with updated notes
-                            _refresh_suggestion()
-                            if conf < 3.0:
-                                ui.notify('Applied, but amount confidence was low — please verify before saving.', type='warning')
-                            else:
-                                ui.notify('Applied scan results. Please review and save.', type='positive')
-                            scan_dlg.close()
-
-                    # Sticky footer so buttons don't get pushed below the upload card on mobile
-                    with ui.row().classes('w-full items-center gap-2 sticky bottom-0').style('background: rgba(8,12,20,0.92); backdrop-filter: blur(8px); padding: 10px; border-top: 1px solid rgba(255,255,255,0.06)'):
-                        ui.button('Run scan', on_click=_run_ocr).props('unelevated').classes('flex-1')
-                        apply_btn = ui.button('Apply', on_click=_apply_to_form).props('unelevated')
-                        apply_btn.classes('flex-1')
-                        apply_btn.disable()
-                        ui.button('Close', on_click=scan_dlg.close).props('outline')
-
-                ui.button('Scan receipt', on_click=scan_dlg.open).props('outline').classes('w-full')
-
-            # --- Live category suggestion (Option B): show suggestion while typing, apply on save unless user overrides ---
-            category_touched = {"v": False}
-            suggest_label = ui.label("").classes("text-xs")
-            suggest_label.style("color: var(--mf-muted)")
-
-            def _refresh_suggestion(_: Any = None) -> None:
-                active_rules = rules
-                if not active_rules:
-                    # Try once to load rules (in case sheet headers were fixed after app boot)
-                    active_rules = load_rules(force=True)
-                if not active_rules:
-                    suggest_label.text = "Suggested category: Uncategorized (no rules loaded)"
-                    if not category_touched["v"]:
-                        d_category.value = "Uncategorized"
-                    return
-                suggestion = infer_category(str(d_notes.value or ""), active_rules) or "Uncategorized"
-                suggest_label.text = f"Suggested category: {suggestion}"
-                if not category_touched["v"]:
-                    d_category.value = suggestion
-
-            # mark manual override
-            d_category.on('update:model-value', lambda e: category_touched.__setitem__('v', True))
-            # refresh suggestion on notes changes
-            d_notes.on('update:model-value', _refresh_suggestion)
-            _refresh_suggestion()
-
-            # Apply presets (used for special flows like LOC withdrawal/repayment)
-            if preset_method is not None:
-                d_method.value = preset_method
-                d_method.disable()
-            if preset_account is not None:
-                d_account.value = preset_account
-            if preset_category is not None:
-                d_category.value = preset_category
-
-            def autofill():
-                # manual button: set category based on current notes
-                category_touched["v"] = True
-                # force-refresh rules so updates in the sheet are picked up
-                fresh_rules = load_rules(force=True)  # force refresh so sheet updates are picked up
-                if not fresh_rules:
-                    ui.notify('No rules loaded (check Rules sheet columns). Keeping Uncategorized.', type='warning')
-                    d_category.value = 'Uncategorized'
-                    return
-                d_category.value = infer_category(d_notes.value or "", fresh_rules) or "Uncategorized"
-                ui.notify("Category updated", type="positive")
-
-            ui.button("Auto-category", on_click=autofill).props("flat")
-
-            def save():
-
-                dd = parse_date(d_date.value) or today()
-
-                amt = float(to_float(d_amount.value))
-
-                owner = "Family"
-
-                method = str(d_method.value or "Other").strip()
-
-                account = str(d_account.value or "").strip()
-
-                # Remember last-used card/account for Expenses (Debit) so next time it's preselected.
-                try:
-                    if entry_type.lower() == 'debit':
-                        if method:
-                            app.storage.user['last_debit_method'] = method
-                        if account:
-                            app.storage.user['last_debit_account'] = account
-                except Exception:
-                    pass
-
-                category = str(d_category.value or "Uncategorized").strip()
-
-                notes = str(d_notes.value or "").strip()
-
-
-                try:
-
-                    # Build tx id (unique)
-
-                    tx_id = sha16(f"{owner}|{dd.isoformat()}|{entry_type}|{amt}|{method}|{account}|{category}|{notes}|{dt.datetime.now().isoformat()}")
-
-
-                    rec_id = ""
-
-                    if d_rec.value:
-
-                        rec_id = create_or_update_recurring_template(
-
-                            owner=owner,
-
-                            type_=entry_type,
-
-                            amount=amt,
-
-                            method=method,
-
-                            account=account,
-
-                            category=category,
-
-                            notes=notes,
-
-                            day_of_month=dd.day,
-
-                            start_date=dd,
-
-                            active=True,
-
-                        )
-
-
-                    append_tx(
-
-                        tx_id=tx_id,
-
-                        date_=dd,
-
-                        owner=owner,
-
-                        type_=entry_type,
-
-                        amount=amt,
-
-                        method=method,
-
-                        account=account,
-
-                        category=category,
-
-                        notes=notes,
-
-                        recurring_id=rec_id,
-
+            fig1.update_layout(
+                height=320,
+                margin=dict(l=0, r=0, t=10, b=0),
+                xaxis_title=None,
+                yaxis_title=None,
+                showlegend=False,
+            )
+            st.plotly_chart(fig1, width="stretch")
+
+            # Category 'list' selector (premium-feeling, compact)
+            for _, row in top.iterrows():
+                cat = row["Category"]
+                is_sel = (cat == st.session_state["dash_spend_cat"])
+                label = f"{cat_label(cat)}  •  {money(float(row['Amount']))}"
+                if st.button(label, key=f"dash_catbtn_{cat}", use_container_width=True, type=("primary" if is_sel else "secondary")):
+                    st.session_state["dash_spend_cat"] = cat
+
+        with cR:
+            sel = st.session_state["dash_spend_cat"]
+            st.markdown(
+                f"""<div class='mf-card mf-anim'>
+                <div class='mf-sub'>Breakdown</div>
+                <div style='font-size:20px;font-weight:850;margin-top:2px;'>{cat_label(sel)}</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+            sub = ddf[ddf["Category"] == sel].copy()
+
+            # Use AutoTag when present; otherwise Notes
+            label_col = "AutoTag" if ("AutoTag" in sub.columns and sub["AutoTag"].astype(str).str.strip().ne("").any()) else "Notes"
+            sub[label_col] = sub[label_col].astype(str).str.strip()
+            sub.loc[sub[label_col] == "", label_col] = "(Unlabeled)"
+
+            by_lbl = (
+                sub.groupby(label_col, as_index=False)["Amount"]
+                .sum()
+                .sort_values("Amount", ascending=False)
+            )
+
+            fig2 = px.bar(
+                by_lbl.head(12).iloc[::-1],
+                x="Amount",
+                y=label_col,
+                orientation="h",
+            )
+            fig2.update_layout(
+                height=420,
+                margin=dict(l=0, r=0, t=10, b=0),
+                xaxis_title=None,
+                yaxis_title=None,
+                showlegend=False,
+            )
+            st.plotly_chart(fig2, width="stretch")
+    st.markdown("### 💳 Credit health")
+    try:
+        ev = compute_balance_events(tx_df)
+        util = util_table(ev, month_sel, acct_df)
+    except Exception:
+        util = None
+
+    if util is None or getattr(util, "empty", True):
+        st.info("No credit accounts found. Add cards/limits in **Admin → Accounts**.")
+    else:
+        # Render as 2-column grid of compact cards
+        cards = [util.iloc[i] for i in range(len(util))]
+        rows = [cards[i:i+2] for i in range(0, len(cards), 2)]
+        for rset in rows:
+            cols = st.columns(len(rset), gap="large")
+            for col, row in zip(cols, rset):
+                with col:
+                    lim = float(row.get("Limit", 0) or 0)
+                    bal = float(row.get("Balance", 0) or 0)
+                    pct = None if lim <= 0 else (bal/lim*100.0)
+                    if pct is None:
+                        status = "Set limit in Admin"
+                        badge = "<span class='mf-pill'>Needs limit</span>"
+                        bar = ""
+                    else:
+                        if pct < 30:
+                            status = "Healthy"
+                            badge = "<span class='mf-pill'>Healthy</span>"
+                        elif pct < 70:
+                            status = "Watch"
+                            badge = "<span class='mf-pill'>Watch</span>"
+                        else:
+                            status = "High"
+                            badge = "<span class='mf-pill'>High</span>"
+                        bar = f"""<div style='height:8px;border-radius:999px;background:rgba(255,255,255,0.08);overflow:hidden;margin-top:10px;'>
+                                  <div style='height:8px;width:{min(100,max(0,pct)):.0f}%;background:rgba(99,102,241,0.95);'></div>
+                                </div>"""
+                    st.markdown(
+                        f"""<div class='mf-card mf-anim'>
+                        <div style='display:flex;justify-content:space-between;align-items:flex-start;gap:12px;'>
+                          <div>
+                            <div style='font-weight:800;font-size:18px;'>{row.get("Account","")}</div>
+                            <div class='mf-sub'>{status}</div>
+                          </div>
+                          {badge}
+                        </div>
+                        <div style='display:flex;justify-content:space-between;margin-top:10px;'>
+                          <div>
+                            <div class='mf-sub'>Balance</div>
+                            <div style='font-weight:800;font-size:20px;'>{money(bal)}</div>
+                          </div>
+                          <div style='text-align:right;'>
+                            <div class='mf-sub'>Limit</div>
+                            <div style='font-weight:800;font-size:20px;'>{money(lim)}</div>
+                          </div>
+                        </div>
+                        {bar}
+                        <div class='mf-sub' style='margin-top:8px;'>Utilization: {"—" if pct is None else f"{pct:.0f}%"} </div>
+                        </div>""",
+                        unsafe_allow_html=True
                     )
 
-
-                    # refresh in-memory cache so the new entry shows up immediately
-                    invalidate('transactions')
-                    invalidate('recurring')
-
-                    ui.notify("Saved", type="positive")
-
-                    dlg.close()
-
-
-                except Exception as e:
-
-                    ui.notify(f"Save failed: {e}", type="negative")
-
-
-            with ui.row().classes("w-full justify-end gap-2"):
-                ui.button("Cancel", on_click=dlg.close).props("flat")
-                ui.button("Save", on_click=save).props("unelevated")
-
-        dlg.open()
-
-    def content():
-        with ui.card().classes("my-card p-5"):
-            ui.label("Quick Add").classes("text-lg font-bold")
-            ui.label("Tap a tile to add an entry.").classes("text-sm").style("color: var(--mf-muted)")
-
-            tiles = [
-                ("Expense", "remove_shopping_cart", "Debit", {}),
-                ("Income", "payments", "Credit", {}),
-                ("Investment", "savings", "Investment", {}),
-                ("Credit Card Repayment", "credit_score", "CC Repay", {}),
-                ("LOC Withdrawal", "account_balance", "LOC Draw", {"preset_category": "LOC Utilization", "preset_method": "Card", "preset_account": "Line of Credit"}),
-                ("LOC Repayment", "swap_horiz", "LOC Repay", {"preset_category": "Repayment", "preset_method": "Bank", "preset_account": "Line of Credit"}),
-            ]
-
-            with ui.row().classes("w-full gap-3"):
-                for label, icon, etype, kw in tiles:
-                    with ui.card().classes("my-card p-4 tile w-full"):
-                        ui.label(label).classes("font-bold")
-                        ui.icon(icon).classes("text-2xl")
-                        ui.button("Add", on_click=lambda e=etype, k=kw: open_add_dialog(e, **k)).props("flat").classes("mt-2")
-
-        with ui.card().classes("my-card p-5"):
-            ui.label("Today’s auto status").classes("text-lg font-bold")
-            ui.label("Recurring entries will be created only when the due date arrives.").style("color: var(--mf-muted)")
-            ui.button("Run recurring generation now", on_click=lambda: ui.notify(f"Created {generate_recurring_for_date(today())} entries", type="positive")).props("flat")
-
-    shell(content)
-
-
-
-
-@ui.page("/admin")
-def admin_page() -> None:
-    if not require_login():
-        nav_to("/login")
-        return
-
-    def content() -> None:
-        with ui.card().classes("my-card p-5"):
-            ui.label("Admin").classes("text-lg font-bold")
-            ui.label("Manage rules, cards, recurring templates, and fix mistakes.").style("color: var(--mf-muted)")
-
-            with ui.column().classes("w-full gap-3 mt-3"):
-                ui.button("Keyword Rules", on_click=lambda: nav_to("/rules")).props("unelevated").classes("w-full")
-                ui.button("Cards", on_click=lambda: nav_to("/cards")).props("unelevated").classes("w-full")
-                ui.button("Recurring Templates", on_click=lambda: nav_to("/recurring")).props("unelevated").classes("w-full")
-                ui.button("Transactions (Fix Mistakes)", on_click=lambda: nav_to("/tx")).props("unelevated").classes("w-full")
-                ui.button("Budgets", on_click=lambda: nav_to("/budgets")).props("unelevated").classes("w-full")
-                ui.button("Data Tools (Import/Backup)", on_click=lambda: nav_to("/data_tools")).props("unelevated").classes("w-full")
-
-        with ui.card().classes("my-card p-5"):
-            ui.label("Locks").classes("text-lg font-bold")
-            ui.label("Locking is enforced by your Transactions sheet’s locked_month column (if present). Use sheet-side admin for now.").style("color: var(--mf-muted)")
-
-    shell(content)
-
-@ui.page("/tx")
-def transactions_page():
-    # Keep track of the currently selected row (so Edit/Delete buttons work consistently)
-    selected_row: Dict[str, Any] = {'row': None}
-    if not require_login():
-        nav_to("/login")
-        return
-
-    def content():
-        # Data source / debug panel (helps verify we are reading the correct spreadsheet and tabs)
+    st.markdown("### 📈 Spending snapshot")
+    # Default to showing the debit categories chart in a compact expander
+    with st.expander("View expense breakdown (expenses only)", expanded=False):
         try:
-            ss = get_spreadsheet()
-            ensure_tabs()
-            with ui.expansion('Data Source (debug)', icon='info').classes('w-full'):
-                ui.label(f'Spreadsheet: {ss.title}').classes('text-sm')
-                ui.label(f'Spreadsheet ID: {SPREADSHEET_ID or "(opened by name)"}').classes('text-sm')
-                # Show discovered worksheet titles + row counts
-                for k in ['transactions', 'cards', 'rules', 'recurring']:
-                    try:
-                        w = ws(k)
-                        n_rows = len(w.get_all_values()) - 1
-                        ui.label(f'Tab "{k}" -> worksheet "{w.title}": {max(n_rows, 0)} data rows').classes('text-sm')
-                    except Exception as e:
-                        ui.label(f'Tab "{k}": ERROR: {e}').classes('text-sm text-red-300')
+            render_debit_categories_chart(month_df)
         except Exception as e:
-            ui.label(f'Data source error: {e}').classes('text-sm text-red-300')
+            st.warning("Could not render chart for this month.")
+
+def page_add():
+    if is_mobile_view():
+        return page_add_mobile()
+    st.markdown("## ➕ Add")
+    # --- Premium Tiles: quick type selection (UI-only, logic unchanged) ---
+    if "add_type_pick" not in st.session_state:
+        st.session_state["add_type_pick"] = None
+
+    st.markdown('<div class="quick-actions">', unsafe_allow_html=True)
+    st.markdown("### Quick actions")
+    _tile_primary = [("Expense (−)", "Debit"), ("Income (+)", "Credit"), ("Invest", "Investment")]
+    _tile_actions = [("Pay Credit Card", "CC Repay"), ("Remit International", "International"), ("LOC Draw", "LOC Draw"), ("LOC Repay", "LOC Repay")]
+
+    def _render_tiles(_items, _cols=3, _key_prefix="tile"):
+        cols = st.columns(_cols, gap="small")
+        for i, (label, value) in enumerate(_items):
+            with cols[i % _cols]:
+                if st.button(label, use_container_width=True, key=f"{_key_prefix}_{i}"):
+                    st.session_state["add_type_pick"] = value
+
+                    st.rerun()
+    _render_tiles(_tile_primary, _cols=2, _key_prefix="tile_p")
+    _render_tiles(_tile_actions, _cols=2, _key_prefix="tile_a")
+
+    _pref_type = st.session_state.get("add_type_pick")
+
+    if locked_now:
+        st.info("This month is locked. Switch month in sidebar or unlock in Admin.")
+
+    # Keyboard-first autofocus amount
+    st.components.v1.html("""
+    <script>
+    setTimeout(() => {
+      const inputs = parent.document.querySelectorAll('input');
+      for (const el of inputs) {
+        if (el.getAttribute('aria-label') === 'Amount ($)') { el.focus(); break; }
+      }
+    }, 250);
+    </script>
+    """, height=0)
+
+    qd = st.session_state["quick_defaults"]
+    categories = sorted(set(list(rules.keys()) + list(CATEGORY_ICON.keys())))
+    allowed_accounts, emoji_map = build_account_maps(acct_df)
+    acct_options = [f"{emoji_map.get(a,'💳')} {a}" for a in allowed_accounts]
+    acct_map = {f"{emoji_map.get(a,'💳')} {a}": a for a in allowed_accounts}
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# (VF2.3) Add page: use normal widgets (not st.form) so Pay changes can hide/show Account instantly
+    c1, c2, c3 = st.columns([1.05, 1.2, 1.2])
+    with c1:
+        entry_date = st.date_input("Date", value=date.today(), disabled=locked_now)
+    with c2:
+        # Primary selector = Quick actions tiles (top). Dropdown is kept in a collapsed expander as a fallback.
+        entry_type = st.session_state.get("add_type_pick")
+        if not entry_type:
+            entry_type = qd.get("Type", "Debit")
+            st.session_state["add_type_pick"] = entry_type
+            st.session_state["add_type_select"] = type_to_display(entry_type)
+        st.markdown("**Type**")
+        st.markdown(f"<div style=\"padding:8px 12px;border:1px solid rgba(255,255,255,.12);border-radius:10px;background:rgba(255,255,255,.03);display:inline-block;\">{type_to_display(entry_type)}</div>", unsafe_allow_html=True)
+        # Type is selected via Quick action tiles above.
+
+    with c3:
+        # Pay rules:
+        # - Income/Invest/Remit International => Bank only
+        # - Pay Credit Card => Bank only
+        # - Expense => Card/Bank/Cash
+        if entry_type in ("Credit", "Investment", "International"):
+            pay = st.selectbox("Pay", options=["Bank"], index=0, disabled=True, key="add_pay_fixed")
+        elif entry_type in ("CC Repay", "LOC Repay"):
+            pay = st.selectbox("Pay", options=["Bank"], index=0, disabled=True, key="add_pay_fixed_cc")
+        elif entry_type == "LOC Draw":
+            pay = st.selectbox("Pay", options=["Card"], index=0, disabled=True, key="add_pay_fixed_loc")
+        else:
+            default_pay = qd.get("Pay", "Card")
+            pay = segmented("Pay", PAY_METHODS, default=default_pay, key="add_pay")
+    amt_text = st.text_input("Amount ($)", value="", placeholder="e.g. 120 or 120.50", disabled=locked_now)
+    notes = st.text_area("Reason / Notes", value="", height=85, disabled=locked_now)
+
+    auto_cat = classify(notes, rules) if notes.strip() else "Uncategorized"
+    auto_idx = categories.index(auto_cat) if auto_cat in categories else categories.index("Uncategorized")
+
+    # --- Category chips (top spend) ---
+    if "add_cat_pick" not in st.session_state:
+        st.session_state["add_cat_pick"] = None
 
-        tx = cached_df("transactions")
-        # Selection uses `row_key='id'`. If `id` is empty for older data, every row shares the
-        # same key (""), which makes the table behave like "select all".
-        # We therefore backfill `id` from the legacy `TxId` (or `txid`) column when needed.
-        if not tx.empty:
-            try:
-                if "id" in tx.columns:
-                    ids = tx["id"].astype(str).fillna("")
-                    missing = ids.str.strip() == ""
-                else:
-                    tx["id"] = ""
-                    missing = pd.Series([True] * len(tx), index=tx.index)
-
-                legacy_col = None
-                for cand in ["TxId", "txid", "TXID"]:
-                    if cand in tx.columns:
-                        legacy_col = cand
-                        break
-
-                if legacy_col is not None and missing.any():
-                    tx.loc[missing, "id"] = tx.loc[missing, legacy_col].astype(str)
-
-                # Final fallback: generate deterministic ids for any still-missing rows
-                ids2 = tx["id"].astype(str).fillna("")
-                still_missing = ids2.str.strip() == ""
-                if still_missing.any():
-                    tx.loc[still_missing, "id"] = [f"row_{i}" for i in range(still_missing.sum())]
-            except Exception:
-                # Never break the page due to id normalization
-                pass
-        if tx.empty:
-            with ui.card().classes("my-card p-5"):
-                ui.label("No transactions").classes("text-lg font-bold")
-            return
-
-        tx["date_parsed"] = tx["date"].apply(parse_date)
-        tx = tx[tx["date_parsed"].notna()].copy()
-        tx = tx.sort_values("date_parsed", ascending=False)
-
-        types = sorted({t for t in tx["type"].astype(str).tolist() if t.strip()})
-
-        # -----------------------------
-        # Phase 4 helpers (Transactions)
-        # -----------------------------
-        def _export_csv(last_view: Dict[str, Any]) -> None:
-            df = last_view.get('df')
-            if df is None or getattr(df, 'empty', True):
-                ui.notify('Nothing to export (adjust filters first).', type='warning')
-                return
-            try:
-                out = df.drop(columns=['date_parsed', 'amount_num'], errors='ignore').copy()
-                csv_text = out.to_csv(index=False)
-                ui.download(csv_text.encode('utf-8'), filename=f"transactions_{datetime.date.today().isoformat()}.csv")
-            except Exception as e:
-                ui.notify(f'Export failed: {e}', type='negative')
-
-        def _compute_duplicates(df: pd.DataFrame) -> pd.DataFrame:
-            if df is None or df.empty:
-                return pd.DataFrame()
-            base = df.copy()
-            for c in ('date', 'amount', 'notes'):
-                if c not in base.columns:
-                    base[c] = ''
-            # Normalize amount to numeric when possible
-            base['_amt'] = base.get('amount', '').apply(to_float)
-            base['_key'] = base['date'].astype(str).str.strip() + '|' + base['_amt'].astype(str) + '|' + base['notes'].astype(str).str.strip()
-            dup = base[base.duplicated('_key', keep=False)].copy()
-            if dup.empty:
-                return pd.DataFrame()
-            return dup.sort_values(['date', '_amt'], ascending=[False, True])
-
-        def _show_duplicates(last_view: Dict[str, Any]) -> None:
-            df = last_view.get('df')
-            dup = _compute_duplicates(df) if df is not None else pd.DataFrame()
-            if dup.empty:
-                ui.notify('No duplicates found in the current filtered view.', type='positive')
-                return
-            with ui.dialog() as d, ui.card().classes('my-card p-4 w-[92vw] max-w-5xl'):
-                ui.label(f'Duplicates found: {len(dup)} rows').classes('text-lg font-bold')
-                ui.label('Duplicates are detected by Date + Amount + Notes.').classes('text-sm').style('color: var(--mf-muted)')
-                rows = dup.drop(columns=['_key'], errors='ignore').head(200).to_dict(orient='records')
-                ui.table(
-                    columns=[
-                        {"name": "date", "label": "Date", "field": "date"},
-                        {"name": "type", "label": "Type", "field": "type"},
-                        {"name": "amount", "label": "Amount", "field": "amount"},
-                        {"name": "category", "label": "Category", "field": "category"},
-                        {"name": "notes", "label": "Notes", "field": "notes"},
-                        {"name": "id", "label": "ID", "field": "id"},
-                    ],
-                    rows=rows,
-                    row_key='id',
-                ).classes('w-full')
-                ui.button('Close', on_click=d.close).props('flat')
-            d.open()
-
-        def _apply_category_selected(table_ref, category_val: str) -> None:
-            if not getattr(table_ref, 'selected', None):
-                ui.notify('Select a transaction row first.', type='warning')
-                return
-            row = table_ref.selected[0]
-            rid = str(row.get('id', '')).strip()
-            if not rid:
-                ui.notify('Selected row has no id; cannot update.', type='negative')
-                return
-            ok = update_row_by_id('transactions', 'id', rid, {'category': category_val or 'Uncategorized'})
-            if not ok:
-                ui.notify('Update failed. Please refresh and try again.', type='negative')
-                return
-            invalidate('transactions')
-            ui.notify('Category updated.', type='positive')
-            nav_to('/tx')
-
-        with ui.card().classes("my-card p-5"):
-            ui.label("Transactions").classes("text-lg font-bold")
-            f_type = ui.select(["All"] + types, value="All", label="Type").classes("w-full")
-            f_text = ui.input("Search notes/category/account").classes("w-full")
-            # Quick filter (e.g., from Dashboard "Fix now")
-            try:
-                if app.storage.user.get('tx_quick_filter') == 'uncat':
-                    f_text.value = 'Uncategorized'
-                    app.storage.user.pop('tx_quick_filter', None)
-            except Exception:
-                pass
-            sort_opts = ["Date (new → old)", "Date (old → new)", "Amount (high → low)", "Amount (low → high)"]
-            f_sort = ui.select(sort_opts, value=sort_opts[0], label="Sort").classes("w-full")
-            # Date range filter (defaults to last 30 days)
-            try:
-                _today = datetime.date.today()
-                _from = (_today - datetime.timedelta(days=30)).isoformat()
-                _to = _today.isoformat()
-            except Exception:
-                _from = ''
-                _to = ''
-            with ui.row().classes('w-full items-center gap-2'):
-                f_from = ui.input('From').props('type=date dense outlined').classes('w-40')
-                f_to = ui.input('To').props('type=date dense outlined').classes('w-40')
-            f_from.value = _from
-            f_to.value = _to
-
-            # Phase 4: export + quick fix tools (wired after the table is created)
-            last_view: Dict[str, Any] = {'df': None}
-
-            table = ui.table(columns=[
-                {"name": "date", "label": "Date", "field": "date"},
-                {"name": "type", "label": "Type", "field": "type"},
-                {"name": "amount", "label": "Amount", "field": "amount"},
-                {"name": "method", "label": "Method", "field": "method"},
-                {"name": "account", "label": "Account", "field": "account"},
-                {"name": "category", "label": "Category", "field": "category"},
-                {"name": "notes", "label": "Notes", "field": "notes"},
-                {"name": "id", "label": "ID", "field": "id"},
-            ], rows=[], row_key="id", selection='single').classes("w-full")
-            # Make tapping a row select it (helps on mobile where the checkbox can be fiddly).
-            def _on_row_click(e):
-                row = e.args.get('row') if isinstance(e.args, dict) else None
-                if row is not None:
-                    table.selected = [row]
-                    selected_row['row'] = row
-
-            table.on('rowClick', _on_row_click)
-
-            # Category quick-apply (useful for fixing Uncategorized)
-            try:
-                rules_df = cached_df('rules')
-                cats = sorted({str(x).strip() for x in rules_df.get('category', pd.Series([])).tolist() if str(x).strip()})
-            except Exception:
-                cats = []
-            try:
-                existing_cats = sorted({str(x).strip() for x in tx.get('category', pd.Series([])).tolist() if str(x).strip()})
-            except Exception:
-                existing_cats = []
-            cat_choices = ['Uncategorized'] + sorted({*cats, *existing_cats})
-
-            with ui.row().classes('w-full items-center justify-between gap-2 mt-2'):
-                with ui.row().classes('gap-2 items-center'):
-                    ui.button('Export CSV', icon='download').props('outline').on('click', lambda: _export_csv(last_view))
-                    ui.button('Show duplicates', icon='difference').props('flat').on('click', lambda: _show_duplicates(last_view))
-                with ui.row().classes('gap-2 items-center'):
-                    fix_cat = ui.select(cat_choices, value=cat_choices[0], label='Quick set category').classes('w-64')
-                    ui.button('Apply to selected', icon='label').props('unelevated').on('click', lambda: _apply_category_selected(table, fix_cat.value))
-
-            def refresh_table():
-                df = tx.copy()
-                if f_type.value != "All":
-                    df = df[df["type"].astype(str) == f_type.value]
-                # Date filter (inclusive)
-                try:
-                    d_from = parse_date(f_from.value) if f_from.value else None
-                    d_to = parse_date(f_to.value) if f_to.value else None
-                except Exception:
-                    d_from = d_to = None
-                if d_from or d_to:
-                    def _in_range(x):
-                        try:
-                            dx = parse_date(x)
-                        except Exception:
-                            return False
-                        if d_from and dx < d_from:
-                            return False
-                        if d_to and dx > d_to:
-                            return False
-                        return True
-                    df = df[df['date'].apply(_in_range)]
-                q = (f_text.value or "").strip().lower()
-                if q:
-                    hay = (df["notes"].astype(str) + " " + df["category"].astype(str) + " " + df["account"].astype(str)).str.lower()
-                    df = df[hay.str.contains(q, na=False)]
-                # Sorting
-                try:
-                    sort_choice = f_sort.value or "Date (new → old)"
-                except Exception:
-                    sort_choice = "Date (new → old)"
-
-                if "Amount" in sort_choice:
-                    df["__amt"] = df["amount"].apply(to_float)
-                    ascending = "low → high" in sort_choice
-                    df = df.sort_values(by="__amt", ascending=ascending)
-                    df = df.drop(columns=["__amt"], errors="ignore")
-                else:
-                    # Date sorting uses parsed date
-                    if "date_parsed" not in df.columns:
-                        df["date_parsed"] = df["date"].apply(parse_date)
-                    ascending = "old → new" in sort_choice
-                    df = df.sort_values(by="date_parsed", ascending=ascending)
-
-                # keep a copy of the current filtered/sorted view for export & diagnostics
-                try:
-                    last_view['df'] = df.copy()
-                except Exception:
-                    last_view['df'] = None
-
-                df = df.head(250)
-                df["amount"] = df["amount"].apply(lambda x: currency(to_float(x)))
-                table.rows = df.to_dict(orient="records")
-                table.update()
-
-            f_type.on("update:model-value", lambda e: refresh_table())
-            f_text.on("update:model-value", lambda e: refresh_table())
-            f_sort.on("update:model-value", lambda e: refresh_table())
-            f_from.on("update:model-value", lambda e: refresh_table())
-            f_to.on("update:model-value", lambda e: refresh_table())
-
-            refresh_table()
-
-            # Edit/Delete
-            def open_edit(row: Dict[str, Any]):
-                dlg = ui.dialog()
-                with dlg, ui.card().classes("my-card p-5 w-[720px] max-w-[95vw]"):
-                    ui.label("Edit transaction").classes("text-lg font-bold")
-                    tid = str(row.get("id", "")).strip()
-
-                    e_date = ui.input("Date", value=str(row.get("date", ""))).props("type=date").classes("w-full")
-                    e_type = ui.input("Type", value=str(row.get("type", ""))).classes("w-full")
-                    e_amount = ui.number("Amount", value=to_float(row.get("amount", 0))).classes("w-full")
-                    e_method = ui.input("Method", value=str(row.get("method", ""))).classes("w-full")
-                    e_account = ui.input("Account", value=str(row.get("account", ""))).classes("w-full")
-                    e_category = ui.input("Category", value=str(row.get("category", ""))).classes("w-full")
-                    e_notes = ui.textarea("Notes", value=str(row.get("notes", ""))).classes("w-full")
-
-                    def save_edit():
-                        ok = update_row_by_id("transactions", "id", tid, {
-                            "date": (parse_date(e_date.value) or today()).isoformat(),
-                            # owner is kept for backward compatibility but hidden from the UI
-                            "owner": str(row.get("owner", "Family")) or "Family",
-                            "type": e_type.value or "",
-                            "amount": float(to_float(e_amount.value)),
-                            "method": e_method.value or "",
-                            "account": e_account.value or "",
-                            "category": e_category.value or "",
-                            "notes": e_notes.value or "",
-                        })
-                        if ok:
-                            invalidate("transactions")
-                            ui.notify("Updated", type="positive")
-                            dlg.close()
-                            nav_to("/tx")
-                        else:
-                            ui.notify("Could not update (id not found)", type="negative")
-
-                    with ui.row().classes("w-full justify-end gap-2"):
-                        ui.button("Cancel", on_click=dlg.close).props("flat")
-                        ui.button("Save", on_click=save_edit).props("unelevated")
-                dlg.open()
-
-            def open_delete(row: Dict[str, Any]):
-                tid = str(row.get("id", "")).strip()
-                if delete_row_by_id("transactions", "id", tid):
-                    invalidate("transactions")
-                    ui.notify("Deleted", type="positive")
-                    nav_to("/tx")
-                else:
-                    ui.notify("Delete failed", type="negative")
-
-            with ui.row().classes("gap-2 mt-3"):
-                def _current_row() -> Optional[Dict[str, Any]]:
-                    if table.selected:
-                        return table.selected[0]
-                    return selected_row.get('row')
-
-                ui.button(
-                    "Edit selected",
-                    on_click=lambda: open_edit(_current_row()) if _current_row() else ui.notify("Select a row", type="warning"),
-                ).props("flat")
-                ui.button(
-                    "Delete selected",
-                    on_click=lambda: open_delete(_current_row()) if _current_row() else ui.notify("Select a row", type="warning"),
-                ).props("flat")
-
-    shell(content)
-
-
-@ui.page("/cards")
-def cards_page() -> None:
-    if not require_login():
-        nav_to('/login')
-        return
-
-    def content() -> None:
-        ui.label('Cards').classes('text-2xl font-semibold').style('color: var(--mf-text);')
-        ui.label('Limits and billing details from Google Sheets.').classes('text-sm').style('color: var(--mf-muted);')
-
-        df = cached_df('cards')
-        if df.empty:
-            ui.label('No cards found in the "cards" sheet.').classes('text-sm').style('color: var(--mf-muted);')
-            return
-
-        # Accept both old and new schemas
-        def pick(col_candidates, default=''):
-            for c in col_candidates:
-                if c in df.columns:
-                    return df[c]
-            return [default] * len(df)
-
-        names = pick(['card_name', 'name', 'account', 'Account'], default='Card')
-        emojis = pick(['emoji', 'Emoji'], default='💳')
-        methods = pick(['method_name', 'method', 'Method'], default='')
-        billing_days = pick(['billing_day', 'BillingDay', 'billingday'], default='')
-        limits = pick(['max_limit', 'limit', 'Limit'], default='')
-
-        grid = ui.row().classes('w-full q-col-gutter-md')
-        grid.style('flex-wrap: wrap;')
-
-        for i in range(len(df)):
-            name = str(names[i]).strip() or 'Card'
-            emoji = str(emojis[i]).strip() or '💳'
-            method = str(methods[i]).strip()
-            bd = str(billing_days[i]).strip()
-            lim = parse_money(limits[i])
-
-            with grid:
-                with ui.card().classes('my-card').style('width: 320px; max-width: 100%;'):
-                    with ui.row().classes('items-center justify-between'):
-                        ui.label(f'{emoji} {name}').classes('text-lg font-semibold').style('color: var(--mf-text);')
-                        if method:
-                            ui.badge(method).classes('q-pa-xs').style('background: rgba(46,125,255,0.18); color: var(--mf-text); border: 1px solid var(--mf-border);')
-
-                    with ui.row().classes('items-center q-gutter-md'):
-                        with ui.column().classes('q-gutter-xs'):
-                            ui.label('Billing day').classes('text-xs').style('color: var(--mf-muted);')
-                            ui.label(bd or '—').classes('text-sm').style('color: var(--mf-text);')
-
-                        with ui.column().classes('q-gutter-xs'):
-                            ui.label('Limit').classes('text-xs').style('color: var(--mf-muted);')
-                            ui.label(f'${lim:,.2f}' if lim else '—').classes('text-sm').style('color: var(--mf-text);')
-
-    shell(content)
-
-
-@ui.page("/recurring")
-def recurring_page():
-    if not require_login():
-        nav_to("/login")
-        return
-
-    def content():
-        rdf = cached_df("recurring")
-        with ui.card().classes("my-card p-5"):
-            ui.label("Recurring templates").classes("text-lg font-bold")
-            ui.label("Templates only. Transactions get created when the due date arrives.").style("color: var(--mf-muted)")
-
-            if rdf.empty:
-                ui.label("No templates yet. Mark an Add entry as recurring to create one.").style("color: var(--mf-muted)")
-                return
-
-            rdf2 = rdf.copy()
-            rdf2["active"] = rdf2["active"].astype(str)
-
-            # Phase 4: preview upcoming recurring posts (next 45 days)
-            try:
-                start_d = today()
-                end_d = start_d + dt.timedelta(days=45)
-                upcoming: list[dict[str, Any]] = []
-                for _, r in rdf2.iterrows():
-                    is_active = str(r.get('active', 'TRUE')).strip().upper() in ('TRUE', '1', 'YES', 'Y')
-                    if not is_active:
-                        continue
-                    try:
-                        dom = int(float(str(r.get('day_of_month', '1')).strip() or '1'))
-                    except Exception:
-                        dom = 1
-                    y, m = start_d.year, start_d.month
-                    # compute next due date this month or next
-                    for _ in range(2):
-                        last_day = calendar.monthrange(y, m)[1]
-                        dd = min(max(1, dom), last_day)
-                        due = dt.date(y, m, dd)
-                        if due < start_d:
-                            # move to next month
-                            m += 1
-                            if m == 13:
-                                y += 1
-                                m = 1
-                            continue
-                        if due <= end_d:
-                            upcoming.append({
-                                'due': due.isoformat(),
-                                'type': str(r.get('type', '')),
-                                'amount': currency(to_float(r.get('amount', 0))),
-                                'category': str(r.get('category', '')),
-                                'notes': str(r.get('notes', ''))[:28],
-                            })
-                        break
-                upcoming = sorted(upcoming, key=lambda x: x['due'])
-                with ui.card().classes('my-card p-4 mt-3'):
-                    ui.label('Upcoming recurring (next 45 days)').classes('text-md font-bold')
-                    if not upcoming:
-                        ui.label('No upcoming posts found.').style('color: var(--mf-muted)')
-                    else:
-                        ui.table(
-                            columns=[
-                                {'name': 'due', 'label': 'Due', 'field': 'due'},
-                                {'name': 'type', 'label': 'Type', 'field': 'type'},
-                                {'name': 'amount', 'label': 'Amount', 'field': 'amount'},
-                                {'name': 'category', 'label': 'Category', 'field': 'category'},
-                                {'name': 'notes', 'label': 'Notes', 'field': 'notes'},
-                            ],
-                            rows=upcoming[:20],
-                            row_key='due',
-                        ).classes('w-full')
-            except Exception:
-                pass
-            table = ui.table(columns=[
-                {"name": "recurring_id", "label": "ID", "field": "recurring_id"},
-                {"name": "owner", "label": "Owner", "field": "owner"},
-                {"name": "type", "label": "Type", "field": "type"},
-                {"name": "amount", "label": "Amount", "field": "amount"},
-                {"name": "day_of_month", "label": "Day", "field": "day_of_month"},
-                {"name": "category", "label": "Category", "field": "category"},
-                {"name": "active", "label": "Active", "field": "active"},
-                {"name": "last_generated_month", "label": "Last Gen", "field": "last_generated_month"},
-            ], rows=rdf2.to_dict(orient="records"), row_key="recurring_id").classes("w-full")
-
-            def toggle_active():
-                if not table.selected:
-                    ui.notify("Select a row", type="warning")
-                    return
-                row = table.selected[0]
-                rid = str(row.get("recurring_id", ""))
-                cur = str(row.get("active", "TRUE")).strip().upper() in ("TRUE", "1", "YES", "Y")
-                update_row_by_id("recurring", "recurring_id", rid, {"active": "FALSE" if cur else "TRUE"})
-                invalidate("recurring")
-                nav_to("/recurring")
-
-            def delete_template():
-                if not table.selected:
-                    ui.notify("Select a row", type="warning")
-                    return
-                rid = str(table.selected[0].get("recurring_id", ""))
-                if delete_row_by_id("recurring", "recurring_id", rid):
-                    invalidate("recurring")
-                    ui.notify("Deleted template", type="positive")
-                    nav_to("/recurring")
-                else:
-                    ui.notify("Delete failed", type="negative")
-
-            with ui.row().classes("gap-2 mt-3"):
-                ui.button("Toggle active", on_click=toggle_active).props("flat")
-                ui.button("Delete template", on_click=delete_template).props("flat")
-                ui.button("Run generation (today)", on_click=lambda: ui.notify(f"Created {generate_recurring_for_date(today())} entries", type="positive")).props("flat")
-
-    shell(content)
-
-
-@ui.page("/rules")
-def rules_page():
-    if not require_login():
-        nav_to("/login")
-        return
-
-    def content():
-        rdf = cached_df("rules")
-        with ui.card().classes("my-card p-5"):
-            ui.label("Rules").classes("text-lg font-bold")
-            ui.label("Keyword → category mapping used for Auto-category in Add.").style("color: var(--mf-muted)")
-
-            table = ui.table(columns=[
-                {"name": "keyword", "label": "Keyword", "field": "keyword"},
-                {"name": "category", "label": "Category", "field": "category"},
-            ], rows=rdf.to_dict(orient="records") if not rdf.empty else [], row_key="keyword").classes("w-full")
-
-            # Phase 4: quick rule tester
-            with ui.card().classes('my-card p-4 mt-4'):
-                ui.label('Test a rule').classes('text-md font-bold')
-                sample = ui.input('Paste merchant/notes text here').classes('w-full')
-                result = ui.label('')
-                def _test():
-                    rules = load_rules(force=True)
-                    cat = infer_category(sample.value or '', rules)
-                    result.text = f"Matched category: {cat}"
-                ui.button('Test', icon='science', on_click=_test).props('outline')
-
-            with ui.row().classes("w-full gap-3 mt-3"):
-                k = ui.input("Keyword (lowercase recommended)").classes("w-full")
-                c = ui.input("Category").classes("w-full")
-
-            def add_rule():
-                append_row("rules", {"keyword": k.value or "", "category": c.value or ""})
-                invalidate("rules")
-                ui.notify("Rule added", type="positive")
-                nav_to("/rules")
-
-            def del_rule():
-                if not table.selected:
-                    ui.notify("Select a row", type="warning")
-                    return
-                kw = str(table.selected[0].get("keyword", ""))
-                if delete_row_by_id("rules", "keyword", kw):
-                    invalidate("rules")
-                    ui.notify("Deleted", type="positive")
-                    nav_to("/rules")
-                else:
-                    ui.notify("Delete failed", type="negative")
-
-            with ui.row().classes("gap-2 mt-3"):
-                ui.button("Add rule", on_click=add_rule).props("unelevated")
-                ui.button("Delete selected", on_click=del_rule).props("flat")
-
-    shell(content)
-
-
-
-# =============================
-# Phase 4.2 additions
-# - Budgets editor UI
-# - Data Tools: CSV import + Backup/Restore
-# - Merchant cleanup helper
-# =============================
-
-import io
-import zipfile
-
-OPTIONAL_SHEETS = {
-    'budgets': ['category', 'budget_monthly'],
-}
-
-
-def ensure_optional_sheet(title: str, headers: list[str]) -> bool:
-    """Ensure an optional worksheet exists. Returns True if exists/created."""
-    ss = get_spreadsheet()
-    want = title.strip().lower()
-    for w in ss.worksheets():
-        if w.title.strip().lower() == want:
-            return True
-    if not ALLOW_CREATE_MISSING_SHEETS:
-        return False
-    w = ss.add_worksheet(title=title, rows=1000, cols=max(10, len(headers)))
     try:
-        w.append_row(headers)
+        _tx = st.session_state.get("tx_df")
+        _top_cats = []
+        if _tx is not None and isinstance(_tx, pd.DataFrame) and len(_tx) > 0:
+            _tmp = _tx.copy()
+            # Focus on expense categories for chips
+            if "Type" in _tmp.columns:
+                _tmp = _tmp[_tmp["Type"].astype(str).str.lower().isin(["debit", "expense", "debit (-)"])]
+            if "Date" in _tmp.columns:
+                _cut = pd.Timestamp.utcnow().normalize() - pd.Timedelta(days=90)
+                _tmp = _tmp[_tmp["Date"] >= _cut]
+            if "Category" in _tmp.columns and "Amount" in _tmp.columns:
+                _agg = _tmp.groupby("Category", dropna=False)["Amount"].sum().sort_values(ascending=False)
+                _top_cats = [c for c in _agg.head(6).index.tolist() if str(c).strip() in categories]
+        if _top_cats:
+            st.markdown("**Quick categories**")
+            _cols = st.columns(min(6, len(_top_cats)), gap="small")
+            for i, c in enumerate(_top_cats):
+                with _cols[i]:
+                    if st.button(cat_label(str(c)), use_container_width=True, key=f"qc_{i}", disabled=locked_now):
+                        st.session_state["add_cat_pick"] = str(c)
     except Exception:
         pass
-    return True
 
+    _picked_cat = st.session_state.get("add_cat_pick")
+    if _picked_cat in categories:
+        auto_idx = categories.index(_picked_cat)
 
-def write_df_to_sheet(sheet_title: str, df: pd.DataFrame, headers: list[str]) -> None:
-    """Overwrite a worksheet with headers + df rows (USER_ENTERED)."""
-    ss = get_spreadsheet()
-    # locate sheet
-    w = None
-    for ws_ in ss.worksheets():
-        if ws_.title.strip().lower() == sheet_title.strip().lower():
-            w = ws_
-            break
-    if w is None:
-        ok = ensure_optional_sheet(sheet_title, headers)
-        if not ok:
-            raise RuntimeError(f'Missing sheet: {sheet_title}')
-        for ws_ in ss.worksheets():
-            if ws_.title.strip().lower() == sheet_title.strip().lower():
-                w = ws_
-                break
-    assert w is not None
+    # Account selection
+    loc_candidates = [a for a in allowed_accounts if re.search(r"\bline\s*of\s*credit\b|\bloc\b", str(a), flags=re.I)]
+    loc_account = str(loc_candidates[0]).strip() if loc_candidates else ""
 
-    # normalize df to headers
-    out = df.copy()
-    for h in headers:
-        if h not in out.columns:
-            out[h] = ''
-    out = out[headers]
-
-    values = [headers]
-    for _, r in out.iterrows():
-        row = []
-        for h in headers:
-            v = r.get(h, '')
-            if isinstance(v, dt.date):
-                row.append(v.isoformat())
-            else:
-                row.append('' if v is None else str(v))
-        values.append(row)
-
-    gs_retry(lambda: w.clear())
-    gs_retry(lambda: w.update(values, value_input_option='USER_ENTERED'))
-
-
-def make_backup_zip() -> bytes:
-    """Create a zip containing CSVs for core + optional sheets."""
-    ss = get_spreadsheet()
-    sheet_titles = [w.title for w in ss.worksheets()]
-
-    def get_df_for_title(title: str) -> pd.DataFrame:
-        try:
-            # core tabs through cached_df to preserve transformations
-            t = title.strip().lower()
-            if t in ('transactions', 'cards', 'rules', 'recurring'):
-                return cached_df(t, force=True)
-            return read_df_optional(title)
-        except Exception:
-            return pd.DataFrame()
-
-    buff = io.BytesIO()
-    with zipfile.ZipFile(buff, 'w', compression=zipfile.ZIP_DEFLATED) as z:
-        for title in sheet_titles:
-            df = get_df_for_title(title)
-            if df is None:
-                continue
-            csv_bytes = df.to_csv(index=False).encode('utf-8')
-            safe = re.sub(r'[^a-zA-Z0-9_\-]+', '_', title.strip())
-            z.writestr(f'{safe}.csv', csv_bytes)
-        meta = {
-            'created_at': now_iso(),
-            'spreadsheet': ss.title,
-            'spreadsheet_id': SPREADSHEET_ID,
-        }
-        z.writestr('backup_meta.json', json.dumps(meta, indent=2).encode('utf-8'))
-    return buff.getvalue()
-
-
-def parse_uploaded_csv(content: bytes) -> pd.DataFrame:
-    try:
-        s = content.decode('utf-8', errors='ignore')
-        return pd.read_csv(io.StringIO(s))
-    except Exception:
-        # fallback for Excel-ish CSVs
-        return pd.read_csv(io.BytesIO(content))
-
-
-def normalize_merchant_from_notes(notes: str) -> str:
-    s = str(notes or '').strip()
-    if not s:
-        return ''
-    # merchant usually is first chunk
-    for sep in ('|', '•'):
-        if sep in s:
-            s = s.split(sep, 1)[0].strip()
-            break
-    # remove common trailing store markers
-    s = re.sub(r'\s*#\s*\d+\b', '', s)
-    s = re.sub(r'\b(store|st)\s*\d+\b', '', s, flags=re.IGNORECASE)
-    s = re.sub(r'\b\d{3,}\b', '', s)  # remove long numeric tokens
-    s = re.sub(r'\s+', ' ', s).strip()
-    # title-case known merchants
-    return s
-
-
-def apply_merchant_cleanup(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    if 'notes' not in out.columns:
-        return out
-    def _clean(n: str) -> str:
-        full = str(n or '')
-        merch = normalize_merchant_from_notes(full)
-        if not merch:
-            return full
-        # replace first segment only
-        # split by separators, keep remainder
-        rest = ''
-        for sep in ('|', '•'):
-            if sep in full:
-                head, tail = full.split(sep, 1)
-                rest = sep + tail
-                break
+    if entry_type == "LOC Draw":
+        pay = "Card"
+        if not loc_account:
+            st.error("No Line of Credit account found in Admin → Accounts. Add 'RBC Line of Credit' and try again.")
+            account = ""
         else:
-            # try hyphen only when it looks like "MERCHANT - details"
-            if ' - ' in full:
-                head, tail = full.split(' - ', 1)
-                rest = ' - ' + tail
-        return merch + rest
-    out['notes'] = out['notes'].apply(_clean)
-    return out
+            loc_label = f"{emoji_map.get(loc_account, '🏦')} {loc_account}"
+            st.selectbox("Account", options=[loc_label], index=0, disabled=True, key="add_loc_account_draw")
+            account = loc_account
 
+    elif entry_type == "LOC Repay":
+        pay = "Bank"
+        if not loc_account:
+            st.error("No Line of Credit account found in Admin → Accounts. Add 'RBC Line of Credit' and try again.")
+            account = ""
+        else:
+            loc_label = f"{emoji_map.get(loc_account, '🏦')} {loc_account}"
+            st.selectbox("Repayment to which account?", options=[loc_label], index=0, disabled=True, key="add_loc_account_repay")
+            account = loc_account
 
-@ui.page('/budgets')
-def budgets_page() -> None:
-    if not require_login():
-        nav_to('/login')
-        return
+    elif entry_type == "CC Repay":
+        default_acct = qd.get("Account", allowed_accounts[0])
+        default_label = f"{emoji_map.get(default_acct, '💳')} {default_acct}"
+        default_idx = acct_options.index(default_label) if default_label in acct_options else 0
+        acct_pick = st.selectbox("Repayment to which account?", acct_options, index=default_idx, disabled=locked_now)
+        account = acct_map[acct_pick]
+        pay = "Bank"
+    else:
+        if pay == "Card" and entry_type in ("Debit", "Investment", "International"):
+            default_acct = qd.get("Account", allowed_accounts[0])
+            default_label = f"{emoji_map.get(default_acct, '💳')} {default_acct}"
+            default_idx = acct_options.index(default_label) if default_label in acct_options else 0
+            acct_pick = st.selectbox("Account", acct_options, index=default_idx, disabled=locked_now, key="add_account")
+            account = acct_map[acct_pick]
+        else:
+            st.session_state.pop("add_account", None)
+            account = ""  # No Account for non-card expenses OR for Credit/Income
+    if entry_type == "LOC Draw":
+        fixed_cat = "LOC Utilization"
+        fixed_label = cat_label(fixed_cat)
+        st.selectbox("Category", options=[fixed_label], index=0, disabled=True, key="add_cat_loc_draw")
+        category = fixed_cat
+        used_auto = False
+    elif entry_type == "LOC Repay":
+        fixed_cat = "Repayment"
+        fixed_label = cat_label(fixed_cat)
+        st.selectbox("Category", options=[fixed_label], index=0, disabled=True, key="add_cat_loc_repay")
+        category = fixed_cat
+        used_auto = False
+    else:
+        cat_pick = st.selectbox("Category", [cat_label(c) for c in categories], index=auto_idx, disabled=locked_now)
+        category = categories[[cat_label(c) for c in categories].index(cat_pick)]
+        used_auto = (category == auto_cat and auto_cat != "Uncategorized" and notes.strip() != "")
 
-    def content() -> None:
-        with ui.card().classes('my-card p-5'):
-            ui.label('Budgets').classes('text-lg font-bold')
-            ui.label('Create and manage monthly budgets per category.').style('color: var(--mf-muted)')
+    with st.expander("🔁 Recurring (optional)", expanded=False):
+        st.caption("Turn ON once. Future months auto-add when you open the app.")
+        mark_rec = st.toggle("Mark as recurring", value=False, disabled=locked_now)
+        dom = st.number_input("Day of month (1–31)", min_value=1, max_value=31, value=1, step=1, disabled=(locked_now or not mark_rec))
+        nick = st.text_input("Display name", value="", placeholder="e.g. Rent / Netflix", disabled=(locked_now or not mark_rec))
 
-            ok = ensure_optional_sheet('budgets', OPTIONAL_SHEETS['budgets'])
-            if not ok:
-                ui.label('Budgets sheet not found. Set ALLOW_CREATE_MISSING_SHEETS=1 to let the app create it.').classes('text-sm text-red-300')
-                return
+    amt_preview = parse_amount(amt_text) if amt_text.strip() else None
+    amt_invalid = (amt_text.strip() == "") or (amt_preview is None)
+    if amt_text.strip() != "" and amt_preview is None:
+        st.error("Amount must be a number (e.g., 120 or 120.50).")
 
-            budgets = read_df_optional('budgets')
-            if budgets is None or budgets.empty:
-                budgets = pd.DataFrame(columns=OPTIONAL_SHEETS['budgets'])
+    # --- Review before Save (premium confirm) ---
+    if "pending_add" not in st.session_state:
+        st.session_state["pending_add"] = None
+    if "show_add_review" not in st.session_state:
+        st.session_state["show_add_review"] = False
 
-            # Normalize columns
-            cols = {str(c).strip().lower(): c for c in budgets.columns}
-            c_cat = cols.get('category') or cols.get('cat')
-            c_budget = cols.get('budget_monthly') or cols.get('monthly_budget') or cols.get('budget')
-            if c_cat and c_cat != 'category':
-                budgets['category'] = budgets[c_cat]
-            if c_budget and c_budget != 'budget_monthly':
-                budgets['budget_monthly'] = budgets[c_budget]
-            for h in OPTIONAL_SHEETS['budgets']:
-                if h not in budgets.columns:
-                    budgets[h] = ''
-            budgets = budgets[OPTIONAL_SHEETS['budgets']].copy()
+    save = st.button("Save Entry", disabled=(locked_now or amt_invalid))
 
-            table = ui.table(
-                columns=[
-                    {'name': 'category', 'label': 'Category', 'field': 'category', 'align': 'left'},
-                    {'name': 'budget_monthly', 'label': 'Monthly Budget', 'field': 'budget_monthly', 'align': 'right'},
-                ],
-                rows=budgets.to_dict(orient='records'),
-                row_key='category',
-                selection='single',
-            ).classes('w-full')
+    # Stage transaction for review instead of writing immediately
+    if save:
+        st.session_state["pending_add"] = {
+            "entry_date": entry_date,
+            "entry_type": entry_type,
+            "amt_text": amt_text,
+            "pay": pay,
+            "account": account,
+            "category": category,
+            "notes": notes,
+            "used_auto": used_auto,
+            "auto_cat": auto_cat,
+            "mark_rec": mark_rec,
+            "dom": dom if "dom" in locals() else 1,
+            "nick": nick if "nick" in locals() else "",
+        }
+        st.session_state["show_add_review"] = True
 
-            cat_in = ui.input('Category').classes('w-full')
-            bud_in = ui.number('Monthly budget', value=0.0, format='%.2f').classes('w-full')
+    if st.session_state.get("show_add_review") and st.session_state.get("pending_add"):
+        p = st.session_state["pending_add"]
+        st.markdown("### ✅ Review")
+        _amount_preview = parse_amount(p.get("amt_text","")) or 0.0
+        _notes_preview = (p['notes'][:120] + '…') if p.get('notes') and len(p['notes']) > 120 else (p.get('notes') or '—')
+        _review_md = (
+            f"**{p['entry_type']}** • **{p['category']}** • **${_amount_preview:,.2f}**\n\n"
+            f"**Pay:** {p['pay']} • **Account:** {p['account']}\n\n"
+            f"**Notes:** {_notes_preview}"
+        )
+        st.markdown(_review_md)
 
-            def _refresh() -> None:
-                b = read_df_optional('budgets')
-                if b is None or b.empty:
-                    b = pd.DataFrame(columns=OPTIONAL_SHEETS['budgets'])
-                cols = {str(c).strip().lower(): c for c in b.columns}
-                c_cat2 = cols.get('category') or cols.get('cat')
-                c_budget2 = cols.get('budget_monthly') or cols.get('monthly_budget') or cols.get('budget')
-                if c_cat2 and c_cat2 != 'category':
-                    b['category'] = b[c_cat2]
-                if c_budget2 and c_budget2 != 'budget_monthly':
-                    b['budget_monthly'] = b[c_budget2]
-                for h in OPTIONAL_SHEETS['budgets']:
-                    if h not in b.columns:
-                        b[h] = ''
-                b = b[OPTIONAL_SHEETS['budgets']].copy()
-                table.rows = b.to_dict(orient='records')
-                table.update()
+def page_add_mobile():
+    # Mobile variant: keep behavior identical to desktop for now (avoids undefined reference).
+    return page_add()
 
-            def _load_selected() -> None:
-                if not table.selected:
-                    ui.notify('Select a row first.', type='warning');
-                    return
-                r = table.selected[0]
-                cat_in.value = str(r.get('category', ''))
-                bud_in.value = to_float(r.get('budget_monthly', 0))
+def page_creditbal():
+    st.markdown("## 💳 CreditBal")
+    st.caption("Billing-cycle view • Utilization • Safe-to-spend • Upcoming recurring before bill date.")
+    ev = compute_balance_events(tx_df)
+    util = util_table(ev, month_sel, acct_df)
 
-            def _save() -> None:
-                cat = str(cat_in.value or '').strip()
-                if not cat:
-                    ui.notify('Category required.', type='warning');
-                    return
-                bud = float(to_float(bud_in.value))
-                # upsert by category
-                existing = read_df_optional('budgets')
-                if existing is None or existing.empty:
-                    existing = pd.DataFrame(columns=OPTIONAL_SHEETS['budgets'])
-                cols = {str(c).strip().lower(): c for c in existing.columns}
-                c_cat3 = cols.get('category') or cols.get('cat')
-                c_budget3 = cols.get('budget_monthly') or cols.get('monthly_budget') or cols.get('budget')
-                if c_cat3 and c_cat3 != 'category':
-                    existing['category'] = existing[c_cat3]
-                if c_budget3 and c_budget3 != 'budget_monthly':
-                    existing['budget_monthly'] = existing[c_budget3]
-                for h in OPTIONAL_SHEETS['budgets']:
-                    if h not in existing.columns:
-                        existing[h] = ''
-                existing = existing[OPTIONAL_SHEETS['budgets']].copy()
-                # update/append
-                mask = existing['category'].astype(str).str.strip().str.lower() == cat.lower()
-                if mask.any():
-                    existing.loc[mask, 'budget_monthly'] = str(bud)
+    for _, r in util.iterrows():
+        lim = float(r["Limit"])
+        bal = float(r["Balance"])
+        pct = None if lim <= 0 else bal/lim*100.0
+
+        st.markdown(
+            f"""
+            <div class="mf-card mf-anim">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:14px;">
+                <div>
+                  <div style="font-size:18px; font-weight:950;">{r['Emoji']} {r['Account']}</div>
+                  <div style="color:rgba(232,234,237,0.70); font-size:13px; margin-top:4px;">
+                    Bill date: <b>{r['BillDate']}</b> • Cycle: <b>{r['CycleStart']}</b> → <b>{r['CycleEnd']}</b>
+                  </div>
+                  <div style="margin-top:10px; font-size:13px; color:rgba(232,234,237,0.70);">
+                    Cycle charges: <b>{money(float(r['CycleCharges']))}</b> • Cycle payments: <b>{money(float(r['CyclePayments']))}</b> • Upcoming recurring: <b>{money(float(r['UpcomingRecurringToBill']))}</b>
+                  </div>
+                </div>
+                <div style="text-align:right;">
+                  <div style="font-size:12px; color:rgba(232,234,237,0.70);">Current Balance</div>
+                  <div style="font-size:28px; font-weight:950;">{money(bal)}</div>
+                  <div style="margin-top:6px;">
+                    <span class="mf-pill">{month_sel}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if lim > 0 and pct is not None:
+            safe = r["SafeToSpend"]
+            st.progress(min(max(pct, 0.0), 100.0)/100.0, text=f"{pct:.1f}% utilized of {money(lim)} • Safe-to-spend: {money(float(safe)) if safe is not None else '—'}")
+def page_trends():
+    st.markdown("## 📈 Trends")
+    st.caption("Trends, top categories, top merchants, weekday spend pattern.")
+
+    spend = tx_df[(tx_df["Type"] == "Debit") & (~_is_nonexpense_movement(tx_df))].copy()
+    if spend.empty:
+        st.info("No debit transactions yet.")
+    else:
+        by_m = spend.groupby("Month", as_index=False)["Amount"].sum().sort_values("Month")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=by_m["Month"], y=by_m["Amount"], mode="lines+markers", name="Debit"))
+        fig.update_layout(height=260, margin=dict(l=10,r=10,t=40,b=10), title="Debit Trend (monthly)",
+                          paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                          font=dict(color="#E8EAED"))
+        st.plotly_chart(fig, width="stretch")
+
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            by_cat = spend.groupby("Category", as_index=False)["Amount"].sum().sort_values("Amount", ascending=False).head(12)
+            by_cat["Category"] = by_cat["Category"].apply(cat_label)
+            st.plotly_chart(px.bar(by_cat, x="Category", y="Amount", title="Top categories", template="plotly_dark", color_discrete_sequence=px.colors.qualitative.Set2), width="stretch")
+        with c2:
+            spend["MerchantKey"] = spend["Notes"].apply(normalize_merchant)
+            by_mer = spend[spend["MerchantKey"] != ""].groupby("MerchantKey", as_index=False)["Amount"].sum().sort_values("Amount", ascending=False).head(12)
+            by_mer["MerchantKey"] = by_mer["MerchantKey"].str.title()
+            st.plotly_chart(px.bar(by_mer, x="MerchantKey", y="Amount", title="Top merchants", template="plotly_dark", color_discrete_sequence=px.colors.qualitative.Set2), width="stretch")
+
+        spend["Weekday"] = spend["Date"].dt.day_name()
+        wd = spend.groupby(["Weekday"], as_index=False)["Amount"].sum()
+        order = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+        wd["Weekday"] = pd.Categorical(wd["Weekday"], categories=order, ordered=True)
+        wd.sort_values("Weekday", inplace=True)
+        st.plotly_chart(px.bar(wd, x="Weekday", y="Amount", title="Spend by weekday", template="plotly_dark", color_discrete_sequence=px.colors.qualitative.Set2), width="stretch")
+def page_transactions():
+    st.markdown("## 🧾 Transactions")
+    st.caption("Fast search + export. Edit/Delete in Admin → Fix Mistakes.")
+    df = view_df.copy()
+    if df.empty:
+        st.info("No transactions.")
+    else:
+        with st.form("tx_search", border=False):
+            a, b, c = st.columns([1.2, 1.3, 1.0])
+            with a:
+                q = st.text_input("Search notes", "")
+            with b:
+                cats = sorted(df["Category"].dropna().unique().tolist())
+                chosen = st.multiselect("Category", cats, default=cats)
+            with c:
+                m = st.selectbox("Month", sorted(df["Month"].unique()), index=0)
+            run = st.form_submit_button("Search")
+
+        if not run:
+            m = month_sel
+            chosen = sorted(df["Category"].dropna().unique().tolist())
+            q = ""
+
+        out = df[df["Month"] == m].copy()
+        if chosen:
+            out = out[out["Category"].isin(chosen)]
+        if q.strip():
+            out = out[out["Notes"].fillna("").str.contains(re.escape(q.strip()), case=False, na=False)]
+
+        show = out.sort_values("Date", ascending=False).copy()
+        show["Type"] = show["Type"].apply(lambda t: f"{TYPE_EMOJI.get(t,'')} {t}")
+        show["Category"] = show["Category"].apply(cat_label)
+        show["Account"] = show["Account"].apply(lambda a: f"{ACCOUNT_EMOJI_DEFAULT.get(a,'💳')} {a}" if a in ACCOUNT_EMOJI_DEFAULT else a)
+        show["Confidence"] = show["AutoTag"].apply(confidence_tag)
+        show = show[["Date","Type","Amount","Pay","Account","Category","Confidence","Notes"]]
+
+        # Mobile-friendly cards (optional)
+        vm = st.session_state.get("view_mode", "Auto")
+        default_cards = (vm == "Mobile")
+        card_view = st.toggle("Card view", value=default_cards, key="tx_card_view")
+
+        if card_view:
+            max_n = min(300, len(show))
+            n = st.select_slider("Show last", options=[25, 50, 100, 200, max_n], value=min(50, max_n), key="tx_card_n")
+            sdf = show.head(n).copy()
+            for i, r in sdf.iterrows():
+                title = f"{r['Date']} • {r['Category']} • {r['Amount']}"
+                with st.expander(title, expanded=False):
+                    st.write(f"**Type:** {r['Type']}")
+                    st.write(f"**Pay:** {r['Pay']}")
+                    st.write(f"**Account:** {r['Account']}")
+                    st.write(f"**Confidence:** {r['Confidence']}")
+                    if str(r.get('Notes','')).strip():
+                        st.write(f"**Notes:** {r['Notes']}")
+        else:
+            st.dataframe(show, width="stretch", hide_index=True)
+
+        st.download_button("Download CSV", data=show.to_csv(index=False).encode("utf-8"),
+                           file_name=f"{APP_NAME.replace(' ','_')}_{m}.csv", mime="text/csv")
+def page_admin():
+    st.markdown("## 🛡️ Admin")
+    st.caption("Lock months • Accounts • Fix mistakes • Rules • Recurring • Insights • Backup")
+
+    sections = ["Monthly Lock", "Accounts", "Fix Mistakes", "Rules", "Recurring", "Insights"]
+    st.session_state["admin_section"] = segmented("Section", sections, default=st.session_state["admin_section"], key="admin_seg")
+    section = st.session_state["admin_section"]
+
+    if section == "Monthly Lock":
+        st.markdown("### 🔒 Monthly lock")
+        months = sorted(tx_df["Month"].unique().tolist()) if not tx_df.empty else []
+        if not months:
+            now = pd.Period(date.today(), freq="M")
+            months = sorted({str(now + i) for i in range(-2, 8)})
+            months = sorted(set(months) | set(build_month_options()))
+
+        safe_default = [m for m in sorted(set(locked_months)) if m in months]
+        selected = st.multiselect("Locked months", options=months, default=safe_default)
+        if st.button("Save Locks"):
+            admin_update_and_refresh("locked_months", ", ".join(sorted(set(selected))))
+            st.toast("Locks updated ✓", icon="🔒")
+            st.rerun()
+
+    elif section == "Accounts":
+        st.markdown("### 💳 Account limits + billing day")
+        st.caption("Set limits for utilization %. BillingDay = bill generation day (1–31).")
+
+        # Show table
+        view = acct_df.copy()
+        st.dataframe(view, width="stretch", hide_index=True)
+
+        allowed_accounts, emoji_map = build_account_maps(acct_df)
+
+        st.markdown("#### Edit an account")
+        acct_opts = [f"{emoji_map.get(a,'💳')} {a}" for a in allowed_accounts]
+        pick = st.selectbox("Account", acct_opts, index=0, key="admin_acct_pick")
+        acct = pick.split(" ", 1)[1]
+        row = acct_df[acct_df["Account"] == acct].iloc[0]
+
+        new_emoji = st.text_input("Emoji", value=str(row.get("Emoji","")).strip() or emoji_map.get(acct, "💳"))
+        new_limit = st.number_input("Limit ($)", min_value=0.0, step=100.0, value=float(row.get("Limit", 0) or 0))
+        new_bill = st.number_input("Billing day (1–31)", min_value=1, max_value=31, step=1, value=int(row.get("BillingDay", 1) or 1))
+
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            if st.button("Save Account", width="stretch"):
+                df2 = acct_df.copy()
+                df2.loc[df2["Account"] == acct, "Emoji"] = new_emoji.strip() or emoji_map.get(acct, "💳")
+                df2.loc[df2["Account"] == acct, "Limit"] = float(new_limit)
+                df2.loc[df2["Account"] == acct, "BillingDay"] = int(new_bill)
+                save_accounts(df2)
+                st.toast("Saved ✓", icon="✅")
+                st.rerun()
+        with c2:
+            # Remove account (card)
+            if st.button("Remove Account", width="stretch"):
+                df2 = acct_df.copy()
+                df2 = df2[df2["Account"] != acct].copy()
+                # Safety: ensure at least one account remains
+                if df2.empty:
+                    st.error("You must keep at least one account.")
                 else:
-                    existing = pd.concat([existing, pd.DataFrame([{'category': cat, 'budget_monthly': str(bud)}])], ignore_index=True)
-                write_df_to_sheet('budgets', existing, OPTIONAL_SHEETS['budgets'])
-                ui.notify('Saved.', type='positive')
-                _refresh()
+                    save_accounts(df2)
+                    # Clear any stale selections (e.g., Add page)
+                    for k in ["add_account", "add_repay_account", "admin_acct_pick"]:
+                        if k in st.session_state:
+                            st.session_state.pop(k, None)
+                    st.toast("Removed ✓", icon="🗑️")
+                    st.rerun()
 
-            def _delete() -> None:
-                if not table.selected:
-                    ui.notify('Select a row first.', type='warning');
-                    return
-                cat = str(table.selected[0].get('category', '')).strip()
-                if not cat:
-                    return
-                existing = read_df_optional('budgets')
-                if existing is None or existing.empty:
-                    return
-                cols = {str(c).strip().lower(): c for c in existing.columns}
-                c_cat3 = cols.get('category') or cols.get('cat')
-                if c_cat3 and c_cat3 != 'category':
-                    existing['category'] = existing[c_cat3]
-                existing = existing.copy()
-                existing = existing[existing['category'].astype(str).str.strip().str.lower() != cat.lower()]
-                write_df_to_sheet('budgets', existing, OPTIONAL_SHEETS['budgets'])
-                ui.notify('Deleted.', type='positive')
-                _refresh()
+        st.divider()
+        st.markdown("#### Add a new account")
+        with st.form("admin_add_account", border=True):
+            new_name = st.text_input("Account name", value="", placeholder="e.g. Canadian Tire Card")
+            add_emoji = st.text_input("Emoji (optional)", value="💳")
+            add_limit = st.number_input("Limit ($)", min_value=0.0, step=100.0, value=0.0)
+            add_bill = st.number_input("Billing day (1–31)", min_value=1, max_value=31, step=1, value=1)
+            submit_add = st.form_submit_button("Add Account")
+        if submit_add:
+            nm = (new_name or "").strip()
+            if not nm:
+                st.error("Account name is required.")
+            elif nm in set(acct_df["Account"].astype(str).tolist()):
+                st.error("That account already exists.")
+            else:
+                df2 = acct_df.copy()
+                df2 = pd.concat([df2, pd.DataFrame([{
+                    "Account": nm,
+                    "Emoji": (add_emoji or "💳").strip() or "💳",
+                    "Limit": float(add_limit),
+                    "BillingDay": int(add_bill),
+                }])], ignore_index=True)
+                save_accounts(df2)
+                # Clear stale widget keys
+                for k in ["admin_acct_pick", "add_account", "add_repay_account"]:
+                    if k in st.session_state:
+                        st.session_state.pop(k, None)
+                st.toast("Account added ✓", icon="✅")
+                st.rerun()
 
-            with ui.row().classes('gap-2 mt-3'):
-                ui.button('Load selected', on_click=_load_selected).props('flat')
-                ui.button('Save / Upsert', on_click=_save).props('unelevated')
-                ui.button('Delete selected', on_click=_delete).props('outline')
+    elif section == "Fix Mistakes":
+        st.markdown("### 🧰 Fix mistakes")
+        st.caption("Edit (preferred) or delete. Set Amount=0 to neutralize. Undo available.")
+        if tx_df.empty:
+            st.info("No transactions yet.")
+        else:
+            months = sorted(tx_df["Month"].unique().tolist())
+            m = st.selectbox("Month", months, index=len(months) - 1)
+            locked_sel = m in set(locked_months)
+            if locked_sel:
+                st.warning(f"🔒 {m} is locked — edit/delete disabled.")
+            subset = tx_df[tx_df["Month"] == m].copy().sort_values("Date", ascending=False)
 
-    shell(content)
+            temp = subset.copy()
+            temp["Type"] = temp["Type"].apply(lambda t: f"{TYPE_EMOJI.get(t,'')} {t}")
+            temp["Category"] = temp["Category"].apply(cat_label)
+            temp["Account"] = temp["Account"].apply(lambda a: f"{emoji_map_live.get(a,'💳')} {a}" if a in allowed_accounts_live else a)
+            temp["Confidence"] = temp["AutoTag"].apply(confidence_tag)
+            st.dataframe(temp[["Date","Type","Amount","Pay","Account","Category","Confidence","Notes","TxId","_row","AutoTag"]],
+                         width="stretch", hide_index=True)
 
+            if not subset.empty:
+                choices = subset.apply(lambda r: f"{r['Date'].date()} | {r['Type']} | {money(r['Amount'])} | {r['Account']} | {r['Category']} | {r['TxId']}", axis=1).tolist()
+                pick = st.selectbox("Select transaction", choices)
+                txid = pick.split("|")[-1].strip()
+                r = subset.loc[subset["TxId"] == txid].iloc[0]
+                row_num = int(r["_row"])
 
-@ui.page('/data_tools')
-def data_tools_page() -> None:
-    if not require_login():
-        nav_to('/login')
-        return
+                old_row = [
+                    r["TxId"], str(pd.to_datetime(r["Date"]).date()), "Family", r["Type"], float(r["Amount"]), r["Pay"],
+                    r["Account"], r["Category"], r["Notes"], r["CreatedAt"], r.get("AutoTag","")
+                ]
 
-    def content() -> None:
-        with ui.card().classes('my-card p-5'):
-            ui.label('Data Tools').classes('text-lg font-bold')
-            ui.label('Import CSV, backup/restore, and merchant cleanup.').style('color: var(--mf-muted)')
+                st.markdown("#### Edit selected")
+                ed_date = st.date_input("Date", value=pd.to_datetime(r["Date"]).date(), disabled=locked_sel)
+                ed_type = st.selectbox("Type", ENTRY_TYPES, index=ENTRY_TYPES.index(r["Type"]) if r["Type"] in ENTRY_TYPES else 0, disabled=locked_sel,
+                                       format_func=lambda t: f"{TYPE_EMOJI.get(t,'')} {t}")
+                ed_amt = st.text_input("Amount ($)", value=str(float(r["Amount"])), disabled=locked_sel)
+                ed_amount = parse_amount(ed_amt)
+                ed_pay = st.selectbox("Pay", PAY_METHODS, index=(PAY_METHODS.index(r["Pay"]) if r["Pay"] in PAY_METHODS else 0), disabled=locked_sel)
 
-        # Backup
-        with ui.card().classes('my-card p-5'):
-            ui.label('Backup').classes('text-lg font-bold')
-            ui.label('Download a zip backup of all sheets as CSV.').style('color: var(--mf-muted)')
-            def _download_backup() -> None:
-                try:
-                    b = make_backup_zip()
-                    ui.download(b, filename=f'myfin_backup_{datetime.date.today().isoformat()}.zip')
-                except Exception as e:
-                    ui.notify(f'Backup failed: {e}', type='negative')
-            ui.button('Download backup zip', icon='archive', on_click=_download_backup).props('unelevated')
+                acct_opts = [f"{emoji_map_live.get(a,'💳')} {a}" for a in allowed_accounts_live]
+                acct_map = {f"{emoji_map_live.get(a,'💳')} {a}": a for a in allowed_accounts_live}
 
-        # Restore
-        with ui.card().classes('my-card p-5'):
-            ui.label('Restore').classes('text-lg font-bold')
-            ui.label('Upload a backup zip from this app to overwrite sheets.').style('color: var(--mf-muted)')
-            confirm = ui.input('Type RESTORE to enable overwrite').classes('w-full')
-            upload_zip = ui.upload(label='Upload backup zip', auto_upload=True).props('accept=.zip').classes('w-full')
+                if ed_type == "CC Repay":
+                    ap = st.selectbox("Account", acct_opts, index=0, disabled=locked_sel)
+                    ed_account = acct_map[ap]
+                    ed_pay = "Bank"
+                else:
+                    if ed_pay == "Card":
+                        ap = st.selectbox("Account", acct_opts, index=0, disabled=locked_sel)
+                        ed_account = acct_map[ap]
+                    else:
+                        ed_account = ed_pay
 
-            async def _on_zip_upload(e):
-                if str(confirm.value).strip().upper() != 'RESTORE':
-                    ui.notify('Type RESTORE first (safety check).', type='warning');
-                    return
-                try:
-                    content = e.content.read() if hasattr(e, 'content') else None
-                    if content is None:
-                        # NiceGUI upload event provides `content` bytes on some versions
-                        content = e
-                    zdata = content if isinstance(content, (bytes, bytearray)) else bytes(content)
-                    with zipfile.ZipFile(io.BytesIO(zdata), 'r') as z:
-                        names = z.namelist()
-                        # overwrite core tabs if present
-                        overwritten = []
-                        for core in ('transactions', 'cards', 'rules', 'recurring', 'budgets'):
-                            fname = f'{core}.csv'
-                            # tolerate sanitized names
-                            cand = None
-                            for n in names:
-                                if n.lower() == fname:
-                                    cand = n; break
-                            if cand is None:
-                                continue
-                            df = parse_uploaded_csv(z.read(cand))
-                            if core in TABS:
-                                headers = sheet_headers(core)
-                                write_df_to_sheet(core, df, headers)
-                                invalidate(core)
-                            else:
-                                headers = OPTIONAL_SHEETS.get(core, list(df.columns))
-                                ensure_optional_sheet(core, headers)
-                                write_df_to_sheet(core, df, headers)
-                            overwritten.append(core)
-                        ui.notify('Restored: ' + ', '.join(overwritten) if overwritten else 'No matching CSVs found in zip.', type='positive')
-                except Exception as ex:
-                    ui.notify(f'Restore failed: {ex}', type='negative')
+                cats = sorted(set(list(rules.keys()) + list(CATEGORY_ICON.keys())))
+                ed_cat = st.selectbox("Category", [cat_label(c) for c in cats], index=cats.index(r["Category"]) if r["Category"] in cats else 0, disabled=locked_sel)
+                ed_category = cats[[cat_label(c) for c in cats].index(ed_cat)]
+                ed_notes = st.text_area("Notes", value=str(r["Notes"] or ""), height=80, disabled=locked_sel)
 
-            upload_zip.on('upload', _on_zip_upload)
+                cA, cB = st.columns([1,1])
+                with cA:
+                    if st.button("Save Edit", disabled=locked_sel):
+                        if ed_amount is None:
+                            st.error("Enter a valid amount.")
+                            st.stop()
+                        update_transaction_by_row(row_num, {
+                            "TxId": r["TxId"],
+                            "Date": pd.to_datetime(ed_date).date().isoformat(),
+                            "Type": ed_type,
+                            "Amount": float(ed_amount),
+                            "Pay": ed_pay,
+                            "Account": ed_account,
+                            "Category": ed_category,
+                            "Notes": ed_notes,
+                            "CreatedAt": r["CreatedAt"] or datetime.utcnow().isoformat(timespec="seconds"),
+                            "AutoTag": r.get("AutoTag","") or "",
+                        })
+                        push_undo(UndoAction(kind="edit", row_num=row_num, old_row=old_row))
+                        st.toast("Updated ✓", icon="✅")
+                        st.rerun()
+                with cB:
+                    if st.button("Delete", disabled=locked_sel):
+                        delete_transaction_by_row(row_num)
+                        push_undo(UndoAction(kind="delete", row_num=row_num, old_row=old_row, txid=None))
+                        st.toast("Deleted", icon="🗑️")
+                        st.rerun()
+    elif section == "Rules":
+        st.markdown("### 🧠 Rules")
+        st.caption("Case-insensitive keyword rules used for auto-categorization.")
+        st.toggle("Lock rules (prevent edits)", value=rules_locked, key="rules_lock")
+        if st.button("Save lock"):
+            admin_update_and_refresh("rules_locked", "true" if bool(st.session_state["rules_lock"]) else "false")
+            st.toast("Rules lock updated", icon="🔒")
+            st.rerun()
 
-        # CSV import (append)
-        with ui.card().classes('my-card p-5'):
-            ui.label('Import Transactions CSV').classes('text-lg font-bold')
-            ui.label('Append rows from a CSV into Transactions. CSV should include at least date, type, amount.').style('color: var(--mf-muted)')
-            upload_csv = ui.upload(label='Upload CSV', auto_upload=True).props('accept=.csv').classes('w-full')
+        current = "\n".join([f"{k}: {', '.join(v)}" for k, v in rules.items()])
+        txt = st.text_area("Rules text", value=current, height=280, disabled=rules_locked, help="Format: Category: keyword1, keyword2")
+        if st.button("Save Rules", disabled=rules_locked):
+            admin_update_and_refresh("rules_text", txt)
+            st.toast("Rules saved ✓", icon="✅")
+            st.rerun()
 
-            async def _on_csv_upload(e):
-                try:
-                    content = e.content.read() if hasattr(e, 'content') else None
-                    if content is None:
-                        content = e
-                    data = content if isinstance(content, (bytes, bytearray)) else bytes(content)
-                    df = parse_uploaded_csv(data)
-                    if df is None or df.empty:
-                        ui.notify('CSV is empty.', type='warning');
-                        return
-                    # normalize columns
-                    colmap = {str(c).strip().lower(): c for c in df.columns}
-                    def pick(*names):
-                        for n in names:
-                            if n in colmap:
-                                return colmap[n]
-                        return None
-                    c_date = pick('date', 'transaction_date')
-                    c_type = pick('type', 'transaction_type')
-                    c_amount = pick('amount', 'amt', 'value')
-                    if not (c_date and c_type and c_amount):
-                        ui.notify('CSV must include date, type, amount columns.', type='negative');
-                        return
-                    # optional
-                    c_method = pick('method')
-                    c_account = pick('account')
-                    c_category = pick('category')
-                    c_notes = pick('notes', 'note', 'description')
+    elif section == "Recurring":
+        st.markdown("### 🔁 Recurring manager")
+        prefs = st.session_state["prefs_list"]
+        if not prefs:
+            st.info("No recurring items yet. Set one from Add page.")
+        else:
+            pdf = pd.DataFrame(prefs)
+            pdf["Amount"] = pd.to_numeric(pdf.get("Amount", None), errors="coerce")
+            pdf["DayOfMonth"] = pd.to_numeric(pdf.get("DayOfMonth", None), errors="coerce").fillna(1).astype(int)
 
-                    count = 0
-                    for _, r in df.iterrows():
-                        d = parse_date(r.get(c_date))
-                        if not d:
-                            continue
-                        t = str(r.get(c_type, '')).strip()
-                        amt = to_float(r.get(c_amount))
-                        if not t:
-                            continue
-                        txid = str(r.get('id', '')).strip() or str(uuid.uuid4())
-                        append_tx(
-                            id=txid,
-                            date=d.isoformat(),
-                            owner='Family',
-                            type=t,
-                            amount=amt,
-                            method=str(r.get(c_method, '')) if c_method else '',
-                            account=str(r.get(c_account, '')) if c_account else '',
-                            category=str(r.get(c_category, '')) if c_category else '',
-                            notes=str(r.get(c_notes, '')) if c_notes else '',
-                            is_recurring=False,
-                            recurring_id='',
-                            created_at=now_iso(),
-                        )
-                        count += 1
-                    invalidate('transactions')
-                    ui.notify(f'Imported {count} rows into Transactions.', type='positive')
-                except Exception as ex:
-                    ui.notify(f'Import failed: {ex}', type='negative')
+            show = pdf.copy()
+            show["Account"] = show["Account"].apply(lambda a: f"{emoji_map_live.get(a,'💳')} {a}")
+            show["Category"] = show["Category"].apply(lambda c: cat_label(c) if c else cat_label("Uncategorized"))
+            show["Amount"] = show["Amount"].apply(lambda x: money(x) if pd.notna(x) else "—")
+            st.dataframe(show[["Nickname","Amount","Account","Category","DayOfMonth"]], width="stretch", hide_index=True)
 
-            upload_csv.on('upload', _on_csv_upload)
+            st.markdown("#### Edit one")
+            mk = st.selectbox("MerchantKey", pdf["MerchantKey"].astype(str).tolist(), index=0)
+            row = pdf[pdf["MerchantKey"].astype(str) == str(mk)].iloc[0]
 
-        # Merchant cleanup suggestions
-        with ui.card().classes('my-card p-5'):
-            ui.label('Merchant cleanup').classes('text-lg font-bold')
-            ui.label('Normalize merchant text inside Notes (best-effort).').style('color: var(--mf-muted)')
-            ui.label('This updates existing Transactions notes by cleaning the first merchant segment.').classes('text-sm').style('color: var(--mf-muted)')
+            nick = st.text_input("Display name", value=str(row.get("Nickname","")))
+            amt = st.text_input("Amount ($)", value=str(float(row["Amount"])) if pd.notna(row["Amount"]) else "")
+            amt_v = parse_amount(amt)
+            dom = st.number_input("Day of month (1–31)", min_value=1, max_value=31, value=int(row["DayOfMonth"]), step=1)
 
-            def _preview_cleanup() -> None:
-                tx = cached_df('transactions', force=True)
-                if tx.empty or 'notes' not in tx.columns:
-                    ui.notify('No notes found.', type='warning');
-                    return
-                sample = tx[['id', 'date', 'notes']].head(50).copy()
-                sample['cleaned_notes'] = apply_merchant_cleanup(sample)['notes']
-                rows = sample.to_dict(orient='records')
-                with ui.dialog() as d, ui.card().classes('my-card p-4 w-[92vw] max-w-5xl'):
-                    ui.label('Preview (first 50 rows)').classes('text-lg font-bold')
-                    ui.table(
-                        columns=[
-                            {'name': 'date', 'label': 'Date', 'field': 'date'},
-                            {'name': 'notes', 'label': 'Notes', 'field': 'notes'},
-                            {'name': 'cleaned_notes', 'label': 'Cleaned Notes', 'field': 'cleaned_notes'},
-                            {'name': 'id', 'label': 'ID', 'field': 'id'},
-                        ],
-                        rows=rows,
-                        row_key='id',
-                    ).classes('w-full')
-                    ui.button('Close', on_click=d.close).props('flat')
-                d.open()
+            cats = sorted(set(list(rules.keys()) + list(CATEGORY_ICON.keys())))
+            cat_pick = st.selectbox("Category", [cat_label(c) for c in cats], index=cats.index(str(row.get("Category","Uncategorized"))) if str(row.get("Category","Uncategorized")) in cats else 0)
+            cat = cats[[cat_label(c) for c in cats].index(cat_pick)]
 
-            def _apply_cleanup_all() -> None:
-                tx = cached_df('transactions', force=True)
-                if tx.empty or 'notes' not in tx.columns:
-                    ui.notify('No notes found.', type='warning');
-                    return
-                cleaned = apply_merchant_cleanup(tx)
-                # apply updates row-by-row (safe; but can be slower)
-                updated = 0
-                for _, r in cleaned.iterrows():
-                    rid = str(r.get('id', '')).strip()
-                    if not rid:
-                        continue
-                    new_notes = str(r.get('notes', ''))
-                    # compare with original to avoid write spam
-                    orig_notes = str(tx.loc[tx['id'].astype(str) == rid, 'notes'].iloc[0]) if (tx['id'].astype(str) == rid).any() else None
-                    if orig_notes is not None and new_notes != orig_notes:
-                        if update_row_by_id('transactions', 'id', rid, {'notes': new_notes}):
-                            updated += 1
-                invalidate('transactions')
-                ui.notify(f'Updated {updated} notes.', type='positive')
+            pay = st.selectbox("Pay", PAY_METHODS, index=PAY_METHODS.index(str(row.get("Pay","Bank"))) if str(row.get("Pay","Bank")) in PAY_METHODS else 1)
+            acct_opts = [f"{emoji_map_live.get(a,'💳')} {a}" for a in allowed_accounts_live]
+            acct_map = {f"{emoji_map_live.get(a,'💳')} {a}": a for a in allowed_accounts_live}
+            acct_pick = st.selectbox("Account", acct_opts, index=0)
+            acct = acct_map[acct_pick]
 
-            with ui.row().classes('gap-2 mt-2'):
-                ui.button('Preview', icon='preview', on_click=_preview_cleanup).props('outline')
-                ui.button('Apply cleanup to all', icon='auto_fix_high', on_click=_apply_cleanup_all).props('unelevated')
+            if st.button("Save Recurring Item"):
+                if amt_v is None:
+                    st.error("Enter a valid amount.")
+                    st.stop()
+                pref = {"MerchantKey": str(mk), "Nickname": nick.strip() or str(mk).title(), "IsRecurring": True,
+                        "DayOfMonth": int(dom), "Category": cat, "Pay": pay,
+                        "Account": acct if pay == "Card" else pay, "Amount": float(amt_v)}
+                prefs2 = upsert_pref(prefs, pref)
+                admin_update_and_refresh("recurring_prefs_json", json.dumps(prefs2, ensure_ascii=False))
+                st.toast("Saved ✓", icon="✅")
+                st.rerun()
 
-    shell(content)
+    else:  # Insights
+        st.markdown("### ✨ Insights")
+        st.caption("Quality checks that keep your ledger clean and powerful.")
 
+        issues = []
+        missing_limits = acct_df[acct_df["Limit"] <= 0]["Account"].tolist()
+        if missing_limits:
+            issues.append(f"Set limits for: {', '.join(missing_limits)}")
 
-# -----------------------------
-# Boot
-# -----------------------------
-# -----------------------------
-# Boot
-# -----------------------------
-def bootstrap() -> None:
-    ensure_tabs()
-    # One-time migration: older rows often have the unique id stored in `TxId` while
-    # the newer logic edits by `id`. Backfill `id` from `TxId` so Edit works.
-    _migrate_transactions_id_column()
+        unc = tx_df[tx_df["Category"].isin(["", "Uncategorized"])].copy()
+        if not unc.empty:
+            top = unc["Notes"].fillna("").apply(normalize_merchant)
+            by = top[top != ""].value_counts().head(8)
+            if not by.empty:
+                issues.append("Frequently uncategorized merchants: " + ", ".join([f"{k.title()} ({v})" for k, v in by.items()]))
 
-bootstrap()
+        empty_notes = int((tx_df["Notes"].fillna("").str.strip() == "").sum()) if not tx_df.empty else 0
+        if empty_notes > 0:
+            issues.append(f"{empty_notes} transaction(s) have empty notes (harder to auto-categorize).")
 
-ui.run(
-    host="0.0.0.0",
-    port=PORT,
-    storage_secret=STORAGE_SECRET or "PLEASE_SET_NICEGUI_STORAGE_SECRET",
-    title=APP_TITLE,
-)
+        score = 100
+        score -= len(missing_limits) * 7
+        score -= min(30, empty_notes * 2)
+        score -= 10 if (not unc.empty) else 0
+        score = max(0, score)
+
+        st.markdown(f"<div class='mf-card mf-anim'><h4>Ledger Health</h4><p class='mf-kpi'>{score}/100</p><p class='mf-sub'>Higher score = cleaner data + better automation.</p></div>", unsafe_allow_html=True)
+        st.progress(score/100.0, text="Health")
+
+        if issues:
+            st.markdown("#### Recommendations")
+            for i in issues:
+                st.info(i)
+        else:
+            st.success("Everything looks clean ✅")
+
+        st.markdown("#### Backup")
+        export_month = st.selectbox("Export month", ["All"] + sorted(tx_df["Month"].unique().tolist()))
+        export_df = tx_df.copy()
+        if export_month != "All":
+            export_df = export_df[export_df["Month"] == export_month]
+        st.download_button("Download Backup CSV", data=export_df[TX_HEADERS].to_csv(index=False).encode("utf-8"),
+                           file_name="nishanthfintrack_backup.csv", mime="text/csv")
+# =============================
+# Pages (subpages)
+# =============================
+# =============================
+# Pages (subpages) + Navigation
+# =============================
+
+def detect_mobile_mode() -> bool:
+    # Explicit override via query params
+    try:
+        qp = st.query_params
+        mv = str(qp.get("mobile", "")).strip().lower()
+        if mv in ("1", "true", "yes", "y", "on"):
+            return True
+        if mv in ("0", "false", "no", "n", "off"):
+            return False
+    except Exception:
+        pass
+
+    # Best-effort user-agent detection (works on Streamlit Cloud)
+    ua = ""
+    try:
+        ua = (st.context.headers.get("User-Agent") or "")
+    except Exception:
+        try:
+            # older streamlit fallbacks
+            ua = (st.runtime.scriptrunner.get_script_run_ctx().request.headers.get("User-Agent") or "")
+        except Exception:
+            ua = ""
+
+    ua_l = ua.lower()
+    return any(k in ua_l for k in ["iphone", "ipad", "android", "mobile"])
+
+MOBILE_MODE = detect_mobile_mode()
+
+# Use mobile Add page when on phone
+def _page_add_router():
+    if MOBILE_MODE:
+        page_add_mobile()
+    else:
+        page_add()
+
+pages = [
+    st.Page(page_dashboard, title="🏠 Dashboard", url_path="dashboard"),
+    st.Page(_page_add_router, title="➕ Add", url_path="add"),
+    st.Page(page_creditbal, title="💳 CreditBal", url_path="creditbal"),
+    st.Page(page_trends, title="📈 Trends", url_path="trends"),
+    st.Page(page_transactions, title="🧾 Transactions", url_path="transactions"),
+    st.Page(page_admin, title="🛡️ Admin", url_path="admin"),
+]
+
+if MOBILE_MODE:
+    # On phones, avoid relying on the sidebar (it overlays the content).
+    # Provide an in-page navigation bar so the user never needs to open the sidebar.
+    page_keys = ["dashboard", "add", "creditbal", "trends", "transactions", "admin"]
+    page_labels = {
+        "dashboard": "🏠",
+        "add": "➕",
+        "creditbal": "💳",
+        "trends": "📈",
+        "transactions": "🧾",
+        "admin": "🛡️",
+    }
+    # Read current page from query params (fallback to dashboard)
+    try:
+        cur = str(st.query_params.get("p", "dashboard"))
+    except Exception:
+        cur = "dashboard"
+    if cur not in page_keys:
+        cur = "dashboard"
+
+    sel = st.radio(
+        "Navigate",
+        options=page_keys,
+        index=page_keys.index(cur),
+        format_func=lambda k: f"{page_labels.get(k,'•')} {k.title()}",
+        horizontal=True,
+        label_visibility="collapsed",
+        key="mobile_top_nav",
+    )
+
+    if sel != cur:
+        st.query_params["p"] = sel
+        st.rerun()
+
+    # Execute the selected page directly (no sidebar needed)
+    page_map = {
+        "dashboard": page_dashboard,
+        "add": _page_add_router,
+        "creditbal": page_creditbal,
+        "trends": page_trends,
+        "transactions": page_transactions,
+        "admin": page_admin,
+    }
+    page_map[sel]()
+else:
+    nav = st.navigation(pages, position="sidebar")
+    nav.run()
+st.caption("NishanthFinTrack 2026 • Premium Dark • Fast • Sheets-backed • Apply filters for speed • Refresh only when needed")
