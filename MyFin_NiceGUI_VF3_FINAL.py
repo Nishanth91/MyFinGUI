@@ -1,3 +1,9 @@
+# ======================================
+# MyFin App – Phase 4.6A
+# Scope: Premium UI foundation & UX fixes
+# Base: VF2_P4_5 (Last Stable)
+# ======================================
+
 # ==============================
 # MyFin App – Phase 4.5 (P4.4 + P4.5 combined)
 # Base: Myfin_NICEGUI_VF2_P4_2 (last stable)
