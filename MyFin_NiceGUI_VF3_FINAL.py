@@ -1577,8 +1577,8 @@ body, .q-layout, .q-page {
 }
 
 .my-card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04)) !important;
-  border: 1px solid var(--mf-border) !important;
+  background: linear-gradient(180deg, var(--mf-surface-2), var(--mf-surface)) !important;
+border: 1px solid var(--mf-border) !important;
   border-radius: 18px !important;
   box-shadow: 0 18px 50px rgba(0,0,0,0.35);
   backdrop-filter: blur(10px);
@@ -1762,8 +1762,8 @@ body, .q-layout, .q-page {
   text-transform: none !important;
 }
 .mf-navbtn.is-active{
-  background: rgba(91,140,255,0.18) !important;
-  border: 1px solid rgba(91,140,255,0.35) !important;
+  background: var(--mf-g1) !important;
+  border: 1px solid rgba(255,255,255,0.18) !important;
 }
 .mf-navbtn .q-btn__content span { font-size: 11px; opacity: 0.78; }
 
@@ -1798,8 +1798,9 @@ body, .q-layout, .q-page {
 /* Mobile full-bleed adjustments (5.2.2) */
 @media (max-width: 600px){
   .mf-header, .mf-canvas { max-width: none !important; width: 100% !important; margin: 0 !important; }
-  .mf-main { padding-left: 6px !important; padding-right: 6px !important; }
+  .mf-main { padding-left: 0 !important; padding-right: 0 !important; }
   .mf-canvas { padding-left: 0 !important; padding-right: 0 !important; }
+  .mf-header { padding-left: 10px !important; padding-right: 10px !important; }
 }
 """
 ui.add_head_html(f"<style>{BANK_CSS}</style>", shared=True)
@@ -1939,28 +1940,31 @@ def shell(content_fn, *, active_path: str = ""):
         # Main
         with ui.element("main").classes("mf-main"):
             with ui.element("div").classes("mf-header"):
-                with ui.element("div").classes("mf-title"):
-                    # Keep it simple for now; pages can render their own hero.
-                    ui.label("MyFin").classes("t1")
-                    ui.label("Phase 5 UI + Phase 4 realtime logic").classes("t2")
+                with ui.row().classes("items-center justify-between w-full"):
+                    # LEFT: hamburger + title
+                    with ui.row().classes("items-center gap-3"):
+                        ui.button("", icon="menu").props("flat round dense").style(
+                            "border: 1px solid var(--mf-border); background: var(--mf-surface);"
+                        ).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-nav-open')"))
+                        with ui.element("div").classes("mf-title"):
+                            ui.label("MyFin").classes("t1")
+                            ui.label("Phase 5 UI + Phase 4 realtime logic").classes("t2")
 
-                with ui.row().classes("items-center gap-2"):
-                    ui.button("", icon="menu").props("flat round").style(
-                        "border: 1px solid var(--mf-border); background: rgba(255,255,255,0.04);"
-                    ).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle(\'mf-nav-open\')"))
-                    ui.select(
-                        ["Midnight Blue","Emerald Gold","Graphite Rose"],
-                        value="Midnight Blue",
-                        on_change=lambda e: ui.run_javascript(f"mfSetTheme({e.value!r})"),
-                    ).props("dense outlined").style(
-                        "min-width: 170px; background: rgba(255,255,255,0.03); border-radius: 12px;"
-                    )
-                    ui.button("", icon="search").props("flat round").style(
-                        "border: 1px solid var(--mf-border); background: rgba(255,255,255,0.04);"
-                    ).on("click", lambda: open_search_dialog())
-                    ui.button("Add", icon="add").props("unelevated").style(
-                        "background: rgba(91,140,255,1); color: #071022; border-radius: 12px; font-weight: 900;"
-                    ).on("click", lambda: nav_to("/add"))
+                    # RIGHT: theme + actions
+                    with ui.row().classes("items-center gap-2"):
+                        ui.select(
+                            ["Midnight Blue","Emerald Gold","Graphite Rose"],
+                            value="Midnight Blue",
+                            on_change=lambda e: ui.run_javascript(f"mfSetTheme({e.value!r})"),
+                        ).props("dense outlined").style(
+                            "min-width: 170px; background: var(--mf-surface); border-radius: 12px;"
+                        )
+                        ui.button("", icon="search").props("flat round dense").style(
+                            "border: 1px solid var(--mf-border); background: var(--mf-surface);"
+                        ).on("click", lambda: open_search_dialog())
+                        ui.button("Add", icon="add").props("unelevated").style(
+                            "background: var(--mf-accent); color: #071022; border-radius: 12px; font-weight: 900;"
+                        ).on("click", lambda: nav_to("/add"))
 
             with ui.element("div").classes("mf-canvas"):
                 content_fn()
@@ -2276,9 +2280,6 @@ def dashboard_page():
                             ui.icon(icon).style("color: var(--mf-muted)")
                         ui.label(currency(val)).classes('text-2xl font-bold mt-1')
                         ui.label(f"{pp_start.strftime('%b %d')} → {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
-                    ui.label(label).classes('text-sm').style('color: var(--mf-muted)')
-                    ui.label(currency(val)).classes('text-2xl font-bold')
-                    ui.label(f"{pp_start.strftime('%b %d')} → {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
 
 
         # Quick actions + data quality
