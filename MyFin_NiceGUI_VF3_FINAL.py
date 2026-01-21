@@ -1558,16 +1558,18 @@ BANK_CSS = r"""
   --mf-border: rgba(255,255,255,0.12);
   --mf-text: rgba(255,255,255,0.92);
   --mf-muted: rgba(255,255,255,0.62);
-  --mf-accent: #20c997;
-  --mf-accent2: #8b5cf6;
+  --mf-accent: #5B8CFF;
+  --mf-accent2: #46E6A6;
   --mf-good: #22c55e;
   --mf-bad: #ef4444;
   --mf-warn: #fbbf24;
+  --mf-g1: rgba(91,140,255,0.22);
+  --mf-g2: rgba(70,230,166,0.12);
 }
 
 body, .q-layout, .q-page {
-  background: radial-gradient(1200px 700px at 18% 12%, rgba(32,201,151,0.22), transparent 60%),
-              radial-gradient(900px 600px at 82% 18%, rgba(139,92,246,0.16), transparent 58%),
+  background: radial-gradient(1200px 700px at 18% 12%, var(--mf-g1), transparent 60%),
+              radial-gradient(900px 600px at 82% 18%, var(--mf-g2), transparent 58%),
               radial-gradient(900px 600px at 80% 20%, rgba(34,197,94,0.12), transparent 55%),
               radial-gradient(900px 600px at 40% 90%, rgba(251,191,36,0.08), transparent 55%),
               var(--mf-bg) !important;
@@ -1705,11 +1707,27 @@ body, .q-layout, .q-page {
 .mf-shell { display: flex; min-height: 100vh; width: 100%; }
 .mf-rail {
   width: 92px;
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  padding: 18px;
+  position: fixed;
+  left: 18px;
+  top: 18px;
+  height: calc(100vh - 36px);
+  padding: 0;
+  z-index: 50;
+  transform: translateX(-130%);
+  transition: transform 180ms ease;
 }
+.mf-nav-open .mf-rail { transform: translateX(0); }
+
+.mf-backdrop{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  z-index: 40;
+  display: none;
+}
+.mf-nav-open .mf-backdrop{ display:block; }
 .mf-rail-card{
   height: 100%;
   display: flex;
@@ -1778,6 +1796,47 @@ body, .q-layout, .q-page {
 """
 ui.add_head_html(f"<style>{BANK_CSS}</style>", shared=True)
 
+ui.add_head_html(
+    """<script>
+(function(){
+  const THEMES = {
+    "Midnight Blue": {
+      "--mf-bg":"#070A12","--mf-bg-2":"#0B1020","--mf-surface":"rgba(255,255,255,0.06)","--mf-surface-2":"rgba(255,255,255,0.09)",
+      "--mf-border":"rgba(255,255,255,0.10)","--mf-text":"rgba(255,255,255,0.92)","--mf-muted":"rgba(255,255,255,0.62)",
+      "--mf-accent":"#5B8CFF","--mf-accent2":"#46E6A6","--mf-g1":"rgba(91,140,255,0.22)","--mf-g2":"rgba(70,230,166,0.12)"
+    },
+    "Emerald Gold": {
+      "--mf-bg":"#050B0A","--mf-bg-2":"#071613","--mf-surface":"rgba(255,255,255,0.055)","--mf-surface-2":"rgba(255,255,255,0.085)",
+      "--mf-border":"rgba(255,255,255,0.11)","--mf-text":"rgba(255,255,255,0.92)","--mf-muted":"rgba(255,255,255,0.62)",
+      "--mf-accent":"#22C55E","--mf-accent2":"#FBBF24","--mf-g1":"rgba(34,197,94,0.20)","--mf-g2":"rgba(251,191,36,0.12)"
+    },
+    "Graphite Rose": {
+      "--mf-bg":"#07070A","--mf-bg-2":"#0E0A12","--mf-surface":"rgba(255,255,255,0.055)","--mf-surface-2":"rgba(255,255,255,0.085)",
+      "--mf-border":"rgba(255,255,255,0.11)","--mf-text":"rgba(255,255,255,0.92)","--mf-muted":"rgba(255,255,255,0.62)",
+      "--mf-accent":"#FB7185","--mf-accent2":"#A78BFA","--mf-g1":"rgba(251,113,133,0.18)","--mf-g2":"rgba(167,139,250,0.16)"
+    }
+  };
+
+  window.mfSetTheme = function(name){
+    try{
+      const t = THEMES[name] || THEMES["Midnight Blue"];
+      const root = document.documentElement;
+      Object.keys(t).forEach(k => root.style.setProperty(k, t[k]));
+      localStorage.setItem("mf_theme", name);
+    }catch(e){}
+  };
+
+  // Apply saved theme ASAP
+  try{
+    const saved = localStorage.getItem("mf_theme");
+    if(saved){ window.mfSetTheme(saved); }
+  }catch(e){}
+})();
+</script>""",
+    shared=True,
+)
+
+
 # Client-side OCR (free): used only when user scans a receipt on Expense form.
 ui.add_head_html(
     "<script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>",
@@ -1818,10 +1877,20 @@ def shell(content_fn, *, active_path: str = ""):
 
     def nav_btn(label: str, icon: str, href: str) -> None:
         cls = "mf-navbtn" + (" is-active" if href == active_path else "")
-        with ui.link(target=href).classes("no-underline w-full"):
-            ui.button(label, icon=icon).props("flat").classes(cls)
+        def go() -> None:
+            # use your Phase 4 router helper (no ui.open)
+            try:
+                nav_to(href)
+            except Exception:
+                pass
+            # close overlay after navigation (mobile + desktop)
+            ui.run_javascript("document.documentElement.classList.remove('mf-nav-open')")
+        ui.button(label, icon=icon).props("flat").classes(cls).on("click", go)
 
     with ui.element("div").classes("mf-shell"):
+        # Backdrop overlay (tap to close)
+        ui.element("div").classes("mf-backdrop").on("click", lambda: ui.run_javascript("document.documentElement.classList.remove(\'mf-nav-open\')"))
+
         # Left rail
         with ui.element("div").classes("mf-rail"):
             with ui.element("div").classes("mf-rail-card"):
@@ -1847,6 +1916,12 @@ def shell(content_fn, *, active_path: str = ""):
                     ui.label("Phase 5 UI + Phase 4 realtime logic").classes("t2")
 
                 with ui.row().classes("items-center gap-2"):
+                    ui.button("", icon="menu").props("flat round").style(
+                        "border: 1px solid var(--mf-border); background: rgba(255,255,255,0.04);"
+                    ).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle(\'mf-nav-open\')"))
+                    ui.select(["Midnight Blue","Emerald Gold","Graphite Rose"], value="Midnight Blue").props("dense outlined").style(
+                        "min-width: 170px; background: rgba(255,255,255,0.03); border-radius: 12px;"
+                    ).on("update:model-value", lambda e: ui.run_javascript(f"mfSetTheme({e.args[0]!r})"))
                     ui.button("", icon="search").props("flat round").style(
                         "border: 1px solid var(--mf-border); background: rgba(255,255,255,0.04);"
                     )
