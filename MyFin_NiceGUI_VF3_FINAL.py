@@ -3451,14 +3451,11 @@ def cards_page() -> None:
                         if method:
                             ui.badge(method).classes('q-pa-xs').style('background: rgba(46,125,255,0.18); color: var(--mf-text); border: 1px solid var(--mf-border);')
 
-                    with ui.row().classes('items-center q-gutter-md'):
-                        with ui.column().classes('q-gutter-xs'):
-                            ui.label('Billing day').classes('text-xs').style('color: var(--mf-muted);')
-                            ui.label(bd or '—').classes('text-sm').style('color: var(--mf-text);')
-
-                        with ui.column().classes('q-gutter-xs'):
-                            ui.label('Limit').classes('text-xs').style('color: var(--mf-muted);')
-                            ui.label(f'${lim:,.2f}' if lim else '—').classes('text-sm').style('color: var(--mf-text);')
+                    with ui.row().classes('w-full items-center justify-between mt-3'):
+                        ui.label(f'Limit').classes('text-xs').style('color: var(--mf-muted);')
+                        ui.label(f'${lim:,.2f}' if lim else '—').classes('text-sm font-semibold').style('color: var(--mf-text);')
+                        ui.label('Billing day').classes('text-xs').style('color: var(--mf-muted);')
+                        ui.label(bd or '—').classes('text-sm font-semibold').style('color: var(--mf-text);')
 
                     ui.separator().classes('my-3 opacity-30')
                     with ui.row().classes('w-full items-center justify-between'):
@@ -3598,98 +3595,222 @@ def rules_page():
 
     def content():
         rdf = cached_df("rules")
-        with ui.card().classes("my-card p-5"):
-            ui.label("Rules").classes("text-lg font-bold")
-            ui.label("Keyword → category mapping used for Auto-category in Add.").style("color: var(--mf-muted)")
+        if rdf is None or rdf.empty:
+            rdf = (rdf if rdf is not None else pd.DataFrame(columns=["keyword", "category"])).copy()
 
-            table = ui.table(columns=[
-                {"name": "keyword", "label": "Keyword", "field": "keyword"},
-                {"name": "category", "label": "Category", "field": "category"},
-            ], rows=rdf.to_dict(orient="records") if not rdf.empty else [], row_key="keyword", selection="single").classes("w-full").props("dense flat")
+        # Normalize columns
+        if "keyword" not in rdf.columns:
+            rdf["keyword"] = ""
+        if "category" not in rdf.columns:
+            rdf["category"] = ""
 
-            # Phase 4: quick rule tester
-            with ui.card().classes('my-card p-4 mt-4'):
-                ui.label('Test a rule').classes('text-md font-bold')
-                sample = ui.input('Paste merchant/notes text here').classes('w-full')
-                result = ui.label('')
-                def _test():
-                    rules = load_rules(force=True)
-                    cat = infer_category(sample.value or '', rules)
-                    result.text = f"Matched category: {cat}"
-                ui.button('Test', icon='science', on_click=_test).props('outline')
+        rdf_view = rdf.copy()
+        rdf_view["keyword"] = rdf_view["keyword"].astype(str).fillna("")
+        rdf_view["category"] = rdf_view["category"].astype(str).fillna("")
+        rdf_view["keyword_l"] = rdf_view["keyword"].str.lower()
 
-            with ui.row().classes("w-full gap-3 mt-3"):
-                k = ui.input("Keyword (lowercase recommended)").classes("w-full")
-                c = ui.input("Category").classes("w-full")
+        state = {"selected_kw": None}
 
-            def add_rule():
-                append_row("rules", {"keyword": k.value or "", "category": c.value or ""})
-                invalidate("rules")
-                ui.notify("Rule added", type="positive")
-                nav_to("/rules")
+        def parse_keywords(s: str) -> list[str]:
+            parts = [p.strip() for p in (s or "").split(",")]
+            parts = [p for p in parts if p]
+            return sorted(list(dict.fromkeys([p.lower() for p in parts])))
 
-            def del_rule():
-                if not table.selected:
-                    ui.notify("Select a row", type="warning")
-                    return
-                kw = str(table.selected[0].get("keyword", ""))
-                if delete_row_by_id("rules", "keyword", kw):
-                    invalidate("rules")
-                    ui.notify("Deleted", type="positive")
-                    nav_to("/rules")
-                else:
-                    ui.notify("Delete failed", type="negative")
+        def keywords_to_string(keys: list[str]) -> str:
+            return ", ".join(keys)
 
-            
+        def chips_preview(keys: list[str], max_chips: int = 3) -> str:
+            if not keys:
+                return ""
+            shown = keys[:max_chips]
+            tail = len(keys) - len(shown)
+            return " • ".join(shown) + (f"  +{tail}" if tail > 0 else "")
 
-            def _load_selected_rule() -> None:
-                if not table.selected:
-                    ui.notify('Select a row', type='warning')
-                    return
-                r = table.selected[0]
-                k.value = str(r.get('keyword', '') or '')
-                c.value = str(r.get('category', '') or '')
+        # UI
+        ui.label("Rules").classes("text-2xl font-semibold").style("color: var(--mf-text);")
+        ui.label("Keyword → category mapping used for Auto-category in Add.").classes("text-sm").style("color: var(--mf-muted);")
 
-            def edit_rule() -> None:
-                if not table.selected:
-                    ui.notify('Select a row', type='warning')
-                    return
-                orig_kw = str(table.selected[0].get('keyword', '') or '').strip()
-                new_kw = str(k.value or '').strip()
-                new_cat = str(c.value or '').strip()
-                if not orig_kw:
-                    ui.notify('Selected row missing keyword', type='negative')
-                    return
-                if not new_kw:
-                    ui.notify('Keyword required', type='warning')
-                    return
-                if not new_cat:
-                    ui.notify('Category required', type='warning')
-                    return
-                try:
-                    if new_kw.lower() == orig_kw.lower():
-                        ok = update_row_by_id('rules', 'keyword', orig_kw, {'keyword': new_kw, 'category': new_cat})
-                        if not ok:
-                            ui.notify('Update failed', type='negative')
-                            return
+        with ui.row().classes("w-full gap-4 mt-4"):
+
+            # ------------------------------
+            # LEFT: Rule list (compact)
+            # ------------------------------
+            with ui.card().classes("my-card").style("width: 340px; max-width: 100%;"):
+                with ui.row().classes("items-center justify-between"):
+                    ui.label("Rule list").classes("text-sm font-semibold").style("color: var(--mf-text);")
+                    ui.button("", icon="add").props("flat round").on("click", lambda e: clear_selection())
+                ui.separator().classes("opacity-30 my-2")
+
+                search = ui.input(placeholder="Search keyword/category").props("dense").classes("w-full")
+                list_area = ui.column().classes("w-full gap-1").style("max-height: 62vh; overflow: auto;")
+
+                def render_list():
+                    list_area.clear()
+                    q = (search.value or "").strip().lower()
+                    view = rdf_view
+                    if q:
+                        view = view[
+                            view["keyword_l"].str.contains(q, na=False)
+                            | view["category"].str.lower().str.contains(q, na=False)
+                        ].copy()
+
+                    if view.empty:
+                        ui.label("No rules match.").classes("text-sm").style("color: var(--mf-muted);").move(list_area)
+                        return
+
+                    view = view.sort_values(["category", "keyword_l"], kind="stable")
+
+                    for _, row in view.iterrows():
+                        kw_raw = str(row.get("keyword", "") or "")
+                        cat = str(row.get("category", "") or "")
+                        keys = parse_keywords(kw_raw)
+                        active = (state["selected_kw"] == kw_raw)
+
+                        item = ui.card().classes("q-pa-sm").style(
+                            "border-radius: 14px; cursor:pointer; "
+                            + ("border: 1px solid rgba(91,140,255,0.45); background: rgba(91,140,255,0.10);" if active
+                               else "border: 1px solid var(--mf-border); background: rgba(255,255,255,0.04);")
+                        )
+                        with item:
+                            ui.label(cat or "—").classes("text-sm font-semibold").style("color: var(--mf-text);")
+                            ui.label(chips_preview(keys, 4) or "—").classes("text-xs").style("color: var(--mf-muted);")
+                        item.on("click", lambda e, kw=kw_raw: (select_rule(kw), render_list()))
+
+                search.on("input", lambda e: render_list())
+
+            # ------------------------------
+            # RIGHT: Editor
+            # ------------------------------
+            with ui.card().classes("my-card flex-1").style("min-width: 320px;"):
+                with ui.row().classes("items-center justify-between"):
+                    ui.label("Rule editor").classes("text-sm font-semibold").style("color: var(--mf-text);")
+                    mode_badge = ui.badge("New").style(
+                        "background: rgba(255,255,255,0.06); color: var(--mf-text); border: 1px solid var(--mf-border);"
+                    )
+
+                ui.separator().classes("opacity-30 my-2")
+
+                ui.label("Keywords").classes("text-xs").style("color: var(--mf-muted);")
+                kw_input = ui.input(placeholder="e.g. walmart, superstore, uber").classes("w-full")
+                chips_row = ui.row().classes("w-full items-center gap-2").style("flex-wrap: wrap; margin-top: 10px;")
+                hint_label = ui.label("Tip: Use multiple keywords separated by commas. Matching is case-insensitive.").classes("text-xs").style(
+                    "color: var(--mf-muted); margin-top:6px;"
+                )
+
+                ui.separator().classes("opacity-30 my-3")
+
+                ui.label("Category").classes("text-xs").style("color: var(--mf-muted);")
+                cat_input = ui.input(placeholder="e.g. Groceries").classes("w-full")
+
+                ui.separator().classes("opacity-30 my-3")
+
+                with ui.row().classes("w-full justify-end gap-2"):
+                    del_btn = ui.button("Delete", icon="delete").props("flat").style(
+                        "border: 1px solid rgba(255,90,90,0.35); color: rgba(255,255,255,0.92);"
+                    )
+                    save_btn = ui.button("Save", icon="save").props("unelevated").style(
+                        "background: var(--mf-accent); color: #071022; font-weight: 900;"
+                    )
+
+                # ------------------------------
+                # Editor helpers
+                # ------------------------------
+                def refresh_chips() -> None:
+                    chips_row.clear()
+                    keys = parse_keywords(kw_input.value or "")
+                    if not keys:
+                        ui.label("No keywords yet").classes("text-xs").style("color: var(--mf-muted);").move(chips_row)
+                        return
+                    for k in keys[:14]:
+                        ui.badge(k).classes("q-pa-sm").style(
+                            "background: rgba(255,255,255,0.06); color: var(--mf-text); border: 1px solid var(--mf-border); border-radius: 999px;"
+                        ).move(chips_row)
+                    if len(keys) > 14:
+                        ui.label(f"+{len(keys)-14} more").classes("text-xs").style("color: var(--mf-muted);").move(chips_row)
+
+                def set_editor(keyword_raw: str, category: str) -> None:
+                    kw_input.value = keyword_raw or ""
+                    cat_input.value = category or ""
+                    refresh_chips()
+                    mode_badge.text = "Selected" if state["selected_kw"] else "New"
+
+                def select_rule(kw: str) -> None:
+                    state["selected_kw"] = kw
+                    row = rdf_view.loc[rdf_view["keyword"] == kw]
+                    if not row.empty:
+                        r0 = row.iloc[0]
+                        set_editor(str(r0.get("keyword", "")), str(r0.get("category", "")))
                     else:
-                        # keyword changed: delete old + add new (keeps sheet simple)
-                        if not delete_row_by_id('rules', 'keyword', orig_kw):
-                            ui.notify('Could not replace rule (delete failed)', type='negative')
-                            return
-                        append_row('rules', {'keyword': new_kw, 'category': new_cat})
-                    invalidate('rules')
-                    ui.notify('Rule updated', type='positive')
-                    nav_to('/rules')
-                except Exception as e:
-                    ui.notify(f'Edit failed: {e}', type='negative')
-            with ui.row().classes("gap-2 mt-3"):
-                ui.button('Load selected', on_click=_load_selected_rule).props('flat')
-                ui.button('Save changes', on_click=edit_rule).props('unelevated')
-                ui.button('Add rule', on_click=add_rule).props('outline')
-                ui.button('Delete selected', on_click=del_rule).props('flat')
+                        set_editor("", "")
+                    mode_badge.text = "Selected"
+
+                def clear_selection() -> None:
+                    state["selected_kw"] = None
+                    set_editor("", "")
+                    mode_badge.text = "New"
+                    # list highlight refresh happens via render_list caller
+
+                def save_rule() -> None:
+                    keys = parse_keywords(kw_input.value or "")
+                    keyword_str = keywords_to_string(keys)
+                    category_str = (cat_input.value or "").strip()
+
+                    if not keyword_str:
+                        ui.notify("Enter at least one keyword", type="warning")
+                        return
+                    if not category_str:
+                        ui.notify("Enter a category", type="warning")
+                        return
+
+                    old_kw = state["selected_kw"]
+                    if old_kw:
+                        if old_kw != keyword_str:
+                            if delete_row_by_id("rules", "keyword", str(old_kw)):
+                                append_row("rules", {"keyword": keyword_str, "category": category_str})
+                            else:
+                                ui.notify("Update failed (could not remove old rule)", type="negative")
+                                return
+                        else:
+                            if not update_row_by_id("rules", "keyword", keyword_str, {"category": category_str}):
+                                ui.notify("Update failed", type="negative")
+                                return
+                        invalidate("rules")
+                        ui.notify("Rule saved", type="positive")
+                        nav_to("/rules")
+                    else:
+                        append_row("rules", {"keyword": keyword_str, "category": category_str})
+                        invalidate("rules")
+                        ui.notify("Rule added", type="positive")
+                        nav_to("/rules")
+
+                def delete_rule() -> None:
+                    old_kw = state["selected_kw"]
+                    if not old_kw:
+                        ui.notify("Select a rule on the left", type="warning")
+                        return
+                    if delete_row_by_id("rules", "keyword", str(old_kw)):
+                        invalidate("rules")
+                        ui.notify("Deleted", type="positive")
+                        nav_to("/rules")
+                    else:
+                        ui.notify("Delete failed", type="negative")
+
+                # Bind events
+                kw_input.on("input", lambda e: refresh_chips())
+                save_btn.on("click", lambda e: save_rule())
+                del_btn.on("click", lambda e: delete_rule())
+
+                # init
+                refresh_chips()
+
+            # After editor defined, we can define list events that call clear_selection/select_rule
+            # (functions exist in scope now)
+
+            # Now render list with functions available
+            render_list()
 
     shell(content)
+
 
 
 
