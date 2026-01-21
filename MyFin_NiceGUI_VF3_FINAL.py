@@ -1577,12 +1577,35 @@ body, .q-layout, .q-page {
 }
 
 .my-card {
-  background: linear-gradient(180deg, var(--mf-surface-2), var(--mf-surface)) !important;
-border: 1px solid var(--mf-border) !important;
-  border-radius: 18px !important;
-  box-shadow: 0 18px 50px rgba(0,0,0,0.35);
-  backdrop-filter: blur(10px);
+  background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.05)) !important;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  border-radius: 24px !important;
+  box-shadow:
+    0 20px 55px rgba(0,0,0,0.42),
+    inset 0 1px 0 rgba(255,255,255,0.12);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  overflow: hidden;
+  position: relative;
 }
+.my-card::before{
+  content:"";
+  position:absolute; inset:-2px;
+  background:
+    radial-gradient(500px 220px at 20% 0%, rgba(255,255,255,0.14), transparent 60%),
+    radial-gradient(420px 240px at 80% 20%, rgba(91,140,255,0.18), transparent 65%),
+    radial-gradient(420px 240px at 70% 90%, rgba(70,230,166,0.10), transparent 70%);
+  pointer-events:none;
+  opacity:0.9;
+}
+.my-card > * { position: relative; }
+.my-card:hover{
+  transform: translateY(-1px);
+  box-shadow:
+    0 26px 70px rgba(0,0,0,0.48),
+    inset 0 1px 0 rgba(255,255,255,0.14);
+}
+
 
 .kpi {
   border-radius: 16px;
@@ -1798,7 +1821,17 @@ border: 1px solid var(--mf-border) !important;
 
 
 /* 5.4.1: Cards widgets full-width on mobile */
-.mf-card-widget { width: 340px; max-width: 100%; }
+.mf-card-widget { width: 100%; max-width: 100%; }
+
+.mf-card-emph{
+  border: 1px solid rgba(91,140,255,0.22) !important;
+  box-shadow:
+    0 24px 70px rgba(0,0,0,0.50),
+    0 0 0 1px rgba(91,140,255,0.12) inset,
+    inset 0 1px 0 rgba(255,255,255,0.14) !important;
+}
+
+
 @media (max-width: 600px){
   .mf-card-widget { width: 100% !important; }
 }
@@ -3401,92 +3434,171 @@ def cards_page() -> None:
         billing_days = pick(['billing_day', 'BillingDay', 'billingday'], default='')
         limits = pick(['max_limit', 'limit', 'Limit'], default='')
 
-        grid = ui.row().classes('w-full q-col-gutter-md')
-        grid.style('flex-wrap: wrap;')
-
+        
+        # --- Build card entries (computed from transactions) ---
+        entries = []
         for i in range(len(df)):
             name = str(names[i]).strip() or 'Card'
-            emoji = str(emojis[i]).strip() or '💳'
+            emoji = str(emojis[i]).strip()
             method = str(methods[i]).strip()
-            bd = str(billing_days[i]).strip()
-            lim = parse_money(limits[i])
-
-            # Utilization (approx): sum Debit spending by method_name minus CC Repay where account matches card
-            tx = cached_df('transactions')
-            txu = tx.copy()
-            if not txu.empty:
-                txu['type_l'] = txu.get('type','').astype(str).str.strip().str.lower()
-                txu['amount_num'] = txu.get('amount','').apply(to_float)
-                txu['date_parsed'] = txu.get('date','').apply(parse_date)
-            method_key = str(method).strip()
-            card_key = str(name).strip()
-            # billing cycle start
-            cycle_start = None
+            bd = billing_days[i]
             try:
-                bd_int = int(float(bd)) if str(bd).strip() else None
+                lim = float(str(limits[i]).replace(',','').strip()) if str(limits[i]).strip() else 0.0
             except Exception:
-                bd_int = None
-            if bd_int and bd_int >= 1 and bd_int <= 31:
-                today_d = today()
-                y,m = today_d.year, today_d.month
-                # last statement day
-                import calendar as _cal
-                last_day = _cal.monthrange(y,m)[1]
-                stmt_this = dt.date(y,m, min(bd_int,last_day))
-                if today_d >= stmt_this:
-                    last_stmt = stmt_this
-                else:
-                    pm = m-1
-                    py = y
-                    if pm==0:
-                        pm=12; py=y-1
-                    last_day2 = _cal.monthrange(py,pm)[1]
-                    last_stmt = dt.date(py,pm, min(bd_int,last_day2))
-                cycle_start = last_stmt + dt.timedelta(days=1)
-            if cycle_start is None:
-                cycle_start = today() - dt.timedelta(days=30)
+                lim = 0.0
 
+            # Sum spend (debit) for this card within current cycle (if available)
             util_used = 0.0
             util_paid = 0.0
-            if not txu.empty:
-                scope = txu[txu['date_parsed'].notna() & (txu['date_parsed'] >= cycle_start)].copy()
-                # spending: Debit/Expense on this method
-                spend_mask = scope['type_l'].isin(['debit','expense']) & (scope.get('method','').astype(str).str.strip() == method_key)
+
+            tx = cached_df('transactions')
+            if not tx.empty:
+                txu = tx.copy()
+                if 'amount_num' not in txu.columns:
+                    txu['amount_num'] = txu.get('amount','').apply(parse_amount)
+                if 'type_norm' not in txu.columns:
+                    txu['type_norm'] = txu.get('type','').astype(str).str.strip().str.lower()
+
+                # Try infer cycle window from billing day (optional; keep fallback to all-time)
+                cycle_mask = pd.Series([True]*len(txu))
+                try:
+                    bd_int = int(float(bd)) if str(bd).strip() else None
+                except Exception:
+                    bd_int = None
+                if bd_int and 1 <= bd_int <= 31:
+                    txu['date_parsed'] = txu.get('date','').apply(parse_date)
+                    if txu['date_parsed'].notna().any():
+                        today_d = today()
+                        import calendar as _cal
+                        # last statement date = most recent billing day
+                        last_stmt_month = today_d.month
+                        last_stmt_year = today_d.year
+                        if today_d.day < bd_int:
+                            # go previous month
+                            if last_stmt_month == 1:
+                                last_stmt_month = 12
+                                last_stmt_year -= 1
+                            else:
+                                last_stmt_month -= 1
+                        last_day = _cal.monthrange(last_stmt_year, last_stmt_month)[1]
+                        stmt_day = min(bd_int, last_day)
+                        last_stmt = dt.date(last_stmt_year, last_stmt_month, stmt_day)
+                        cycle_start = last_stmt + dt.timedelta(days=1)
+                        cycle_mask = (txu['date_parsed'] >= cycle_start) & (txu['date_parsed'] <= today_d)
+
+                method_key = str(method).strip()
+                card_key = str(name).strip()
+
+                scope = txu[cycle_mask].copy()
+
+                spend_mask = (scope['type_norm'].isin(['debit','expense','spend'])) & (scope.get('account','').astype(str).str.strip() == card_key)
                 util_used = float(scope.loc[spend_mask, 'amount_num'].sum())
-                # repayments: CC Repay variants where account equals card name (best-effort)
-                repay_mask = scope['type_l'].isin(['cc repay','cc_repay','credit card repay','credit card repayment','cc repayment']) & (scope.get('account','').astype(str).str.strip() == card_key)
+
+                repay_mask = (scope['type_norm'].isin(['credit card repay','cc repay','credit card repayment','cc repayment'])) & (scope.get('account','').astype(str).str.strip() == card_key)
                 util_paid = float(scope.loc[repay_mask, 'amount_num'].sum())
+
             balance = max(0.0, util_used - util_paid)
             remaining = max(0.0, (lim - balance)) if lim else 0.0
             pct = (balance/lim) if lim else 0.0
             pct = max(0.0, min(1.0, pct))
 
+            entries.append({
+                'name': name,
+                'emoji': emoji,
+                'method': method,
+                'billing_day': bd,
+                'limit': lim,
+                'balance': balance,
+                'remaining': remaining,
+                'pct': pct,
+            })
 
-            with grid:
-                with ui.card().classes('my-card mf-card-widget'):
+        def _is_ct(c):
+            n = c['name'].lower()
+            return ('canadiantire' in n) or ('canadian tire' in n)
+
+        def _is_loc(c):
+            n = c['name'].lower()
+            m = (c.get('method') or '').lower().strip()
+            return ('line of credit' in n) or (m == 'loc') or (n.startswith('loc')) or (' loc' in n)
+
+        def _is_rbc(c):
+            return ('rbc' in c['name'].lower())
+
+        # Desired grouping + order
+        ct = [c for c in entries if _is_ct(c) and not _is_loc(c)]
+        rbc = [c for c in entries if _is_rbc(c) and not _is_loc(c) and not _is_ct(c)]
+        loc = [c for c in entries if _is_loc(c)]
+        other = [c for c in entries if c not in ct + rbc + loc]
+
+        def _order_ct(c):
+            n = c['name'].lower()
+            return (0 if 'grey' in n or 'gray' in n else 1, n)
+
+        def _order_rbc(c):
+            n = c['name'].lower()
+            return (0 if 'visa' in n else 1 if 'master' in n else 2, n)
+
+        ct.sort(key=_order_ct)
+        rbc.sort(key=_order_rbc)
+
+        def _tile(c, col='col-12 col-md-6', emph=False):
+            extra = ' mf-card-emph' if emph else ''
+            with ui.column().classes(col):
+                with ui.card().classes('my-card mf-card-widget' + extra):
                     with ui.row().classes('items-center justify-between'):
-                        ui.label(f'{emoji} {name}').classes('text-lg font-semibold').style('color: var(--mf-text);')
-                        if method:
-                            ui.badge(method).classes('q-pa-xs').style('background: rgba(46,125,255,0.18); color: var(--mf-text); border: 1px solid var(--mf-border);')
+                        ui.label(f"{c['emoji']} {c['name']}").classes('text-lg font-semibold').style('color: var(--mf-text);')
+                        if c.get('method'):
+                            ui.badge(c['method']).classes('q-pa-xs').style('background: rgba(120,160,255,0.18); color: var(--mf-text); border: 1px solid var(--mf-border);')
 
                     with ui.row().classes('w-full items-center justify-between mt-3'):
-                        ui.label(f'Limit').classes('text-xs').style('color: var(--mf-muted);')
-                        ui.label(f'${lim:,.2f}' if lim else '—').classes('text-sm font-semibold').style('color: var(--mf-text);')
+                        ui.label('Limit').classes('text-xs').style('color: var(--mf-muted);')
+                        ui.label(currency(c['limit']) if c.get('limit') else '—').classes('text-sm font-semibold').style('color: var(--mf-text);')
                         ui.label('Billing day').classes('text-xs').style('color: var(--mf-muted);')
-                        ui.label(bd or '—').classes('text-sm font-semibold').style('color: var(--mf-text);')
+                        ui.label(str(c.get('billing_day') or '—')).classes('text-sm font-semibold').style('color: var(--mf-text);')
 
                     ui.separator().classes('my-3 opacity-30')
+
                     with ui.row().classes('w-full items-center justify-between'):
-                        ui.label('Used').classes('text-xs').style('color: var(--mf-muted)')
-                        ui.label(currency(balance)).classes('text-sm font-semibold')
+                        ui.label('Used').classes('text-xs').style('color: var(--mf-muted);')
+                        ui.label(currency(c.get('balance', 0.0))).classes('text-sm font-semibold').style('color: var(--mf-text);')
+
                     with ui.element('div').classes('w-full mf-progress'):
-                        ui.element('div').style(f'width: {pct*100:.1f}%;')
+                        ui.element('div').style(f"width: {float(c.get('pct', 0.0))*100:.1f}%;")
+
                     with ui.row().classes('w-full items-center justify-between mt-2'):
-                        ui.label('Remaining').classes('text-xs').style('color: var(--mf-muted)')
-                        ui.label(currency(remaining) if lim else '—').classes('text-sm')
+                        ui.label('Remaining').classes('text-xs').style('color: var(--mf-muted);')
+                        ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '—').classes('text-sm font-semibold').style('color: var(--mf-text);')
 
+        def _two_row(items):
+            for i in range(0, len(items), 2):
+                with ui.row().classes('w-full q-col-gutter-md'):
+                    for c in items[i:i+2]:
+                        _tile(c)
 
-    shell(content)
+        # --- Render: Canadian Tire (2 in a row)
+        if ct:
+            ui.label('Canadian Tire').classes('text-sm font-semibold mt-4').style('color: var(--mf-muted); letter-spacing:0.4px;')
+            _two_row(ct)
+
+        # --- Render: RBC Cards (2 in a row)
+        if rbc:
+            ui.label('RBC Cards').classes('text-sm font-semibold mt-6').style('color: var(--mf-muted); letter-spacing:0.4px;')
+            _two_row(rbc)
+
+        if other:
+            ui.label('Other').classes('text-sm font-semibold mt-6').style('color: var(--mf-muted); letter-spacing:0.4px;')
+            _two_row(other)
+
+        # spacer + LOC single
+        if loc:
+            ui.element('div').style('height: 18px;')
+            ui.label('Line of Credit').classes('text-sm font-semibold mt-6').style('color: var(--mf-muted); letter-spacing:0.4px;')
+            with ui.row().classes('w-full q-col-gutter-md justify-center'):
+                for c in loc:
+                    _tile(c, col='col-12 col-md-6', emph=True)
+
+shell(content)
 
 
 @ui.page("/recurring")
