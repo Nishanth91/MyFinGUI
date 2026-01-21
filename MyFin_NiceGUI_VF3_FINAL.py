@@ -1702,7 +1702,7 @@ border: 1px solid var(--mf-border) !important;
 
 
 /* ================================
-   Phase 5.2 Shell Layout (bank-style)
+   Phase 5.2.6 Shell Layout (bank-style)
    ================================ */
 .mf-shell { display: flex; min-height: 100vh; width: 100%; }
 .mf-rail {
@@ -1805,6 +1805,52 @@ border: 1px solid var(--mf-border) !important;
 """
 ui.add_head_html(f"<style>{BANK_CSS}</style>", shared=True)
 
+THEME_PATCH_CSS = r"""
+/* -----------------------------
+   Phase 5.2.6.6 theme propagation
+   Ensure theme variables apply to real components (cards, menus, inputs, tables)
+------------------------------*/
+.q-card, .q-menu, .q-table__container, .q-table__middle, .q-table__top,
+.q-expansion-item__container, .q-list, .q-item, .q-banner {
+  background: var(--mf-surface) !important;
+  color: var(--mf-text) !important;
+  border-color: var(--mf-border) !important;
+}
+
+.q-dialog__inner > div {
+  background: var(--mf-surface-2) !important;
+  border: 1px solid var(--mf-border) !important;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.55) !important;
+}
+
+.q-field__control, .q-field__native, .q-field__input, .q-field__marginal {
+  color: var(--mf-text) !important;
+}
+.q-field--outlined .q-field__control:before,
+.q-field--outlined .q-field__control:after {
+  border-color: var(--mf-border) !important;
+}
+.q-field__label, .q-placeholder, .q-field__bottom, .q-field__hint {
+  color: var(--mf-muted) !important;
+}
+
+.q-btn--outline:before { border-color: var(--mf-border) !important; }
+
+.q-table th, .q-table td { color: var(--mf-text) !important; }
+.q-table thead tr { background: rgba(255,255,255,0.04) !important; }
+.q-table__bottom, .q-pagination { color: var(--mf-muted) !important; }
+
+/* Theme dropdown cropping fix: hide select on mobile, use palette button */
+.mf-theme-btn { display: none; }
+@media (max-width: 700px){
+  .mf-theme-select { display: none !important; }
+  .mf-theme-btn { display: inline-flex !important; }
+  .mf-header { flex-wrap: wrap; height: auto !important; gap: 10px !important; }
+}
+"""
+ui.add_head_html(f"<style>{THEME_PATCH_CSS}</style>", shared=True)
+
+
 ui.add_head_html(
     """<script>
 (function(){
@@ -1892,7 +1938,7 @@ def nav_button(label: str, icon: str, path: str):
     ui.button(label, on_click=lambda: nav_to(path)).props(f"flat icon={icon}").classes("w-full")
 
 def shell(content_fn, *, active_path: str = ""):
-    """Phase 5.2 shell: bank-style rail + header + canvas.
+    """Phase 5.2.6 shell: bank-style rail + header + canvas.
     Keeps Phase 4 logic intact and only wraps presentation.
     """
     # NOTE: do NOT use ui.open(); some NiceGUI versions on Render don't have it.
@@ -1935,7 +1981,7 @@ def shell(content_fn, *, active_path: str = ""):
                 nav_btn("Admin", "settings", "/admin")
 
                 ui.separator().props("dark").classes("opacity-20 my-1")
-                ui.label("Phase 5.2").classes("text-xs").style("color: var(--mf-muted); text-align:center;")
+                ui.label("Phase 5.2.6").classes("text-xs").style("color: var(--mf-muted); text-align:center;")
 
         # Main
         with ui.element("main").classes("mf-main"):
@@ -1952,13 +1998,31 @@ def shell(content_fn, *, active_path: str = ""):
 
                     # RIGHT: theme + actions
                     with ui.row().classes("items-center gap-2"):
+                        # Theme picker (desktop select + mobile palette dialog)
+                        theme_names = ["Midnight Blue","Emerald Gold","Graphite Rose"]
+
+                        theme_dlg = ui.dialog()
+                        with theme_dlg, ui.card().classes("my-card p-4 w-[420px] max-w-[92vw]"):
+                            ui.label("Theme").classes("text-base font-bold")
+                            ui.label("Choose a premium theme").classes("text-xs").style("color: var(--mf-muted)")
+                            with ui.column().classes("w-full gap-2 mt-2"):
+                                for tname in theme_names:
+                                    def _mk(tn: str):
+                                        return lambda: (ui.run_javascript(f"mfSetTheme({tn!r})"), theme_dlg.close())
+                                    ui.button(tname, on_click=_mk(tname)).props("unelevated").classes("w-full").style(
+                                        "background: var(--mf-surface-2); border:1px solid var(--mf-border); color: var(--mf-text); border-radius: 12px; text-transform:none;"
+                                    )
+
                         ui.select(
-                            ["Midnight Blue","Emerald Gold","Graphite Rose"],
+                            theme_names,
                             value="Midnight Blue",
                             on_change=lambda e: ui.run_javascript(f"mfSetTheme({e.value!r})"),
-                        ).props("dense outlined").style(
+                        ).props("dense outlined").classes("mf-theme-select").style(
                             "min-width: 170px; background: var(--mf-surface); border-radius: 12px;"
                         )
+                        ui.button("", icon="palette").props("flat round dense").classes("mf-theme-btn").style(
+                            "border: 1px solid var(--mf-border); background: var(--mf-surface);"
+                        ).on("click", theme_dlg.open)
                         ui.button("", icon="search").props("flat round dense").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", lambda: open_search_dialog())
@@ -2567,8 +2631,14 @@ def add_page():
                             except Exception as ex:
                                 ui.notify(f'Upload failed: {ex}', type='negative')
 
-                        upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt').props("accept='image/*' capture='environment'").classes('w-full')
-                        upload_receipt.on('upload', _on_upload)
+                        upload_receipt = ui.upload(label='Capture / Upload receipt', auto_upload=True, max_files=1, on_upload=_on_upload)\
+                            .props("accept='image/*' capture='environment'").classes('w-full')
+                        # Version-safe event hooks (some builds emit 'uploaded' instead of 'upload')
+                        try:
+                            upload_receipt.on('upload', _on_upload)
+                            upload_receipt.on('uploaded', _on_upload)
+                        except Exception:
+                            pass
 
                         async def _run_ocr() -> None:
                             if not scan_state.get('data_url'):
