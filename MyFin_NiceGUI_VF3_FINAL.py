@@ -2259,8 +2259,6 @@ def dashboard_page():
                         ui.label(label).classes("text-xs uppercase").style("color: var(--mf-muted); letter-spacing: .12em")
                         ui.icon(icon).style("color: var(--mf-muted)")
                     ui.label(currency(val)).classes("text-2xl font-bold mt-1")
-                    ui.label(month_key).classes("text-xs").style("color: var(--mf-muted)")
-                    ui.label(currency(val)).classes("text-2xl font-bold")
                     ui.label(mkey).classes("text-xs").style("color: var(--mf-muted)")
 
         with ui.row().classes('w-full gap-3'):
