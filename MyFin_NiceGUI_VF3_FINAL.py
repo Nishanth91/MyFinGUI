@@ -1796,6 +1796,12 @@ border: 1px solid var(--mf-border) !important;
 
 
 
+
+/* 5.4.1: Cards widgets full-width on mobile */
+.mf-card-widget { width: 340px; max-width: 100%; }
+@media (max-width: 600px){
+  .mf-card-widget { width: 100% !important; }
+}
 /* 5.2.6: Responsive theme control + prevent menu clipping */
 .mf-header { overflow: visible !important; }
 .mf-canvas { overflow: visible !important; }
@@ -1988,13 +1994,25 @@ def shell(content_fn, *, active_path: str = ""):
                                     ui.button("Close").props("flat").on("click", td.close)
                             td.open()
 
-                        ui.select(
-                            ["Midnight Blue","Emerald Gold","Graphite Rose"],
+                        _theme_names = ["Midnight Blue","Emerald Gold","Graphite Rose"]
+                        theme_select = ui.select(
+                            _theme_names,
                             value="Midnight Blue",
                             on_change=lambda e: ui.run_javascript(f"mfSetTheme({e.value!r})"),
                         ).props("dense outlined").classes("mf-hide-mobile").style(
                             "min-width: 190px; background: var(--mf-surface); border-radius: 12px;"
                         )
+
+                        async def _sync_theme_select() -> None:
+                            try:
+                                saved = await ui.run_javascript('return localStorage.getItem("mf_theme")')
+                                if saved and str(saved) in _theme_names:
+                                    theme_select.value = str(saved)
+                            except Exception:
+                                pass
+
+                        # Ensure the dropdown reflects the already-applied theme after refresh
+                        ui.timer(0.3, _sync_theme_select, once=True)
                         ui.button("", icon="palette").props("flat round dense").classes("mf-show-mobile").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", _open_theme_dialog)
@@ -3445,7 +3463,7 @@ def cards_page() -> None:
 
 
             with grid:
-                with ui.card().classes('my-card').style('width: 320px; max-width: 100%;'):
+                with ui.card().classes('my-card mf-card-widget'):
                     with ui.row().classes('items-center justify-between'):
                         ui.label(f'{emoji} {name}').classes('text-lg font-semibold').style('color: var(--mf-text);')
                         if method:
@@ -3466,7 +3484,6 @@ def cards_page() -> None:
                     with ui.row().classes('w-full items-center justify-between mt-2'):
                         ui.label('Remaining').classes('text-xs').style('color: var(--mf-muted)')
                         ui.label(currency(remaining) if lim else '—').classes('text-sm')
-                    ui.label(f'Cycle start: {cycle_start.isoformat()}').classes('text-xs').style('color: var(--mf-muted)')
 
 
     shell(content)
@@ -3667,6 +3684,10 @@ def rules_page():
                         active = (state["selected_kw"] == kw_raw)
 
                         item = ui.card().classes("q-pa-sm").style(
+                            ""  # style set below
+                        )
+                        item.move(list_area)
+                        item.style(
                             "border-radius: 14px; cursor:pointer; "
                             + ("border: 1px solid rgba(91,140,255,0.45); background: rgba(91,140,255,0.10);" if active
                                else "border: 1px solid var(--mf-border); background: rgba(255,255,255,0.04);")
