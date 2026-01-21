@@ -2568,7 +2568,8 @@ def add_page():
                             except Exception as ex:
                                 ui.notify(f'Upload failed: {ex}', type='negative')
 
-                        ui.upload(on_upload=_on_upload, auto_upload=True, label='Capture / Upload receipt')                         .props("accept='image/*' capture='environment'")                         .classes('w-full')
+                        upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt').props("accept='image/*' capture='environment'").classes('w-full')
+                        upload_receipt.on('upload', _on_upload)
 
                         async def _run_ocr() -> None:
                             if not scan_state.get('data_url'):
