@@ -1789,9 +1789,17 @@ body, .q-layout, .q-page {
 
 @media (max-width: 900px){
   .mf-rail{ padding: 10px; }
-  .mf-main{ padding: 26px 18px; }
+  .mf-main{ padding: 18px 10px; }
   .mf-navbtn .q-btn__content span { display:none; }
   .mf-navbtn { min-height: 46px; }
+}
+
+
+/* Mobile full-bleed adjustments (5.2.2) */
+@media (max-width: 600px){
+  .mf-header, .mf-canvas { max-width: none !important; width: 100% !important; margin: 0 !important; }
+  .mf-main { padding-left: 6px !important; padding-right: 6px !important; }
+  .mf-canvas { padding-left: 0 !important; padding-right: 0 !important; }
 }
 """
 ui.add_head_html(f"<style>{BANK_CSS}</style>", shared=True)
@@ -1847,6 +1855,27 @@ ui.add_head_html(
 # -----------------------------
 # Layout
 # -----------------------------
+
+# -----------------------------
+# Global Search
+# -----------------------------
+def open_search_dialog() -> None:
+    """Open a search dialog and jump to Transactions with the query prefilled."""
+    with ui.dialog() as d, ui.card().classes("my-card p-5 w-full max-w-lg"):
+        ui.label("Search transactions").classes("text-lg font-bold")
+        q = ui.input(placeholder="Merchant, category, account, amount...").props("dense outlined").classes("w-full")
+        with ui.row().classes("w-full justify-end gap-2 mt-2"):
+            ui.button("Cancel", on_click=d.close).props("flat")
+            def _go():
+                try:
+                    app.storage.user["tx_search_prefill"] = (q.value or "").strip()
+                except Exception:
+                    pass
+                d.close()
+                nav_to("/tx")
+            ui.button("Search", icon="search", on_click=_go).props("unelevated")
+    d.open()
+
 def topbar():
     with ui.row().classes("w-full items-center justify-between px-3 py-2"):
         with ui.row().classes("items-center gap-3"):
@@ -1919,12 +1948,16 @@ def shell(content_fn, *, active_path: str = ""):
                     ui.button("", icon="menu").props("flat round").style(
                         "border: 1px solid var(--mf-border); background: rgba(255,255,255,0.04);"
                     ).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle(\'mf-nav-open\')"))
-                    ui.select(["Midnight Blue","Emerald Gold","Graphite Rose"], value="Midnight Blue").props("dense outlined").style(
+                    ui.select(
+                        ["Midnight Blue","Emerald Gold","Graphite Rose"],
+                        value="Midnight Blue",
+                        on_change=lambda e: ui.run_javascript(f"mfSetTheme({e.value!r})"),
+                    ).props("dense outlined").style(
                         "min-width: 170px; background: rgba(255,255,255,0.03); border-radius: 12px;"
-                    ).on("update:model-value", lambda e: ui.run_javascript(f"mfSetTheme({e.args[0]!r})"))
+                    )
                     ui.button("", icon="search").props("flat round").style(
                         "border: 1px solid var(--mf-border); background: rgba(255,255,255,0.04);"
-                    )
+                    ).on("click", lambda: open_search_dialog())
                     ui.button("Add", icon="add").props("unelevated").style(
                         "background: rgba(91,140,255,1); color: #071022; border-radius: 12px; font-weight: 900;"
                     ).on("click", lambda: nav_to("/add"))
@@ -2213,26 +2246,38 @@ def dashboard_page():
                 ui.button('Add income', icon='add').props('outline').on('click', lambda: nav_to('/add?mode=income'))
                 ui.button('View transactions', icon='receipt_long').props('flat').on('click', lambda: nav_to('/tx'))
 
-        with ui.row().classes("w-full gap-3"):
-            for label, val in [
-                ("Income (this month)", income),
-                ("Expenses (this month)", expense),
-                ("Investments (this month)", invest),
-                ("Net (this month)", net),
+        # KPI tiles (bank-style grid, 5.2.2)
+        with ui.element("div").classes("grid grid-cols-2 md:grid-cols-4 gap-3 w-full"):
+            for label, val, icon in [
+                ("Income (this month)", income, "trending_up"),
+                ("Expenses (this month)", expense, "trending_down"),
+                ("Investments (this month)", invest, "savings"),
+                ("Net (this month)", net, "insights"),
             ]:
-                with ui.card().classes("my-card p-4 kpi w-full"):
-                    ui.label(label).classes("text-sm").style("color: var(--mf-muted)")
+                with ui.card().classes("my-card p-4 w-full").style("min-height: 110px;"):
+                    with ui.row().classes("items-center justify-between"):
+                        ui.label(label).classes("text-xs uppercase").style("color: var(--mf-muted); letter-spacing: .12em")
+                        ui.icon(icon).style("color: var(--mf-muted)")
+                    ui.label(currency(val)).classes("text-2xl font-bold mt-1")
+                    ui.label(month_key).classes("text-xs").style("color: var(--mf-muted)")
                     ui.label(currency(val)).classes("text-2xl font-bold")
                     ui.label(mkey).classes("text-xs").style("color: var(--mf-muted)")
 
         with ui.row().classes('w-full gap-3'):
-            for label, val in [
-                ('Income (pay period)', income_pp),
-                ('Expenses (pay period)', expense_pp),
-                ('Investments (pay period)', invest_pp),
-                ('Net (pay period)', net_pp),
-            ]:
-                with ui.card().classes('my-card p-4 kpi w-full'):
+            # Pay period tiles (grid, 5.2.2)
+            with ui.element("div").classes("grid grid-cols-2 md:grid-cols-4 gap-3 w-full"):
+                for label, val, icon in [
+                    ('Income (pay period)', income_pp, "payments"),
+                    ('Expenses (pay period)', expense_pp, "receipt_long"),
+                    ('Investments (pay period)', invest_pp, "account_balance"),
+                    ('Net (pay period)', net_pp, "timeline"),
+                ]:
+                    with ui.card().classes('my-card p-4 w-full').style("min-height: 110px;"):
+                        with ui.row().classes("items-center justify-between"):
+                            ui.label(label).classes('text-xs uppercase').style('color: var(--mf-muted); letter-spacing: .12em')
+                            ui.icon(icon).style("color: var(--mf-muted)")
+                        ui.label(currency(val)).classes('text-2xl font-bold mt-1')
+                        ui.label(f"{pp_start.strftime('%b %d')} → {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
                     ui.label(label).classes('text-sm').style('color: var(--mf-muted)')
                     ui.label(currency(val)).classes('text-2xl font-bold')
                     ui.label(f"{pp_start.strftime('%b %d')} → {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
@@ -2311,12 +2356,40 @@ def dashboard_page():
         pays = sorted(set(pays), key=lambda x: x[1])
 
         with ui.card().classes("my-card p-5"):
-            ui.label("Upcoming paydays").classes("text-lg font-bold")
+            ui.label("Upcoming salary").classes("text-lg font-bold")
             if not pays:
                 ui.label("No paydays in the next 45 days.").style("color: var(--mf-muted)")
             else:
-                for who, d in pays[:12]:
-                    ui.label(f"{who}: {d.strftime('%a, %b %d, %Y')}").classes("text-sm")
+                # Group paydays by person (Salary 1 = Nishanth, Salary 2 = Indhu)
+                grouped = {"Nishanth": [], "Indhu": []}
+                for who, d in pays:
+                    if who == "Salary 1":
+                        grouped["Nishanth"].append(d)
+                    elif who == "Salary 2":
+                        grouped["Indhu"].append(d)
+                for k in grouped:
+                    grouped[k] = sorted(set(grouped[k]))
+
+                def _salary_card(name: str, dates: list):
+                    next_d = next((x for x in dates if x >= today()), None)
+                    if not next_d:
+                        return
+                    days = (next_d - today()).days
+                    with ui.card().classes("my-card p-4 w-full").style("background: rgba(255,255,255,0.045);"):
+                        with ui.row().classes("items-center justify-between"):
+                            ui.label(f"{name}'s salary").classes("text-sm font-bold")
+                            ui.badge(f"In {days} days").style(
+                                "background: rgba(255,255,255,0.10); color: var(--mf-text); border: 1px solid var(--mf-border);"
+                            )
+                        ui.label(next_d.strftime("%a, %b %d")).classes("text-2xl font-extrabold mt-1")
+                        # show 2 upcoming dates (optional)
+                        upcoming = [x for x in dates if x >= today()][:2]
+                        if len(upcoming) > 1:
+                            ui.label("Next: " + ", ".join([x.strftime("%b %d") for x in upcoming[1:]])).classes("text-xs").style("color: var(--mf-muted)")
+
+                with ui.element("div").classes("grid grid-cols-1 md:grid-cols-2 gap-3 w-full"):
+                    _salary_card("Nishanth", grouped.get("Nishanth", []))
+                    _salary_card("Indhu", grouped.get("Indhu", []))
 
         # Spending breakdown
         with ui.card().classes("my-card p-5"):
