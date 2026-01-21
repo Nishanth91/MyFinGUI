@@ -120,6 +120,9 @@ def gs_retry(fn, *, retries: int = 6, base_sleep: float = 0.8):
 from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 from nicegui import ui, app
+from fastapi import Request, HTTPException
+from fastapi.responses import JSONResponse
+
 
 
 # -----------------------------
@@ -1546,6 +1549,370 @@ def logout() -> None:
     nav_to("/login")
 
 
+
+# -----------------------------
+# Passkeys / Face ID (Phase 5.6)
+# -----------------------------
+# Implements WebAuthn (Passkeys) with server-side verification (ES256) and local persistence.
+# Notes:
+# - Requires HTTPS on Render (you have it).
+# - Stores credential public keys in a local JSON file (persisted on Render disk while service is up).
+# - Existing username/password login remains as fallback.
+#
+# Security model:
+# - On successful passkey assertion verification, sets app.storage.user["logged_in"]=True.
+
+import json
+import base64
+import hashlib
+import secrets
+from typing import Dict, Any, Tuple, Optional, List
+
+_PASSKEYS_PATH = os.environ.get("MYFIN_PASSKEYS_PATH", "myfin_passkeys.json")
+_RP_ID = os.environ.get("MYFIN_RP_ID")  # optional override (e.g., your custom domain)
+_RP_NAME = os.environ.get("MYFIN_RP_NAME", "MyFin")
+_ORIGIN = os.environ.get("MYFIN_ORIGIN")  # optional override (e.g., https://nishanthajay.com)
+
+def _b64url_enc(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).rstrip(b'=').decode('ascii')
+
+def _b64url_dec(s: str) -> bytes:
+    pad = '=' * (-len(s) % 4)
+    return base64.urlsafe_b64decode((s + pad).encode('ascii'))
+
+def _load_passkeys() -> Dict[str, Any]:
+    try:
+        with open(_PASSKEYS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_passkeys(data: Dict[str, Any]) -> None:
+    try:
+        with open(_PASSKEYS_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+# ---- Minimal CBOR decoder (enough for WebAuthn attestationObject + COSE keys) ----
+class _CBOR:
+    def __init__(self, b: bytes):
+        self.b = b
+        self.i = 0
+
+    def _read(self, n: int) -> bytes:
+        if self.i + n > len(self.b):
+            raise ValueError("CBOR: out of range")
+        out = self.b[self.i:self.i+n]
+        self.i += n
+        return out
+
+    def _read_int(self, ai: int) -> int:
+        if ai < 24:
+            return ai
+        if ai == 24:
+            return int.from_bytes(self._read(1), "big")
+        if ai == 25:
+            return int.from_bytes(self._read(2), "big")
+        if ai == 26:
+            return int.from_bytes(self._read(4), "big")
+        if ai == 27:
+            return int.from_bytes(self._read(8), "big")
+        raise ValueError("CBOR: indefinite/int unsupported")
+
+    def decode(self) -> Any:
+        ib = self._read(1)[0]
+        mt = ib >> 5
+        ai = ib & 0x1F
+
+        if mt == 0:  # unsigned int
+            return self._read_int(ai)
+        if mt == 1:  # negative int
+            return -1 - self._read_int(ai)
+        if mt == 2:  # bytes
+            n = self._read_int(ai)
+            return self._read(n)
+        if mt == 3:  # text
+            n = self._read_int(ai)
+            return self._read(n).decode("utf-8", errors="strict")
+        if mt == 4:  # array
+            n = self._read_int(ai)
+            return [self.decode() for _ in range(n)]
+        if mt == 5:  # map
+            n = self._read_int(ai)
+            m = {}
+            for _ in range(n):
+                k = self.decode()
+                v = self.decode()
+                m[k] = v
+            return m
+        if mt == 6:  # tag
+            _ = self._read_int(ai)
+            return self.decode()
+        if mt == 7:
+            if ai == 20: return False
+            if ai == 21: return True
+            if ai == 22: return None
+        raise ValueError(f"CBOR: unsupported major={mt} ai={ai}")
+
+def _cbor_load(b: bytes) -> Any:
+    return _CBOR(b).decode()
+
+def _sha256(b: bytes) -> bytes:
+    return hashlib.sha256(b).digest()
+
+def _get_rp_id(request: Request) -> str:
+    if _RP_ID:
+        return _RP_ID
+    host = request.headers.get("host", "")
+    # strip port
+    return host.split(":")[0] if host else ""
+
+def _get_origin(request: Request) -> str:
+    if _ORIGIN:
+        return _ORIGIN
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = request.headers.get("host") or request.url.hostname or ""
+    return f"{proto}://{host}"
+
+def _parse_authenticator_data(ad: bytes) -> Dict[str, Any]:
+    if len(ad) < 37:
+        raise ValueError("authData too short")
+    rp_id_hash = ad[0:32]
+    flags = ad[32]
+    sign_count = int.from_bytes(ad[33:37], "big")
+    rest = ad[37:]
+    return {"rpIdHash": rp_id_hash, "flags": flags, "signCount": sign_count, "rest": rest}
+
+def _extract_credential_from_authdata(rest: bytes) -> Tuple[bytes, bytes, int]:
+    # attestedCredentialData: AAGUID(16) + credIdLen(2) + credId + COSE key (CBOR)
+    if len(rest) < 18:
+        raise ValueError("attestedCredentialData too short")
+    aaguid = rest[:16]
+    cred_len = int.from_bytes(rest[16:18], "big")
+    if len(rest) < 18 + cred_len:
+        raise ValueError("credId truncated")
+    cred_id = rest[18:18+cred_len]
+    cose = rest[18+cred_len:]
+    return cred_id, cose, cred_len
+
+def _cose_to_public_key(cose_key: Any) -> Tuple[str, bytes]:
+    # Support EC2 P-256 (kty=2, crv=1, x=-2, y=-3)
+    # cose_key is a dict with int keys.
+    if not isinstance(cose_key, dict):
+        raise ValueError("COSE key not a map")
+    kty = cose_key.get(1)
+    alg = cose_key.get(3)
+    if kty != 2 or alg != -7:
+        raise ValueError("Unsupported key type/alg")
+    crv = cose_key.get(-1)
+    x = cose_key.get(-2)
+    y = cose_key.get(-3)
+    if crv != 1 or not isinstance(x, (bytes, bytearray)) or not isinstance(y, (bytes, bytearray)):
+        raise ValueError("Unsupported curve or coords")
+    # Build uncompressed point 0x04 || X || Y
+    pub = b"\x04" + bytes(x) + bytes(y)
+    return "ES256", pub
+
+def _verify_es256(pub_uncompressed: bytes, data: bytes, sig: bytes) -> bool:
+    # signature from authenticator is DER encoded ECDSA over SHA-256
+    try:
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature, decode_dss_signature
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+        from cryptography.exceptions import InvalidSignature
+
+        # parse uncompressed point
+        if len(pub_uncompressed) != 65 or pub_uncompressed[0] != 0x04:
+            return False
+        x = int.from_bytes(pub_uncompressed[1:33], "big")
+        y = int.from_bytes(pub_uncompressed[33:65], "big")
+        pub_numbers = ec.EllipticCurvePublicNumbers(x, y, ec.SECP256R1())
+        pub_key = pub_numbers.public_key()
+
+        pub_key.verify(sig, data, ec.ECDSA(hashes.SHA256()))
+        return True
+    except Exception:
+        return False
+
+def _webauthn_challenge() -> bytes:
+    return secrets.token_bytes(32)
+
+def _check_origin_and_type(client_data: Dict[str, Any], expected_chal: bytes, expected_origin: str, typ: str) -> None:
+    if client_data.get("type") != typ:
+        raise ValueError("clientData.type mismatch")
+    chal = client_data.get("challenge")
+    if not chal:
+        raise ValueError("missing challenge")
+    if _b64url_dec(chal) != expected_chal:
+        raise ValueError("challenge mismatch")
+    if client_data.get("origin") != expected_origin:
+        raise ValueError("origin mismatch")
+
+# ---- API routes ----
+
+@app.get("/api/passkeys/options/register")
+async def passkeys_options_register(request: Request, username: str):
+    username = (username or "").strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="username required")
+    rp_id = _get_rp_id(request)
+    origin = _get_origin(request)
+
+    chal = _webauthn_challenge()
+    app.storage.user["pk_reg_chal"] = _b64url_enc(chal)
+    app.storage.user["pk_reg_user"] = username
+    app.storage.user["pk_origin"] = origin
+    app.storage.user["pk_rp_id"] = rp_id
+
+    # user.id must be stable bytes; we derive from username
+    user_id = _sha256(username.encode("utf-8"))[:16]
+
+    opts = {
+        "challenge": _b64url_enc(chal),
+        "rp": {"name": _RP_NAME, "id": rp_id},
+        "user": {"id": _b64url_enc(user_id), "name": username, "displayName": username},
+        "pubKeyCredParams": [{"type": "public-key", "alg": -7}],  # ES256
+        "timeout": 60000,
+        "attestation": "none",
+        "authenticatorSelection": {
+            "residentKey": "preferred",
+            "userVerification": "preferred",
+        },
+    }
+    return JSONResponse(opts)
+
+@app.post("/api/passkeys/verify/register")
+async def passkeys_verify_register(request: Request):
+    payload = await request.json()
+    chal_b64 = app.storage.user.get("pk_reg_chal")
+    username = app.storage.user.get("pk_reg_user")
+    origin = app.storage.user.get("pk_origin")
+    rp_id = app.storage.user.get("pk_rp_id")
+
+    if not chal_b64 or not username or not origin or not rp_id:
+        raise HTTPException(status_code=400, detail="missing registration context")
+
+    expected_chal = _b64url_dec(chal_b64)
+
+    try:
+        client_data_json = _b64url_dec(payload["response"]["clientDataJSON"])
+        client_data = json.loads(client_data_json.decode("utf-8"))
+        _check_origin_and_type(client_data, expected_chal, origin, "webauthn.create")
+
+        att_obj = _cbor_load(_b64url_dec(payload["response"]["attestationObject"]))
+        auth_data = att_obj.get("authData")
+        if not isinstance(auth_data, (bytes, bytearray)):
+            raise ValueError("missing authData")
+
+        ad = _parse_authenticator_data(bytes(auth_data))
+        if ad["rpIdHash"] != _sha256(rp_id.encode("utf-8")):
+            raise ValueError("rpIdHash mismatch")
+        # flags: bit 0x40 indicates attestedCredentialData present
+        if (ad["flags"] & 0x40) == 0:
+            raise ValueError("no attested credential data")
+
+        cred_id, cose_bytes, _ = _extract_credential_from_authdata(ad["rest"])
+        cose_key = _cbor_load(cose_bytes)
+        alg_name, pub = _cose_to_public_key(cose_key)
+
+        store = _load_passkeys()
+        u = store.get(username, {})
+        # store one credential per user for now (simple)
+        u["credential_id"] = _b64url_enc(cred_id)
+        u["public_key_uncompressed"] = _b64url_enc(pub)
+        u["alg"] = alg_name
+        u["sign_count"] = int(ad["signCount"])
+        store[username] = u
+        _save_passkeys(store)
+
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"register verify failed: {e}")
+
+@app.get("/api/passkeys/options/authenticate")
+async def passkeys_options_authenticate(request: Request, username: str):
+    username = (username or "").strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="username required")
+    rp_id = _get_rp_id(request)
+    origin = _get_origin(request)
+
+    store = _load_passkeys()
+    u = store.get(username)
+    if not u or not u.get("credential_id"):
+        raise HTTPException(status_code=404, detail="no passkey registered")
+
+    chal = _webauthn_challenge()
+    app.storage.user["pk_auth_chal"] = _b64url_enc(chal)
+    app.storage.user["pk_auth_user"] = username
+    app.storage.user["pk_origin"] = origin
+    app.storage.user["pk_rp_id"] = rp_id
+
+    opts = {
+        "challenge": _b64url_enc(chal),
+        "rpId": rp_id,
+        "timeout": 60000,
+        "userVerification": "preferred",
+        "allowCredentials": [{"type": "public-key", "id": u["credential_id"]}],
+    }
+    return JSONResponse(opts)
+
+@app.post("/api/passkeys/verify/authenticate")
+async def passkeys_verify_authenticate(request: Request):
+    payload = await request.json()
+    chal_b64 = app.storage.user.get("pk_auth_chal")
+    username = app.storage.user.get("pk_auth_user")
+    origin = app.storage.user.get("pk_origin")
+    rp_id = app.storage.user.get("pk_rp_id")
+
+    if not chal_b64 or not username or not origin or not rp_id:
+        raise HTTPException(status_code=400, detail="missing auth context")
+
+    expected_chal = _b64url_dec(chal_b64)
+
+    store = _load_passkeys()
+    u = store.get(username)
+    if not u:
+        raise HTTPException(status_code=404, detail="no passkey registered")
+
+    try:
+        client_data_json = _b64url_dec(payload["response"]["clientDataJSON"])
+        client_data = json.loads(client_data_json.decode("utf-8"))
+        _check_origin_and_type(client_data, expected_chal, origin, "webauthn.get")
+
+        auth_data = _b64url_dec(payload["response"]["authenticatorData"])
+        sig = _b64url_dec(payload["response"]["signature"])
+
+        ad = _parse_authenticator_data(auth_data)
+        if ad["rpIdHash"] != _sha256(rp_id.encode("utf-8")):
+            raise ValueError("rpIdHash mismatch")
+
+        # Verify signature over (authenticatorData || SHA256(clientDataJSON))
+        signed = auth_data + _sha256(client_data_json)
+
+        pub = _b64url_dec(u["public_key_uncompressed"])
+        if not _verify_es256(pub, signed, sig):
+            raise ValueError("signature invalid")
+
+        # signCount check (best-effort)
+        prev = int(u.get("sign_count") or 0)
+        if ad["signCount"] > 0 and ad["signCount"] < prev:
+            # possible cloned authenticator; still allow but warn
+            pass
+        u["sign_count"] = int(ad["signCount"])
+        store[username] = u
+        _save_passkeys(store)
+
+        # mark user logged in for this session
+        app.storage.user["logged_in"] = True
+
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"auth verify failed: {e}")
+
+
 # -----------------------------
 # UI Theme
 # -----------------------------
@@ -1565,6 +1932,9 @@ BANK_CSS = r"""
   --mf-warn: #fbbf24;
   --mf-g1: rgba(91,140,255,0.22);
   --mf-g2: rgba(70,230,166,0.12);
+  --mf-card-top: rgba(255,255,255,0.10);
+  --mf-card-bottom: rgba(255,255,255,0.05);
+  --mf-card-border: rgba(255,255,255,0.14);
 }
 
 body, .q-layout, .q-page {
@@ -1577,8 +1947,8 @@ body, .q-layout, .q-page {
 }
 
 .my-card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.05)) !important;
-  border: 1px solid rgba(255,255,255,0.14) !important;
+  background: linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom)) !important;
+  border: 1px solid var(--mf-card-border) !important;
   border-radius: 24px !important;
   box-shadow:
     0 20px 55px rgba(0,0,0,0.42),
@@ -1597,6 +1967,26 @@ body, .q-layout, .q-page {
     radial-gradient(420px 240px at 70% 90%, rgba(70,230,166,0.10), transparent 70%);
   pointer-events:none;
   opacity:0.9;
+}
+
+/* 5.5: Issuer-tinted bank glass for Cards tiles */
+.my-card.mf-issuer-ct::before{
+  background:
+    radial-gradient(520px 240px at 18% 0%, rgba(255,255,255,0.18), transparent 62%),
+    radial-gradient(520px 260px at 82% 18%, rgba(251,191,36,0.14), transparent 68%),
+    radial-gradient(520px 260px at 70% 92%, rgba(148,163,184,0.14), transparent 72%);
+}
+.my-card.mf-issuer-rbc::before{
+  background:
+    radial-gradient(520px 240px at 18% 0%, rgba(255,255,255,0.18), transparent 62%),
+    radial-gradient(520px 260px at 82% 18%, rgba(59,130,246,0.20), transparent 68%),
+    radial-gradient(520px 260px at 70% 92%, rgba(14,165,233,0.12), transparent 72%);
+}
+.my-card.mf-issuer-loc::before{
+  background:
+    radial-gradient(520px 240px at 18% 0%, rgba(255,255,255,0.18), transparent 62%),
+    radial-gradient(520px 260px at 82% 18%, rgba(99,102,241,0.18), transparent 68%),
+    radial-gradient(520px 260px at 70% 92%, rgba(16,185,129,0.10), transparent 72%);
 }
 .my-card > * { position: relative; }
 .my-card:hover{
@@ -1863,19 +2253,54 @@ ui.add_head_html(
 (function(){
   const THEMES = {
     "Midnight Blue": {
-      "--mf-bg":"#070A12","--mf-bg-2":"#0B1020","--mf-surface":"rgba(255,255,255,0.06)","--mf-surface-2":"rgba(255,255,255,0.09)",
-      "--mf-border":"rgba(255,255,255,0.10)","--mf-text":"rgba(255,255,255,0.92)","--mf-muted":"rgba(255,255,255,0.62)",
-      "--mf-accent":"#5B8CFF","--mf-accent2":"#46E6A6","--mf-g1":"rgba(91,140,255,0.22)","--mf-g2":"rgba(70,230,166,0.12)"
+      "--mf-bg":"#070A12", "--mf-bg-2":"#0B1020",
+      "--mf-surface":"rgba(255,255,255,0.06)", "--mf-surface-2":"rgba(255,255,255,0.09)",
+      "--mf-border":"rgba(255,255,255,0.10)", "--mf-text":"rgba(255,255,255,0.92)", "--mf-muted":"rgba(255,255,255,0.62)",
+      "--mf-accent":"#5B8CFF", "--mf-accent2":"#46E6A6",
+      "--mf-g1":"rgba(91,140,255,0.22)", "--mf-g2":"rgba(70,230,166,0.12)",
+      "--mf-card-top":"rgba(255,255,255,0.10)", "--mf-card-bottom":"rgba(255,255,255,0.05)", "--mf-card-border":"rgba(255,255,255,0.14)"
     },
     "Emerald Gold": {
-      "--mf-bg":"#050B0A","--mf-bg-2":"#071613","--mf-surface":"rgba(255,255,255,0.055)","--mf-surface-2":"rgba(255,255,255,0.085)",
-      "--mf-border":"rgba(255,255,255,0.11)","--mf-text":"rgba(255,255,255,0.92)","--mf-muted":"rgba(255,255,255,0.62)",
-      "--mf-accent":"#22C55E","--mf-accent2":"#FBBF24","--mf-g1":"rgba(34,197,94,0.20)","--mf-g2":"rgba(251,191,36,0.12)"
+      "--mf-bg":"#050B0A", "--mf-bg-2":"#071613",
+      "--mf-surface":"rgba(255,255,255,0.055)", "--mf-surface-2":"rgba(255,255,255,0.085)",
+      "--mf-border":"rgba(255,255,255,0.11)", "--mf-text":"rgba(255,255,255,0.92)", "--mf-muted":"rgba(255,255,255,0.62)",
+      "--mf-accent":"#22C55E", "--mf-accent2":"#FBBF24",
+      "--mf-g1":"rgba(34,197,94,0.20)", "--mf-g2":"rgba(251,191,36,0.12)",
+      "--mf-card-top":"rgba(255,255,255,0.10)", "--mf-card-bottom":"rgba(255,255,255,0.05)", "--mf-card-border":"rgba(255,255,255,0.14)"
     },
     "Graphite Rose": {
-      "--mf-bg":"#07070A","--mf-bg-2":"#0E0A12","--mf-surface":"rgba(255,255,255,0.055)","--mf-surface-2":"rgba(255,255,255,0.085)",
-      "--mf-border":"rgba(255,255,255,0.11)","--mf-text":"rgba(255,255,255,0.92)","--mf-muted":"rgba(255,255,255,0.62)",
-      "--mf-accent":"#FB7185","--mf-accent2":"#A78BFA","--mf-g1":"rgba(251,113,133,0.18)","--mf-g2":"rgba(167,139,250,0.16)"
+      "--mf-bg":"#07070A", "--mf-bg-2":"#0E0A12",
+      "--mf-surface":"rgba(255,255,255,0.055)", "--mf-surface-2":"rgba(255,255,255,0.085)",
+      "--mf-border":"rgba(255,255,255,0.11)", "--mf-text":"rgba(255,255,255,0.92)", "--mf-muted":"rgba(255,255,255,0.62)",
+      "--mf-accent":"#F472B6", "--mf-accent2":"#A78BFA",
+      "--mf-g1":"rgba(244,114,182,0.16)", "--mf-g2":"rgba(167,139,250,0.12)",
+      "--mf-card-top":"rgba(255,255,255,0.10)", "--mf-card-bottom":"rgba(255,255,255,0.05)", "--mf-card-border":"rgba(255,255,255,0.14)"
+    },
+
+    // Light bank themes
+    "Arctic Light": {
+      "--mf-bg":"#F5F7FB", "--mf-bg-2":"#EEF2FF",
+      "--mf-surface":"rgba(17,24,39,0.04)", "--mf-surface-2":"rgba(17,24,39,0.06)",
+      "--mf-border":"rgba(17,24,39,0.10)", "--mf-text":"rgba(17,24,39,0.92)", "--mf-muted":"rgba(17,24,39,0.60)",
+      "--mf-accent":"#1D4ED8", "--mf-accent2":"#0EA5E9",
+      "--mf-g1":"rgba(29,78,216,0.10)", "--mf-g2":"rgba(14,165,233,0.08)",
+      "--mf-card-top":"rgba(255,255,255,0.88)", "--mf-card-bottom":"rgba(255,255,255,0.72)", "--mf-card-border":"rgba(17,24,39,0.10)"
+    },
+    "Slate Light": {
+      "--mf-bg":"#F6F7F9", "--mf-bg-2":"#ECEFF4",
+      "--mf-surface":"rgba(2,6,23,0.04)", "--mf-surface-2":"rgba(2,6,23,0.06)",
+      "--mf-border":"rgba(2,6,23,0.10)", "--mf-text":"rgba(2,6,23,0.92)", "--mf-muted":"rgba(2,6,23,0.60)",
+      "--mf-accent":"#0F172A", "--mf-accent2":"#334155",
+      "--mf-g1":"rgba(15,23,42,0.06)", "--mf-g2":"rgba(51,65,85,0.06)",
+      "--mf-card-top":"rgba(255,255,255,0.88)", "--mf-card-bottom":"rgba(255,255,255,0.72)", "--mf-card-border":"rgba(2,6,23,0.10)"
+    },
+    "Sand Gold": {
+      "--mf-bg":"#FBF7EF", "--mf-bg-2":"#F7EEDD",
+      "--mf-surface":"rgba(17,24,39,0.04)", "--mf-surface-2":"rgba(17,24,39,0.06)",
+      "--mf-border":"rgba(17,24,39,0.10)", "--mf-text":"rgba(17,24,39,0.92)", "--mf-muted":"rgba(17,24,39,0.60)",
+      "--mf-accent":"#B45309", "--mf-accent2":"#D97706",
+      "--mf-g1":"rgba(180,83,9,0.08)", "--mf-g2":"rgba(217,119,6,0.08)",
+      "--mf-card-top":"rgba(255,255,255,0.88)", "--mf-card-bottom":"rgba(255,255,255,0.72)", "--mf-card-border":"rgba(17,24,39,0.10)"
     }
   };
 
@@ -1885,6 +2310,8 @@ ui.add_head_html(
       const root = document.documentElement;
       Object.keys(t).forEach(k => root.style.setProperty(k, t[k]));
       localStorage.setItem("mf_theme", name);
+      // keep a global for UI sync
+      window.__mfThemeName = name;
     }catch(e){}
   };
 
@@ -1892,7 +2319,10 @@ ui.add_head_html(
   try{
     const saved = localStorage.getItem("mf_theme");
     if(saved){ window.mfSetTheme(saved); }
-  }catch(e){}
+    else { window.mfSetTheme("Midnight Blue"); }
+  }catch(e){
+    try{ window.mfSetTheme("Midnight Blue"); }catch(_){}
+  }
 })();
 </script>""",
     shared=True,
@@ -2129,6 +2559,9 @@ def login_page():
                     ui.notify("Invalid login", type="negative")
 
             ui.button("Login", on_click=attempt).classes("w-full").props("unelevated")
+            ui.button("Use Passkey (Face ID)", on_click=lambda: passkey_login(u_in.value or "")).classes("w-full").props("outline")
+            ui.label("Tip: Register a Passkey in Admin → Security (Phase 5.6)").classes("text-xs").style("color: var(--mf-muted); margin-top:6px;")
+
 
 
 @ui.page("/")
@@ -3406,6 +3839,101 @@ def transactions_page():
     shell(content)
 
 
+
+@ui.page("/security")
+def security_page() -> None:
+    if not require_login():
+        nav_to("/login")
+        return
+
+    def content() -> None:
+        with ui.card().classes("my-card p-5"):
+            ui.label("Passkeys / Face ID").classes("text-lg font-bold")
+            ui.label("Register a passkey for quick biometric login (iPhone Face ID, Touch ID, etc.).").style("color: var(--mf-muted)")
+            ui.separator().classes("my-3 opacity-30")
+
+            default_user = os.environ.get('APP_USER') or os.environ.get('APP_USERNAME') or 'admin'
+            u_in = ui.input("Username for passkey", value=default_user).classes("w-full")
+
+            def do_register():
+                username = (u_in.value or "").strip()
+                if not username:
+                    ui.notify("Username required", type="warning")
+                    return
+                js = f"""
+                (async () => {{
+                  try {{
+                    const u = {json.dumps("%%U%%")};
+                    const optRes = await fetch(`/api/passkeys/options/register?username=${{encodeURIComponent(u)}}`);
+                    if (!optRes.ok) {{
+                      const t = await optRes.text();
+                      throw new Error(t || "Failed to get registration options");
+                    }}
+                    const opts = await optRes.json();
+                    const dec = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '=='.slice((s.length+3)%4)), c => c.charCodeAt(0));
+                    const enc = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/g, '');
+                    const pubKey = {{
+                      challenge: dec(opts.challenge),
+                      rp: opts.rp,
+                      user: {{ id: dec(opts.user.id), name: opts.user.name, displayName: opts.user.displayName }},
+                      pubKeyCredParams: opts.pubKeyCredParams,
+                      timeout: opts.timeout,
+                      attestation: opts.attestation,
+                      authenticatorSelection: opts.authenticatorSelection,
+                    }};
+                    const cred = await navigator.credentials.create({{ publicKey: pubKey }});
+                    const data = {{
+                      id: cred.id,
+                      rawId: enc(cred.rawId),
+                      type: cred.type,
+                      response: {{
+                        clientDataJSON: enc(cred.response.clientDataJSON),
+                        attestationObject: enc(cred.response.attestationObject),
+                      }}
+                    }};
+                    const vRes = await fetch(`/api/passkeys/verify/register`, {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify(data)}});
+                    if (!vRes.ok) {{
+                      const t = await vRes.text();
+                      throw new Error(t || "Registration verify failed");
+                    }}
+                    alert("Passkey registered successfully ✅");
+                  }} catch (e) {{
+                    alert(`Passkey registration failed: ${{e.message||e}}`);
+                  }}
+                }})(); 
+                """;
+                js = js.replace("%%U%%", username)
+                ui.run_javascript(js)
+
+            ui.button("Register Passkey on this device", on_click=do_register).props("unelevated").classes("w-full mt-2")
+
+            with ui.row().classes("items-center gap-2 mt-3"):
+                ui.icon("info").style("opacity:0.8")
+                ui.label("If you change domain, set MYFIN_RP_ID and MYFIN_ORIGIN in Render env.").classes("text-xs").style("color: var(--mf-muted)")
+
+            ui.separator().classes("my-3 opacity-30")
+            ui.label("Registered passkeys (server)").classes("text-sm font-semibold").style("color: var(--mf-muted)")
+            store = _load_passkeys()
+            if not store:
+                ui.label("No passkeys registered yet.").style("color: var(--mf-muted)")
+            else:
+                for user, data in store.items():
+                    with ui.card().classes("my-card p-3 w-full"):
+                        ui.label(user).classes("font-semibold")
+                        ui.label(f"Credential ID: {str(data.get('credential_id',''))[:18]}…").classes("text-xs").style("color: var(--mf-muted)")
+                        def _mk_del(u=user):
+                            def _del():
+                                s=_load_passkeys()
+                                if u in s:
+                                    s.pop(u, None)
+                                    _save_passkeys(s)
+                                    ui.notify("Deleted passkey", type="positive")
+                                    nav_to("/security")
+                            return _del
+                        ui.button("Delete", on_click=_mk_del()).props("outline").classes("mt-2")
+
+    shell(content)
+
 @ui.page("/cards")
 def cards_page() -> None:
     if not require_login():
@@ -3544,8 +4072,9 @@ def cards_page() -> None:
 
         def _tile(c, col='col-12 col-md-6', emph=False):
             extra = ' mf-card-emph' if emph else ''
+            issuer = ' mf-issuer-ct' if _is_ct(c) else (' mf-issuer-loc' if _is_loc(c) else (' mf-issuer-rbc' if _is_rbc(c) else ''))
             with ui.column().classes(col):
-                with ui.card().classes('my-card mf-card-widget' + extra):
+                with ui.card().classes('my-card mf-card-widget' + extra + issuer):
                     with ui.row().classes('items-center justify-between'):
                         ui.label(f"{c['emoji']} {c['name']}").classes('text-lg font-semibold').style('color: var(--mf-text);')
                         if c.get('method'):
@@ -3598,7 +4127,7 @@ def cards_page() -> None:
                 for c in loc:
                     _tile(c, col='col-12 col-md-6', emph=True)
 
-shell(content)
+    shell(content)
 
 
 @ui.page("/recurring")
