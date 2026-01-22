@@ -2140,9 +2140,23 @@ body, .q-layout, .q-page {
 
 /* Force dark surfaces for Quasar components that default to white */
 .q-menu, .q-dialog__inner > div, .q-card {
-  background: var(--mf-surface-2) !important;
+  background: var(--mf-menu-bg, var(--mf-surface-2)) !important;
   color: var(--mf-text) !important;
 }
+
+/* Make dropdowns readable on light themes (Safari/Quasar menus) */
+.q-menu { 
+  border: 1px solid var(--mf-border) !important;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+.q-item, .q-item__label, .q-item__section, .q-field__native, .q-field__label, .q-field__prefix, .q-field__suffix {
+  color: var(--mf-text) !important;
+}
+.q-item--active, .q-item--active .q-item__label { 
+  color: var(--mf-text) !important;
+}
+
 .q-table__container {
   background: rgba(255,255,255,0.04) !important;
   border: 1px solid var(--mf-border) !important;
@@ -2486,14 +2500,101 @@ ui.add_head_html(
     }
   };
 
-  window.mfSetTheme = function(name){
+  window.
+  window.mfFixPlotlyText = function(){
+    try{
+      const cs = getComputedStyle(document.documentElement);
+      const text = (cs.getPropertyValue('--mf-text') || '#111').trim();
+      const muted = (cs.getPropertyValue('--mf-muted') || 'rgba(17,24,39,0.65)').trim();
+      const relayout = {
+        'font.color': text,
+        'legend.font.color': text,
+        'title.font.color': text,
+        'xaxis.tickfont.color': text,
+        'yaxis.tickfont.color': text,
+        'xaxis.title.font.color': text,
+        'yaxis.title.font.color': text,
+        'paper_bgcolor': 'rgba(0,0,0,0)',
+        'plot_bgcolor': 'rgba(0,0,0,0)',
+      };
+      document.querySelectorAll('.js-plotly-plot').forEach(g=>{
+        try{ Plotly && Plotly.relayout(g, relayout); }catch(e){}
+      });
+    }catch(e){}
+  };
+
+  // WebAuthn register must run in the same user gesture; call this directly from an onclick handler
+  window.mfPasskeyRegister = async function(username){
+    const toast = (msg)=>{ try{ if(window.Quasar && Quasar.Notify){ Quasar.Notify.create({message: msg, timeout: 1600}); } }catch(e){} };
+    try{
+      toast('Opening Face ID / Passkey prompt…');
+      const beginResp = await fetch('/auth/passkey/register_begin', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({username: username||''})
+      });
+      const beginData = await beginResp.json();
+      if(!beginResp.ok || beginData.error){
+        throw new Error(beginData.error || ('Begin failed ('+beginResp.status+')'));
+      }
+      const pubKey = beginData.publicKey || beginData;
+      pubKey.challenge = Uint8Array.from(atob(pubKey.challenge), c=>c.charCodeAt(0));
+      pubKey.user = pubKey.user || {};
+      pubKey.user.id = Uint8Array.from(atob(pubKey.user.id), c=>c.charCodeAt(0));
+      if(pubKey.excludeCredentials){
+        pubKey.excludeCredentials = pubKey.excludeCredentials.map(c=>({
+          ...c,
+          id: Uint8Array.from(atob(c.id), x=>x.charCodeAt(0)),
+        }));
+      }
+      const cred = await navigator.credentials.create({ publicKey: pubKey });
+      if(!cred){ throw new Error('Registration cancelled'); }
+
+      const bufToB64url = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/g,'');
+      const payload = {
+        id: cred.id,
+        rawId: bufToB64url(cred.rawId),
+        type: cred.type,
+        response: {
+          attestationObject: bufToB64url(cred.response.attestationObject),
+          clientDataJSON: bufToB64url(cred.response.clientDataJSON),
+        },
+      };
+
+      const finResp = await fetch('/auth/passkey/register_finish', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+      });
+      const finData = await finResp.json();
+      if(!finResp.ok || finData.error){
+        throw new Error(finData.error || ('Finish failed ('+finResp.status+')'));
+      }
+      toast('Passkey registered ✓');
+      // soft reload to refresh server list
+      setTimeout(()=>{ try{ location.reload(); }catch(e){} }, 900);
+    }catch(e){
+      try{ alert('Passkey registration failed: '+(e && e.message ? e.message : e)); }catch(_){}
+    }
+  };
+window.mfSetTheme = function(name){
     try{
       const t = THEMES[name] || THEMES["Midnight Blue"];
       const root = document.documentElement;
       Object.keys(t).forEach(k => root.style.setProperty(k, t[k]));
+
+      // detect light themes
+      const LIGHT_THEMES = new Set(["Frost", "Sand Gold", "Slate Light"]);
+      const isLight = LIGHT_THEMES.has(name) || (String(name||"").toLowerCase().includes("light"));
+
+      // menu background needs stronger contrast on light themes (Safari especially)
+      root.style.setProperty('--mf-menu-bg', isLight ? 'rgba(255,255,255,0.96)' : 'rgba(10,14,24,0.92)');
+
       localStorage.setItem("mf_theme", name);
-      // keep a global for UI sync
       window.__mfThemeName = name;
+
+      // Fix Plotly text colors after theme is applied
+      setTimeout(()=>{ try{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }catch(e){} }, 60);
     }catch(e){}
   };
 
@@ -2502,6 +2603,7 @@ ui.add_head_html(
     const saved = localStorage.getItem("mf_theme");
     if(saved){ window.mfSetTheme(saved); }
     else { window.mfSetTheme("Midnight Blue"); }
+    try{ setTimeout(()=>{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }, 120);}catch(e){}
   }catch(e){
     try{ window.mfSetTheme("Midnight Blue"); }catch(_){}
   }
@@ -2530,7 +2632,7 @@ def current_theme_name() -> str:
 
 def is_light_theme_name(name: str) -> bool:
     n = (name or "").lower()
-    return ("light" in n) or (n in ("arctic light", "slate light", "sand gold"))
+    return ("light" in n) or (n in ("arctic light", "slate light", "sand gold", "frost", "pearl mint"))
 
 def plotly_font_color() -> str:
     return "rgba(17,24,39,0.88)" if is_light_theme_name(current_theme_name()) else "rgba(255,255,255,0.88)"
@@ -2578,8 +2680,8 @@ def topbar():
                 ui.label(APP_TITLE).classes("text-lg font-bold")
                 ui.label(APP_SUBTITLE).classes("text-xs").style("color: var(--mf-muted)")
         with ui.row().classes("items-center gap-2"):
-            ui.button("Refresh", on_click=lambda: refresh_all()).props("flat").classes("text-sm")
-            ui.button("Logout", on_click=logout).props("flat").classes("text-sm")
+            ui.button("Refresh", on_click=lambda: refresh_all()).props("outline icon=refresh").classes("text-sm")
+            ui.button("Logout", on_click=logout).props("outline icon=logout").classes("text-sm")
 
 def nav_button(label: str, icon: str, path: str):
     ui.button(label, on_click=lambda: nav_to(path)).props(f"flat icon={icon}").classes("w-full")
@@ -3230,7 +3332,7 @@ def add_page():
 
                 scan_dlg = ui.dialog()
                 parsed_state: Dict[str, Any] = {"parsed": None}
-                with scan_dlg, ui.card().classes('my-card p-0 w-[720px] max-w-[95vw]').style('max-height: 88vh; display:flex; flex-direction:column; overflow:hidden;'):
+                with scan_dlg, ui.card().classes('my-card p-0 w-[720px] max-w-[95vw]').style('max-height: min(88vh, 80dvh); height: min(88vh, 80dvh); display:flex; flex-direction:column; overflow:hidden;'):
                     # Keep action buttons visible on mobile by making the content area scrollable.
                     with ui.column().classes('w-full').style('flex:1; overflow-y:auto; padding: 16px;'):
                         ui.label('Scan receipt').classes('text-lg font-bold')
@@ -3459,7 +3561,7 @@ def add_page():
                             scan_dlg.close()
 
                     # Sticky footer so buttons don't get pushed below the upload card on mobile
-                    with ui.row().classes('w-full items-center gap-2 sticky bottom-0').style('background: rgba(8,12,20,0.92); backdrop-filter: blur(8px); padding: 10px; border-top: 1px solid rgba(255,255,255,0.06)'):
+                    with ui.row().classes('w-full items-center gap-2 sticky bottom-0').style('background: rgba(8,12,20,0.92); backdrop-filter: blur(8px); padding: 10px; border-top: 1px solid var(--mf-border); position: sticky; bottom: 0; background: var(--mf-menu-bg, var(--mf-surface-2)); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); z-index: 20'):
                         ui.button('Run scan', on_click=_run_ocr).props('unelevated').classes('flex-1')
                         apply_btn = ui.button('Apply', on_click=_apply_to_form).props('unelevated')
                         apply_btn.classes('flex-1')
@@ -4127,7 +4229,7 @@ def security_page() -> None:
                 js = js.replace("%%U%%", username)
                 ui.run_javascript(js)
 
-            ui.button("Register Passkey on this device", on_click=do_register).props("unelevated").classes("w-full mt-2")
+            ui.html(f"""<button class='q-btn q-btn--unelevated q-btn--rectangle bg-primary text-white full-width' style='width:100%; padding:12px; border-radius:12px;' onclick=\"mfPasskeyRegister({json.dumps(username)})\"><span class='q-btn__content text-center col items-center q-anchor--skip justify-center row'>Register Passkey on this device</span></button>""").classes("w-full mt-2")
             ui.label('').classes('text-xs mt-2').style('color: var(--mf-muted);').props('id=pk_status')
 
             with ui.row().classes("items-center gap-2 mt-3"):
@@ -4293,7 +4395,7 @@ def cards_page() -> None:
         ct.sort(key=_order_ct)
         rbc.sort(key=_order_rbc)
 
-        def _tile(c, col='col-12 col-md-6', emph=False):
+        def _tile(c, col='col-12 col-sm-6', emph=False):
             extra = ' mf-card-emph' if emph else ''
             issuer = ' mf-issuer-ct' if _is_ct(c) else (' mf-issuer-loc' if _is_loc(c) else (' mf-issuer-rbc' if _is_rbc(c) else ''))
             # card visual variant (CT black/grey, RBC)
@@ -4335,7 +4437,7 @@ def cards_page() -> None:
             for i in range(0, len(items), 2):
                 with ui.row().classes('w-full q-col-gutter-md row'):
                     for c in items[i:i+2]:
-                        _tile(c, col='col-12 col-md-6')
+                        _tile(c, col='col-12 col-sm-6')
 
         # --- Render: Canadian Tire (2 in a row)
         if ct:
