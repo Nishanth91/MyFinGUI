@@ -120,6 +120,18 @@ def gs_retry(fn, *, retries: int = 6, base_sleep: float = 0.8):
 from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 from nicegui import ui, app
+# --- NiceGUI Html sanitize compatibility (prevents TypeError on some NiceGUI versions)
+try:
+    from nicegui.elements.html import Html as _NiceHtml
+    import inspect as _inspect
+    _sig = _inspect.signature(_NiceHtml.__init__)
+    if 'sanitize' in _sig.parameters and _sig.parameters['sanitize'].default is _inspect._empty:
+        _orig_init = _NiceHtml.__init__
+        def _patched_init(self, content: str = '', *args, sanitize: bool = True, **kwargs):
+            return _orig_init(self, content, *args, sanitize=sanitize, **kwargs)
+        _NiceHtml.__init__ = _patched_init  # type: ignore
+except Exception:
+    pass
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -4178,7 +4190,7 @@ def transactions_page():
                     with ui.row().classes("w-full justify-end gap-2"):
                         ui.button("Cancel", on_click=dlg.close).props("flat")
                         ui.button("Save", on_click=save_edit).props("unelevated")
-            dlg.open()
+                dlg.open()
 
             def open_delete(row: Dict[str, Any]):
                 tid = str(row.get("id", "")).strip()
@@ -4488,7 +4500,7 @@ def cards_page() -> None:
         def _two_row(items):
             # Quasar grid: row + columns
             for i in range(0, len(items), 2):
-                with ui.row().classes('w-full q-col-gutter-md'):
+                with ui.row().classes('row w-full q-col-gutter-md'):
                     for c in items[i:i+2]:
                         _tile(c, col='col-12 col-sm-6')
 
@@ -4510,7 +4522,7 @@ def cards_page() -> None:
         if loc:
             ui.element('div').style('height: 18px;')
             ui.label('Line of Credit').classes('text-sm font-semibold mt-6').style('color: var(--mf-muted); letter-spacing:0.4px;')
-            with ui.row().classes('w-full q-col-gutter-md justify-center'):
+            with ui.row().classes('row w-full q-col-gutter-md justify-center'):
                 for c in loc:
                     _tile(c, col='col-12', emph=True)
 
