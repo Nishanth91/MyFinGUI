@@ -2799,7 +2799,7 @@ def shell(content_fn, *, active_path: str = ""):
                                 ui.label("Theme").classes("text-base font-bold")
                                 ui.select(
                                     ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Slate Light', 'Sand Gold'],
-                                    value="Midnight Blue",
+                                    value=(app.storage.user.get('theme') or 'Midnight Blue'),
                                     on_change=lambda e: (app.storage.user.__setitem__('theme', e.value), ui.run_javascript(f"mfSetTheme({e.value!r})")),
                                 ).props("dense outlined").classes("w-full").style(
                                     "background: var(--mf-surface); border-radius: 12px;"
@@ -2811,7 +2811,7 @@ def shell(content_fn, *, active_path: str = ""):
                         _theme_names = ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Slate Light', 'Sand Gold']
                         theme_select = ui.select(
                             _theme_names,
-                            value="Midnight Blue",
+                            value=(app.storage.user.get('theme') or 'Midnight Blue'),
                             on_change=lambda e: (app.storage.user.__setitem__('theme', e.value), ui.run_javascript(f"mfSetTheme({e.value!r})")),
                         ).props("dense outlined").classes("mf-hide-mobile").style(
                             "min-width: 190px; background: var(--mf-surface); border-radius: 12px;"
@@ -2828,6 +2828,7 @@ def shell(content_fn, *, active_path: str = ""):
                         ui.button("", icon="palette").props("flat round dense").classes("mf-show-mobile").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", _open_theme_dialog)
+                        ui.run_javascript('mfSetTheme(localStorage.getItem(\"mf_theme\") || \"Midnight Blue\")')
                         ui.button("", icon="refresh").props("flat round dense").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", lambda: ui.navigate.to(ui.context.client.page.path))
@@ -3780,6 +3781,7 @@ def add_page():
                 ui.button("Cancel", on_click=dlg.close).props("flat")
                 ui.button("Save", on_click=save).props("unelevated")
 
+        ui.run_javascript('mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
         dlg.open()
 
     def content():
@@ -4176,7 +4178,7 @@ def transactions_page():
                     with ui.row().classes("w-full justify-end gap-2"):
                         ui.button("Cancel", on_click=dlg.close).props("flat")
                         ui.button("Save", on_click=save_edit).props("unelevated")
-                dlg.open()
+            dlg.open()
 
             def open_delete(row: Dict[str, Any]):
                 tid = str(row.get("id", "")).strip()
@@ -4280,8 +4282,7 @@ def security_page() -> None:
                 """;
                 js = js.replace("%%U%%", username)
                 ui.run_javascript(js)
-
-            ui.html("""<button class='q-btn q-btn-item non-selectable no-outline q-btn--standard q-btn--rectangle bg-primary text-white full-width' onclick=\"mfPasskeyRegister((document.querySelector('#pk_user input', sanitize=False)||{}).value||'');\">Register Passkey on this device</button>""").classes("w-full mt-2")
+            ui.button('Register Passkey on this device', on_click=do_register).props('unelevated').classes('w-full mt-2')
             ui.label('').classes('text-xs mt-2').style('color: var(--mf-muted);').props('id=pk_status')
 
             with ui.row().classes("items-center gap-2 mt-3"):
@@ -4487,7 +4488,7 @@ def cards_page() -> None:
         def _two_row(items):
             # Quasar grid: row + columns
             for i in range(0, len(items), 2):
-                with ui.row().classes('w-full q-col-gutter-md row'):
+                with ui.row().classes('w-full q-col-gutter-md'):
                     for c in items[i:i+2]:
                         _tile(c, col='col-12 col-sm-6')
 
