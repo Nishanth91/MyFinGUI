@@ -1942,7 +1942,7 @@ def passkey_login(username: str = "") -> None:
     (async () => {{
       try {{
         const u = {json.dumps("%%U%%")};
-        const optRes = await fetch(`/api/passkeys/options/auth?username=${{encodeURIComponent(u)}}`);
+        const optRes = await fetch(`/api/passkeys/options/authenticate?username=${{encodeURIComponent(u)}}`);
         if(!optRes.ok){{
           const t = await optRes.text();
           throw new Error(t || 'Failed to get auth options');
@@ -1983,7 +1983,7 @@ def passkey_login(username: str = "") -> None:
           }}
         }};
 
-        const vRes = await fetch(`/api/passkeys/verify/auth`, {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify(data)}});
+        const vRes = await fetch(`/api/passkeys/verify/authenticate`, {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify(data)}});
         if(!vRes.ok){{
           const t = await vRes.text();
           throw new Error(t || 'Auth verify failed');
@@ -2055,6 +2055,35 @@ body, .q-layout, .q-page {
 }
 
 /* 5.5: Issuer-tinted bank glass for Cards tiles */
+/* 5.10: Stronger issuer gradients (no logos; just bolder brand-matching color) */
+.my-card.mf-issuer-ct{
+  background:
+    linear-gradient(135deg,
+      rgba(239,68,68,0.42) 0%,
+      rgba(239,68,68,0.18) 26%,
+      rgba(0,0,0,0.00) 62%),
+    linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom)) !important;
+  border-color: rgba(239,68,68,0.22) !important;
+}
+.my-card.mf-issuer-rbc{
+  background:
+    linear-gradient(135deg,
+      rgba(59,130,246,0.48) 0%,
+      rgba(59,130,246,0.18) 30%,
+      rgba(0,0,0,0.00) 64%),
+    linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom)) !important;
+  border-color: rgba(59,130,246,0.22) !important;
+}
+.my-card.mf-issuer-loc{
+  background:
+    linear-gradient(135deg,
+      rgba(148,163,184,0.40) 0%,
+      rgba(148,163,184,0.16) 30%,
+      rgba(0,0,0,0.00) 66%),
+    linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom)) !important;
+  border-color: rgba(148,163,184,0.18) !important;
+}
+
 .my-card.mf-issuer-ct::before{
   background:
     radial-gradient(520px 240px at 18% 0%, rgba(255,255,255,0.18), transparent 62%),
@@ -2436,6 +2465,15 @@ ui.add_head_html(
       "--mf-g1":"rgba(180,83,9,0.08)", "--mf-g2":"rgba(217,119,6,0.08)",
       "--mf-card-top":"rgba(255,255,255,0.88)", "--mf-card-bottom":"rgba(255,255,255,0.72)", "--mf-card-border":"rgba(17,24,39,0.10)"
     }
+    ,
+    "Slate Light": {
+      "--mf-bg":"#F6F7FA", "--mf-bg-2":"#E9EEF8",
+      "--mf-surface":"rgba(17,24,39,0.04)", "--mf-surface-2":"rgba(17,24,39,0.06)",
+      "--mf-border":"rgba(17,24,39,0.10)", "--mf-text":"rgba(17,24,39,0.92)", "--mf-muted":"rgba(17,24,39,0.60)",
+      "--mf-accent":"#334155", "--mf-accent2":"#2563EB",
+      "--mf-g1":"rgba(51,65,85,0.10)", "--mf-g2":"rgba(37,99,235,0.08)",
+      "--mf-card-top":"rgba(255,255,255,0.90)", "--mf-card-bottom":"rgba(255,255,255,0.74)", "--mf-card-border":"rgba(17,24,39,0.10)"
+    }
   };
 
   window.mfSetTheme = function(name){
@@ -2482,7 +2520,7 @@ def current_theme_name() -> str:
 
 def is_light_theme_name(name: str) -> bool:
     n = (name or "").lower()
-    return ("light" in n) or (n in ("arctic light","mint light","rose light"))
+    return ("light" in n) or (n in ("arctic light", "slate light", "sand gold"))
 
 def plotly_font_color() -> str:
     return "rgba(17,24,39,0.88)" if is_light_theme_name(current_theme_name()) else "rgba(255,255,255,0.88)"
@@ -2612,7 +2650,7 @@ def shell(content_fn, *, active_path: str = ""):
                                     ui.button("Close").props("flat").on("click", td.close)
                             td.open()
 
-                        _theme_names = ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Mint Light', 'Rose Light']
+                        _theme_names = ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Slate Light', 'Sand Gold']
                         theme_select = ui.select(
                             _theme_names,
                             value="Midnight Blue",
@@ -3076,10 +3114,13 @@ def dashboard_page():
             else:
                 agg = spend.groupby("category", as_index=False)["amount_num"].sum()
                 fig = px.pie(agg, names="category", values="amount_num", hole=0.55, template=plotly_template())
+                # Ensure text stays readable across light/dark themes
+                fig.update_traces(textfont_color=plotly_font_color())
                 fig.update_layout(
                     margin=dict(l=10, r=10, t=10, b=10),
                     paper_bgcolor="rgba(0,0,0,0)",
                     font_color=plotly_font_color(),
+                    legend=dict(font=dict(color=plotly_font_color())),
                 )
                 ui.plotly(fig).classes("w-full")
 
@@ -3126,10 +3167,13 @@ def dashboard_page():
             recent["signed_amount"] = recent["amount_num"] * recent["sign"]
             daily = recent.groupby("day", as_index=False)["signed_amount"].sum()
             fig2 = px.area(daily, x="day", y="signed_amount", template=plotly_template())
+            fig2.update_traces(line=dict(color=None))
             fig2.update_layout(
                 margin=dict(l=10, r=10, t=10, b=10),
                 paper_bgcolor="rgba(0,0,0,0)",
                 font_color=plotly_font_color(),
+                xaxis=dict(tickfont=dict(color=plotly_font_color()), titlefont=dict(color=plotly_font_color())),
+                yaxis=dict(tickfont=dict(color=plotly_font_color()), titlefont=dict(color=plotly_font_color())),
             )
             ui.plotly(fig2).classes("w-full")
 
@@ -3567,7 +3611,10 @@ def add_page():
                     ui.notify(f"Save failed: {e}", type="negative")
 
 
-            with ui.row().classes("w-full justify-end gap-2"):
+            # Sticky footer so Save/Cancel never get pushed off-screen on mobile
+            with ui.row().classes("w-full justify-end gap-2 sticky bottom-0").style(
+                "padding: 10px; background: var(--mf-card-top); backdrop-filter: blur(10px); border-top: 1px solid var(--mf-border);"
+            ):
                 ui.button("Cancel", on_click=dlg.close).props("flat")
                 ui.button("Save", on_click=save).props("unelevated")
 
@@ -4017,9 +4064,13 @@ def security_page() -> None:
                 if not username:
                     ui.notify("Username required", type="warning")
                     return
+                ui.notify("Opening Face ID / Passkey prompt…", type="info", timeout=1.5)
                 js = """
                 (async () => {{
                   try {{
+                    if (!window.PublicKeyCredential) {{
+                      throw new Error('Passkeys not supported on this browser/device');
+                    }}
                     const u = {json.dumps("%%U%%")};
                     const optRes = await fetch(`/api/passkeys/options/register?username=${{encodeURIComponent(u)}}`);
                     if (!optRes.ok) {{
@@ -4036,8 +4087,14 @@ def security_page() -> None:
                       pubKeyCredParams: opts.pubKeyCredParams,
                       timeout: opts.timeout,
                       attestation: opts.attestation,
-                      authenticatorSelection: opts.authenticatorSelection,
+                      ...(opts.authenticatorSelection ? { authenticatorSelection: opts.authenticatorSelection } : {}),
                     }};
+                    if (opts.excludeCredentials) {{
+                      pubKey.excludeCredentials = opts.excludeCredentials.map(c => ({
+                        type: c.type,
+                        id: b64urlToBuf(c.id),
+                      }));
+                    }}
                     const cred = await navigator.credentials.create({{ publicKey: pubKey }});
                     const data = {{
                       id: cred.id,
@@ -4227,7 +4284,7 @@ def cards_page() -> None:
         ct.sort(key=_order_ct)
         rbc.sort(key=_order_rbc)
 
-        def _tile(c, col='col-6 col-md-6', emph=False):
+        def _tile(c, col='col-6', emph=False):
             extra = ' mf-card-emph' if emph else ''
             issuer = ' mf-issuer-ct' if _is_ct(c) else (' mf-issuer-loc' if _is_loc(c) else (' mf-issuer-rbc' if _is_rbc(c) else ''))
             # card visual variant (CT black/grey, RBC)
@@ -4237,7 +4294,8 @@ def cards_page() -> None:
                 variant = ' mf-ct-black' if ('black' in nlow) else (' mf-ct-grey' if ('grey' in nlow or 'gray' in nlow) else '')
             elif _is_rbc(c):
                 variant = ' mf-rbc-blue'
-            with ui.column().classes(col):
+            # Use a plain div with Quasar grid classes so 2 cards can sit in a single row reliably (incl. mobile)
+            with ui.element('div').classes(col):
                 with ui.card().classes('my-card mf-card-widget' + extra + issuer + variant):
                     with ui.row().classes('items-center justify-between'):
                         ui.label(f"{c['emoji']} {c['name']}").classes('text-lg font-semibold').style('color: var(--mf-text);')
@@ -4264,10 +4322,11 @@ def cards_page() -> None:
                         ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '—').classes('text-sm font-semibold').style('color: var(--mf-text);')
 
         def _two_row(items):
+            # Quasar grid: row + columns
             for i in range(0, len(items), 2):
-                with ui.row().classes('w-full q-col-gutter-md'):
+                with ui.row().classes('w-full q-col-gutter-md row'):
                     for c in items[i:i+2]:
-                        _tile(c)
+                        _tile(c, col='col-6')
 
         # --- Render: Canadian Tire (2 in a row)
         if ct:
