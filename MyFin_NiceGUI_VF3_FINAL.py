@@ -1583,6 +1583,12 @@ def logout() -> None:
 # Security model:
 # - On successful passkey assertion verification, sets app.storage.user["logged_in"]=True.
 
+
+# Backward-compatible alias used by header buttons
+def do_logout() -> None:
+    """Logout handler used by UI buttons."""
+    logout()
+
 import json
 import base64
 import hashlib
