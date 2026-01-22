@@ -1934,6 +1934,70 @@ async def passkeys_verify_authenticate(request: Request):
         raise HTTPException(status_code=400, detail=f"auth verify failed: {e}")
 
 
+
+def passkey_login(username: str = "") -> None:
+    """Trigger a passkey login flow in the browser and log in on success."""
+    u = (username or "").strip() or (os.environ.get('APP_USER') or os.environ.get('APP_USERNAME') or 'admin')
+    js = """
+    (async () => {{
+      try {{
+        const u = {json.dumps("%%U%%")};
+        const optRes = await fetch(`/api/passkeys/options/auth?username=${{encodeURIComponent(u)}}`);
+        if(!optRes.ok){{
+          const t = await optRes.text();
+          throw new Error(t || 'Failed to get auth options');
+        }}
+        const opts = await optRes.json();
+        const b64urlToBuf = (s) => {{
+          s = (s||'').replace(/-/g,'+').replace(/_/g,'/');
+          while(s.length % 4) s += '=';
+          return Uint8Array.from(atob(s), c => c.charCodeAt(0));
+        }};
+        const bufToB64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)))
+            .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/g,'');
+
+        const publicKey = {{
+          challenge: b64urlToBuf(opts.challenge),
+          timeout: opts.timeout || 60000,
+          rpId: opts.rpId,
+          userVerification: opts.userVerification || 'preferred',
+        }};
+        if (opts.allowCredentials) {{
+          publicKey.allowCredentials = opts.allowCredentials.map(c => ({{
+            type: c.type,
+            id: b64urlToBuf(c.id),
+            transports: c.transports || undefined,
+          }}));
+        }}
+
+        const assertion = await navigator.credentials.get({{ publicKey }});
+        const data = {{
+          id: assertion.id,
+          rawId: bufToB64url(assertion.rawId),
+          type: assertion.type,
+          response: {{
+            clientDataJSON: bufToB64url(assertion.response.clientDataJSON),
+            authenticatorData: bufToB64url(assertion.response.authenticatorData),
+            signature: bufToB64url(assertion.response.signature),
+            userHandle: assertion.response.userHandle ? bufToB64url(assertion.response.userHandle) : null,
+          }}
+        }};
+
+        const vRes = await fetch(`/api/passkeys/verify/auth`, {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify(data)}});
+        if(!vRes.ok){{
+          const t = await vRes.text();
+          throw new Error(t || 'Auth verify failed');
+        }}
+        // Server sets session -> reload to enter app
+        location.href = '/';
+      }} catch(e) {{
+        alert(`Passkey login failed: ${{e.message||e}}`);
+      }}
+    }})();
+    """.replace("%%U%%", u)
+    ui.run_javascript(js)
+
+
 # -----------------------------
 # UI Theme
 # -----------------------------
@@ -2266,6 +2330,46 @@ body, .q-layout, .q-page {
   .mf-canvas { padding-left: 0 !important; padding-right: 0 !important; }
   .mf-header { padding-left: 10px !important; padding-right: 10px !important; }
 }
+
+/* Stronger issuer tint + variants */
+.my-card.mf-issuer-ct { border-color: rgba(251,191,36,0.35) !important; }
+.my-card.mf-issuer-rbc { border-color: rgba(59,130,246,0.35) !important; }
+.my-card.mf-issuer-loc { border-color: rgba(16,185,129,0.30) !important; }
+
+.my-card.mf-ct-black::after{
+  content:"";
+  position:absolute; left:-60px; top:-60px;
+  width:220px; height:220px;
+  background: radial-gradient(circle at 40% 40%, rgba(0,0,0,0.45), transparent 60%),
+              radial-gradient(circle at 70% 70%, rgba(251,191,36,0.18), transparent 62%);
+  transform: rotate(20deg);
+  opacity:0.9;
+  pointer-events:none;
+}
+.my-card.mf-ct-grey::after{
+  content:"";
+  position:absolute; left:-60px; top:-60px;
+  width:220px; height:220px;
+  background: radial-gradient(circle at 40% 40%, rgba(148,163,184,0.22), transparent 60%),
+              radial-gradient(circle at 70% 70%, rgba(251,191,36,0.14), transparent 62%);
+  transform: rotate(20deg);
+  opacity:0.9;
+  pointer-events:none;
+}
+.my-card.mf-rbc-blue::after{
+  content:"";
+  position:absolute; right:-80px; top:-80px;
+  width:260px; height:260px;
+  background: radial-gradient(circle at 35% 35%, rgba(59,130,246,0.22), transparent 60%),
+              radial-gradient(circle at 70% 70%, rgba(14,165,233,0.14), transparent 65%);
+  transform: rotate(-14deg);
+  opacity:0.9;
+  pointer-events:none;
+}
+
+/* Light theme: ensure dropdown/list text stays readable */
+.q-menu, .q-item, .q-item__label { color: var(--mf-text) !important; }
+.q-field__native, .q-field__input { color: var(--mf-text) !important; }
 """
 ui.add_head_html(f"<style>{BANK_CSS}</style>", shared=True)
 
@@ -2307,13 +2411,22 @@ ui.add_head_html(
       "--mf-g1":"rgba(29,78,216,0.10)", "--mf-g2":"rgba(14,165,233,0.08)",
       "--mf-card-top":"rgba(255,255,255,0.88)", "--mf-card-bottom":"rgba(255,255,255,0.72)", "--mf-card-border":"rgba(17,24,39,0.10)"
     },
-    "Slate Light": {
-      "--mf-bg":"#F6F7F9", "--mf-bg-2":"#ECEFF4",
-      "--mf-surface":"rgba(2,6,23,0.04)", "--mf-surface-2":"rgba(2,6,23,0.06)",
-      "--mf-border":"rgba(2,6,23,0.10)", "--mf-text":"rgba(2,6,23,0.92)", "--mf-muted":"rgba(2,6,23,0.60)",
-      "--mf-accent":"#0F172A", "--mf-accent2":"#334155",
-      "--mf-g1":"rgba(15,23,42,0.06)", "--mf-g2":"rgba(51,65,85,0.06)",
-      "--mf-card-top":"rgba(255,255,255,0.88)", "--mf-card-bottom":"rgba(255,255,255,0.72)", "--mf-card-border":"rgba(2,6,23,0.10)"
+    "Mint Light": {
+      "--mf-bg":"#F2FBF7", "--mf-bg-2":"#E7F7F0",
+      "--mf-surface":"rgba(17,24,39,0.04)", "--mf-surface-2":"rgba(17,24,39,0.06)",
+      "--mf-border":"rgba(17,24,39,0.10)", "--mf-text":"rgba(17,24,39,0.92)", "--mf-muted":"rgba(17,24,39,0.60)",
+      "--mf-accent":"#059669", "--mf-accent2":"#10B981",
+      "--mf-g1":"rgba(5,150,105,0.10)", "--mf-g2":"rgba(16,185,129,0.08)",
+      "--mf-card-top":"rgba(255,255,255,0.90)", "--mf-card-bottom":"rgba(255,255,255,0.74)", "--mf-card-border":"rgba(17,24,39,0.10)"
+    },
+
+    "Rose Light": {
+      "--mf-bg":"#FFF5F7", "--mf-bg-2":"#FFE4EA",
+      "--mf-surface":"rgba(17,24,39,0.04)", "--mf-surface-2":"rgba(17,24,39,0.06)",
+      "--mf-border":"rgba(17,24,39,0.10)", "--mf-text":"rgba(17,24,39,0.92)", "--mf-muted":"rgba(17,24,39,0.60)",
+      "--mf-accent":"#DB2777", "--mf-accent2":"#F43F5E",
+      "--mf-g1":"rgba(219,39,119,0.10)", "--mf-g2":"rgba(244,63,94,0.08)",
+      "--mf-card-top":"rgba(255,255,255,0.90)", "--mf-card-bottom":"rgba(255,255,255,0.74)", "--mf-card-border":"rgba(17,24,39,0.10)"
     },
     "Sand Gold": {
       "--mf-bg":"#FBF7EF", "--mf-bg-2":"#F7EEDD",
@@ -2355,6 +2468,27 @@ ui.add_head_html(
     "<script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>",
     shared=True,
 )
+
+
+
+# -----------------------------
+# Theme helpers (server-side)
+# -----------------------------
+def current_theme_name() -> str:
+    try:
+        return str(app.storage.user.get("theme") or "Midnight Blue")
+    except Exception:
+        return "Midnight Blue"
+
+def is_light_theme_name(name: str) -> bool:
+    n = (name or "").lower()
+    return ("light" in n) or (n in ("arctic light","mint light","rose light"))
+
+def plotly_font_color() -> str:
+    return "rgba(17,24,39,0.88)" if is_light_theme_name(current_theme_name()) else "rgba(255,255,255,0.88)"
+
+def plotly_template() -> str:
+    return "plotly_white" if is_light_theme_name(current_theme_name()) else "plotly_dark"
 
 
 # -----------------------------
@@ -2470,7 +2604,7 @@ def shell(content_fn, *, active_path: str = ""):
                                 ui.select(
                                     ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Slate Light', 'Sand Gold'],
                                     value="Midnight Blue",
-                                    on_change=lambda e: ui.run_javascript(f"mfSetTheme({e.value!r})"),
+                                    on_change=lambda e: (app.storage.user.__setitem__('theme', e.value), ui.run_javascript(f"mfSetTheme({e.value!r})")),
                                 ).props("dense outlined").classes("w-full").style(
                                     "background: var(--mf-surface); border-radius: 12px;"
                                 )
@@ -2478,11 +2612,11 @@ def shell(content_fn, *, active_path: str = ""):
                                     ui.button("Close").props("flat").on("click", td.close)
                             td.open()
 
-                        _theme_names = ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Slate Light', 'Sand Gold']
+                        _theme_names = ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Mint Light', 'Rose Light']
                         theme_select = ui.select(
                             _theme_names,
                             value="Midnight Blue",
-                            on_change=lambda e: ui.run_javascript(f"mfSetTheme({e.value!r})"),
+                            on_change=lambda e: (app.storage.user.__setitem__('theme', e.value), ui.run_javascript(f"mfSetTheme({e.value!r})")),
                         ).props("dense outlined").classes("mf-hide-mobile").style(
                             "min-width: 190px; background: var(--mf-surface); border-radius: 12px;"
                         )
@@ -2941,11 +3075,11 @@ def dashboard_page():
                 ui.label("No expenses this month.").style("color: var(--mf-muted)")
             else:
                 agg = spend.groupby("category", as_index=False)["amount_num"].sum()
-                fig = px.pie(agg, names="category", values="amount_num", hole=0.55)
+                fig = px.pie(agg, names="category", values="amount_num", hole=0.55, template=plotly_template())
                 fig.update_layout(
                     margin=dict(l=10, r=10, t=10, b=10),
                     paper_bgcolor="rgba(0,0,0,0)",
-                    font_color="rgba(255,255,255,0.88)",
+                    font_color=plotly_font_color(),
                 )
                 ui.plotly(fig).classes("w-full")
 
@@ -2991,11 +3125,11 @@ def dashboard_page():
             recent["sign"] = recent["type_l"].map(lambda t: 1 if t in ("credit", "income") else (-1 if t in ("debit", "expense", "investment") else 0))
             recent["signed_amount"] = recent["amount_num"] * recent["sign"]
             daily = recent.groupby("day", as_index=False)["signed_amount"].sum()
-            fig2 = px.area(daily, x="day", y="signed_amount")
+            fig2 = px.area(daily, x="day", y="signed_amount", template=plotly_template())
             fig2.update_layout(
                 margin=dict(l=10, r=10, t=10, b=10),
                 paper_bgcolor="rgba(0,0,0,0)",
-                font_color="rgba(255,255,255,0.88)",
+                font_color=plotly_font_color(),
             )
             ui.plotly(fig2).classes("w-full")
 
@@ -3020,7 +3154,8 @@ def add_page():
         last_debit_account = str(app.storage.user.get('last_debit_account', '') or '').strip()
 
         dlg = ui.dialog()
-        with dlg, ui.card().classes("my-card p-5 w-[620px] max-w-[95vw]").style("max-height: 88vh; overflow-y: auto;"):
+        with dlg, ui.card().classes("my-card p-5 w-[620px] max-w-[95vw]").style("max-height: 88vh; overflow-y: auto; padding-bottom: 18px;"):
+
             ui.label(f"Add: {entry_type}").classes("text-lg font-bold")
 
             d_date = ui.input("Date", value=today().isoformat()).props("type=date").classes("w-full")
@@ -3043,9 +3178,9 @@ def add_page():
 
                 scan_dlg = ui.dialog()
                 parsed_state: Dict[str, Any] = {"parsed": None}
-                with scan_dlg, ui.card().classes('my-card p-4 w-[720px] max-w-[95vw]'):
+                with scan_dlg, ui.card().classes('my-card p-0 w-[720px] max-w-[95vw]').style('max-height: 88vh; display:flex; flex-direction:column; overflow:hidden;'):
                     # Keep action buttons visible on mobile by making the content area scrollable.
-                    with ui.column().classes('w-full max-h-[70vh] overflow-y-auto pr-1'):
+                    with ui.column().classes('w-full').style('flex:1; overflow-y:auto; padding: 16px;'):
                         ui.label('Scan receipt').classes('text-lg font-bold')
                         ui.label('Tip: on iPhone, this will prompt for camera access.').classes('text-xs').style('color: var(--mf-muted)')
 
@@ -3882,7 +4017,7 @@ def security_page() -> None:
                 if not username:
                     ui.notify("Username required", type="warning")
                     return
-                js = f"""
+                js = """
                 (async () => {{
                   try {{
                     const u = {json.dumps("%%U%%")};
@@ -3892,12 +4027,12 @@ def security_page() -> None:
                       throw new Error(t || "Failed to get registration options");
                     }}
                     const opts = await optRes.json();
-                    const dec = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '=='.slice((s.length+3)%4)), c => c.charCodeAt(0));
-                    const enc = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/g, '');
+                    const b64urlToBuf = (s) => { s=(s||'').replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='='; return Uint8Array.from(atob(s), c=>c.charCodeAt(0)); };
+                    const bufToB64url = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/g,'');
                     const pubKey = {{
-                      challenge: dec(opts.challenge),
+                      challenge: b64urlToBuf(opts.challenge),
                       rp: opts.rp,
-                      user: {{ id: dec(opts.user.id), name: opts.user.name, displayName: opts.user.displayName }},
+                      user: {{ id: b64urlToBuf(opts.user.id), name: opts.user.name, displayName: opts.user.displayName }},
                       pubKeyCredParams: opts.pubKeyCredParams,
                       timeout: opts.timeout,
                       attestation: opts.attestation,
@@ -3906,11 +4041,11 @@ def security_page() -> None:
                     const cred = await navigator.credentials.create({{ publicKey: pubKey }});
                     const data = {{
                       id: cred.id,
-                      rawId: enc(cred.rawId),
+                      rawId: bufToB64url(cred.rawId),
                       type: cred.type,
                       response: {{
-                        clientDataJSON: enc(cred.response.clientDataJSON),
-                        attestationObject: enc(cred.response.attestationObject),
+                        clientDataJSON: bufToB64url(cred.response.clientDataJSON),
+                        attestationObject: bufToB64url(cred.response.attestationObject),
                       }}
                     }};
                     const vRes = await fetch(`/api/passkeys/verify/register`, {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify(data)}});
@@ -4092,11 +4227,18 @@ def cards_page() -> None:
         ct.sort(key=_order_ct)
         rbc.sort(key=_order_rbc)
 
-        def _tile(c, col='col-12 col-md-6', emph=False):
+        def _tile(c, col='col-6 col-md-6', emph=False):
             extra = ' mf-card-emph' if emph else ''
             issuer = ' mf-issuer-ct' if _is_ct(c) else (' mf-issuer-loc' if _is_loc(c) else (' mf-issuer-rbc' if _is_rbc(c) else ''))
+            # card visual variant (CT black/grey, RBC)
+            nlow = c['name'].lower()
+            variant = ''
+            if _is_ct(c):
+                variant = ' mf-ct-black' if ('black' in nlow) else (' mf-ct-grey' if ('grey' in nlow or 'gray' in nlow) else '')
+            elif _is_rbc(c):
+                variant = ' mf-rbc-blue'
             with ui.column().classes(col):
-                with ui.card().classes('my-card mf-card-widget' + extra + issuer):
+                with ui.card().classes('my-card mf-card-widget' + extra + issuer + variant):
                     with ui.row().classes('items-center justify-between'):
                         ui.label(f"{c['emoji']} {c['name']}").classes('text-lg font-semibold').style('color: var(--mf-text);')
                         if c.get('method'):
@@ -4147,7 +4289,7 @@ def cards_page() -> None:
             ui.label('Line of Credit').classes('text-sm font-semibold mt-6').style('color: var(--mf-muted); letter-spacing:0.4px;')
             with ui.row().classes('w-full q-col-gutter-md justify-center'):
                 for c in loc:
-                    _tile(c, col='col-12 col-md-6', emph=True)
+                    _tile(c, col='col-12', emph=True)
 
     shell(content)
 
