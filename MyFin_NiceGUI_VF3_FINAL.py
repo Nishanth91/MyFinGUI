@@ -2399,6 +2399,16 @@ body, .q-layout, .q-page {
 /* Light theme: ensure dropdown/list text stays readable */
 .q-menu, .q-item, .q-item__label { color: var(--mf-text) !important; }
 .q-field__native, .q-field__input { color: var(--mf-text) !important; }
+
+/* Ensure dropdown/menu option text stays readable across light/dark themes */
+.q-menu, .q-menu .q-item__label, .q-menu .q-item__section {
+  color: var(--mf-text) !important;
+}
+
+/* iOS: smoother scrolling inside dialogs */
+.mf-scroll {
+  -webkit-overflow-scrolling: touch;
+}
 """
 ui.add_head_html(f"<style>{BANK_CSS}</style>", shared=True)
 
@@ -4108,7 +4118,7 @@ def security_page() -> None:
                       const t = await vRes.text();
                       throw new Error(t || "Registration verify failed");
                     }}
-                    alert("Passkey registered successfully ✅");
+                    document.getElementById('pk_status')?.replaceChildren('Passkey registered ✅');
                   }} catch (e) {{
                     alert(`Passkey registration failed: ${{e.message||e}}`);
                   }}
@@ -4118,6 +4128,7 @@ def security_page() -> None:
                 ui.run_javascript(js)
 
             ui.button("Register Passkey on this device", on_click=do_register).props("unelevated").classes("w-full mt-2")
+            ui.label('').classes('text-xs mt-2').style('color: var(--mf-muted);').props('id=pk_status')
 
             with ui.row().classes("items-center gap-2 mt-3"):
                 ui.icon("info").style("opacity:0.8")
@@ -4282,7 +4293,7 @@ def cards_page() -> None:
         ct.sort(key=_order_ct)
         rbc.sort(key=_order_rbc)
 
-        def _tile(c, col='col-6', emph=False):
+        def _tile(c, col='col-12 col-md-6', emph=False):
             extra = ' mf-card-emph' if emph else ''
             issuer = ' mf-issuer-ct' if _is_ct(c) else (' mf-issuer-loc' if _is_loc(c) else (' mf-issuer-rbc' if _is_rbc(c) else ''))
             # card visual variant (CT black/grey, RBC)
@@ -4324,7 +4335,7 @@ def cards_page() -> None:
             for i in range(0, len(items), 2):
                 with ui.row().classes('w-full q-col-gutter-md row'):
                     for c in items[i:i+2]:
-                        _tile(c, col='col-6')
+                        _tile(c, col='col-12 col-md-6')
 
         # --- Render: Canadian Tire (2 in a row)
         if ct:
