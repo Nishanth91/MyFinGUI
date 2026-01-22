@@ -2163,6 +2163,23 @@ body, .q-layout, .q-page {
   color: var(--mf-text) !important;
 }
 
+
+/* Light-mode safety: prevent Quasar 'dark' surfaces from forcing dark menus/dialogs */
+html.mf-light .q-menu--dark,
+html.mf-light .q-dialog__inner--minimized > div.q-card,
+html.mf-light .q-dialog__inner > div.q-card,
+html.mf-light .q-card--dark {
+  background: var(--mf-menu-bg) !important;
+  color: var(--mf-text) !important;
+}
+html.mf-light .q-item,
+html.mf-light .q-item__label,
+html.mf-light .q-field__native,
+html.mf-light .q-field__label,
+html.mf-light .q-field__marginal,
+html.mf-light .q-btn__content {
+  color: var(--mf-text) !important;
+}
 .q-table__container {
   background: rgba(255,255,255,0.04) !important;
   border: 1px solid var(--mf-border) !important;
@@ -4264,7 +4281,7 @@ def security_page() -> None:
                 js = js.replace("%%U%%", username)
                 ui.run_javascript(js)
 
-            ui.html("""<button class='q-btn q-btn-item non-selectable no-outline q-btn--standard q-btn--rectangle bg-primary text-white full-width' onclick=\"mfPasskeyRegister((document.querySelector('#pk_user input')||{}).value||'');\">Register Passkey on this device</button>""").classes("w-full mt-2")
+            ui.html("""<button class='q-btn q-btn-item non-selectable no-outline q-btn--standard q-btn--rectangle bg-primary text-white full-width' onclick=\"mfPasskeyRegister((document.querySelector('#pk_user input', sanitize=False)||{}).value||'');\">Register Passkey on this device</button>""").classes("w-full mt-2")
             ui.label('').classes('text-xs mt-2').style('color: var(--mf-muted);').props('id=pk_status')
 
             with ui.row().classes("items-center gap-2 mt-3"):
