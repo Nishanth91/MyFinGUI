@@ -2666,9 +2666,7 @@ def shell(content_fn, *, active_path: str = ""):
                                     theme_select.value = str(saved)
                             except Exception:
                                 pass
-
-                        # Ensure the dropdown reflects the already-applied theme after refresh
-                        ui.timer(0.3, _sync_theme_select, once=True)
+                        # Theme selection sync handled on user interaction to avoid timer issues on fast navigation
                         ui.button("", icon="palette").props("flat round dense").classes("mf-show-mobile").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", _open_theme_dialog)
@@ -3172,8 +3170,8 @@ def dashboard_page():
                 margin=dict(l=10, r=10, t=10, b=10),
                 paper_bgcolor="rgba(0,0,0,0)",
                 font_color=plotly_font_color(),
-                xaxis=dict(tickfont=dict(color=plotly_font_color()), titlefont=dict(color=plotly_font_color())),
-                yaxis=dict(tickfont=dict(color=plotly_font_color()), titlefont=dict(color=plotly_font_color())),
+                xaxis=dict(tickfont=dict(color=plotly_font_color()), title_font=dict(color=plotly_font_color())),
+                yaxis=dict(tickfont=dict(color=plotly_font_color()), title_font=dict(color=plotly_font_color())),
             )
             ui.plotly(fig2).classes("w-full")
 
