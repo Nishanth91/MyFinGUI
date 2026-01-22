@@ -666,6 +666,27 @@ def to_float(x: Any) -> float:
         return 0.0
 
 
+
+def parse_amount(s: Any) -> float:
+    """Parse currency/amount-like values into a positive float (best-effort).
+    Returns 0.0 when parsing fails."""
+    try:
+        if s is None:
+            return 0.0
+        t = str(s).strip()
+        if not t or t.lower() == 'nan':
+            return 0.0
+        # remove common currency markers & thousands separators
+        t = t.replace('CAD', '').replace('$', '').replace(',', '').strip()
+        # keep digits, minus, dot only
+        t = re.sub(r'[^0-9\.-]', '', t)
+        if not t or t in {'.','-','-.'}:
+            return 0.0
+        v = float(t)
+        return abs(v)
+    except Exception:
+        return 0.0
+
 def wide_transactions_to_long(df: pd.DataFrame) -> pd.DataFrame:
     """Convert a 'wide' Transactions sheet into the app's long format.
 
@@ -2447,7 +2468,7 @@ def shell(content_fn, *, active_path: str = ""):
                             with ui.dialog() as td, ui.card().classes("my-card p-4 w-full max-w-sm"):
                                 ui.label("Theme").classes("text-base font-bold")
                                 ui.select(
-                                    ["Midnight Blue","Emerald Gold","Graphite Rose"],
+                                    ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Slate Light', 'Sand Gold'],
                                     value="Midnight Blue",
                                     on_change=lambda e: ui.run_javascript(f"mfSetTheme({e.value!r})"),
                                 ).props("dense outlined").classes("w-full").style(
@@ -2457,7 +2478,7 @@ def shell(content_fn, *, active_path: str = ""):
                                     ui.button("Close").props("flat").on("click", td.close)
                             td.open()
 
-                        _theme_names = ["Midnight Blue","Emerald Gold","Graphite Rose"]
+                        _theme_names = ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Slate Light', 'Sand Gold']
                         theme_select = ui.select(
                             _theme_names,
                             value="Midnight Blue",
@@ -2999,7 +3020,7 @@ def add_page():
         last_debit_account = str(app.storage.user.get('last_debit_account', '') or '').strip()
 
         dlg = ui.dialog()
-        with dlg, ui.card().classes("my-card p-5 w-[620px] max-w-[95vw]"):
+        with dlg, ui.card().classes("my-card p-5 w-[620px] max-w-[95vw]").style("max-height: 88vh; overflow-y: auto;"):
             ui.label(f"Add: {entry_type}").classes("text-lg font-bold")
 
             d_date = ui.input("Date", value=today().isoformat()).props("type=date").classes("w-full")
@@ -3466,6 +3487,7 @@ def admin_page() -> None:
                 ui.button("Transactions (Fix Mistakes)", on_click=lambda: nav_to("/tx")).props("unelevated").classes("w-full")
                 ui.button("Budgets", on_click=lambda: nav_to("/budgets")).props("unelevated").classes("w-full")
                 ui.button("Data Tools (Import/Backup)", on_click=lambda: nav_to("/data_tools")).props("unelevated").classes("w-full")
+                ui.button("Security (Face ID / Passkeys)", on_click=lambda: nav_to("/security")).props("unelevated").classes("w-full")
 
         with ui.card().classes("my-card p-5"):
             ui.label("Locks").classes("text-lg font-bold")
