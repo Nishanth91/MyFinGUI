@@ -2524,59 +2524,73 @@ ui.add_head_html(
   };
 
   // WebAuthn register must run in the same user gesture; call this directly from an onclick handler
-  window.mfPasskeyRegister = async function(username){
-    const toast = (msg)=>{ try{ if(window.Quasar && Quasar.Notify){ Quasar.Notify.create({message: msg, timeout: 1600}); } }catch(e){} };
-    try{
-      toast('Opening Face ID / Passkey prompt…');
-      const beginResp = await fetch('/auth/passkey/register_begin', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({username: username||''})
-      });
-      const beginData = await beginResp.json();
-      if(!beginResp.ok || beginData.error){
-        throw new Error(beginData.error || ('Begin failed ('+beginResp.status+')'));
-      }
-      const pubKey = beginData.publicKey || beginData;
-      pubKey.challenge = Uint8Array.from(atob(pubKey.challenge), c=>c.charCodeAt(0));
-      pubKey.user = pubKey.user || {};
-      pubKey.user.id = Uint8Array.from(atob(pubKey.user.id), c=>c.charCodeAt(0));
-      if(pubKey.excludeCredentials){
-        pubKey.excludeCredentials = pubKey.excludeCredentials.map(c=>({
-          ...c,
-          id: Uint8Array.from(atob(c.id), x=>x.charCodeAt(0)),
-        }));
-      }
-      const cred = await navigator.credentials.create({ publicKey: pubKey });
-      if(!cred){ throw new Error('Registration cancelled'); }
+      window.mfPasskeyRegister = async function(username) {
+      try {
+        username = (username || '').trim();
+        if (!username) {
+          alert('Please enter a username for passkey.');
+          return;
+        }
+        if (!('credentials' in navigator) || !window.PublicKeyCredential) {
+          alert('Passkeys are not supported in this browser/device.');
+          return;
+        }
+        const toast = (msg) => { try { (window.mfToast ? window.mfToast(msg) : console.log(msg)); } catch(e) {} };
 
-      const bufToB64url = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/g,'');
-      const payload = {
-        id: cred.id,
-        rawId: bufToB64url(cred.rawId),
-        type: cred.type,
-        response: {
-          attestationObject: bufToB64url(cred.response.attestationObject),
-          clientDataJSON: bufToB64url(cred.response.clientDataJSON),
-        },
-      };
+        const bufToB64Url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)))
+          .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+        const b64UrlToBuf = (b64url) => {
+          const pad = '='.repeat((4 - (b64url.length % 4)) % 4);
+          const b64 = (b64url + pad).replace(/-/g, '+').replace(/_/g, '/');
+          const str = atob(b64);
+          const bytes = new Uint8Array(str.length);
+          for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i);
+          return bytes.buffer;
+        };
 
-      const finResp = await fetch('/auth/passkey/register_finish', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(payload),
-      });
-      const finData = await finResp.json();
-      if(!finResp.ok || finData.error){
-        throw new Error(finData.error || ('Finish failed ('+finResp.status+')'));
+        toast('Opening Face ID / Passkey prompt...');
+        const optRes = await fetch('/api/passkeys/options/register?username=' + encodeURIComponent(username));
+        if (!optRes.ok) throw new Error('Could not start passkey registration.');
+        const options = await optRes.json();
+
+        // Convert base64url fields to ArrayBuffer as required by WebAuthn
+        options.challenge = b64UrlToBuf(options.challenge);
+        if (options.user && options.user.id) options.user.id = b64UrlToBuf(options.user.id);
+        if (options.excludeCredentials) {
+          options.excludeCredentials = options.excludeCredentials.map(c => ({...c, id: b64UrlToBuf(c.id)}));
+        }
+
+        const cred = await navigator.credentials.create({ publicKey: options });
+        if (!cred) throw new Error('Passkey creation was cancelled.');
+
+        const payload = {
+          id: cred.id,
+          rawId: bufToB64Url(cred.rawId),
+          type: cred.type,
+          response: {
+            clientDataJSON: bufToB64Url(cred.response.clientDataJSON),
+            attestationObject: bufToB64Url(cred.response.attestationObject),
+          }
+        };
+        if (cred.response.getTransports) payload.response.transports = cred.response.getTransports();
+
+        const verRes = await fetch('/api/passkeys/verify/register?username=' + encodeURIComponent(username), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!verRes.ok) {
+          const t = await verRes.text();
+          throw new Error('Passkey registration failed: ' + (t || verRes.status));
+        }
+        toast('Passkey registered ✓');
+        alert('Passkey registered successfully for ' + username);
+      } catch (e) {
+        console.error(e);
+        alert(String(e && e.message ? e.message : e));
       }
-      toast('Passkey registered ✓');
-      // soft reload to refresh server list
-      setTimeout(()=>{ try{ location.reload(); }catch(e){} }, 900);
-    }catch(e){
-      try{ alert('Passkey registration failed: '+(e && e.message ? e.message : e)); }catch(_){}
-    }
-  };
+    };
+
 window.mfSetTheme = function(name){
     try{
       const t = THEMES[name] || THEMES["Midnight Blue"];
@@ -2586,6 +2600,15 @@ window.mfSetTheme = function(name){
       // detect light themes
       const LIGHT_THEMES = new Set(["Frost", "Sand Gold", "Slate Light"]);
       const isLight = LIGHT_THEMES.has(name) || (String(name||"").toLowerCase().includes("light"));
+      // Keep Quasar/NiceGUI in sync with the selected theme (fixes dark dropdowns/dialogs on light themes)
+      try {
+        if (window.Quasar && window.Quasar.Dark && typeof window.Quasar.Dark.set === 'function') {
+          window.Quasar.Dark.set(!isLight);
+        }
+      } catch (e) {}
+      document.body.classList.toggle('q-dark', !isLight);
+      document.body.classList.toggle('body--dark', !isLight);
+      document.body.classList.toggle('body--light', isLight);
 
       // menu background needs stronger contrast on light themes (Safari especially)
       root.style.setProperty('--mf-menu-bg', isLight ? 'rgba(255,255,255,0.96)' : 'rgba(10,14,24,0.92)');
@@ -2782,6 +2805,12 @@ def shell(content_fn, *, active_path: str = ""):
                         ui.button("", icon="palette").props("flat round dense").classes("mf-show-mobile").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", _open_theme_dialog)
+                        ui.button("", icon="refresh").props("flat round dense").style(
+                            "border: 1px solid var(--mf-border); background: var(--mf-surface);"
+                        ).on("click", lambda: ui.navigate.to(ui.context.client.page.path))
+                        ui.button("", icon="logout").props("flat round dense").style(
+                            "border: 1px solid var(--mf-border); background: var(--mf-surface);"
+                        ).on("click", do_logout)
                         ui.button("", icon="search").props("flat round dense").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", lambda: open_search_dialog())
@@ -4167,7 +4196,7 @@ def security_page() -> None:
             ui.separator().classes("my-3 opacity-30")
 
             default_user = os.environ.get('APP_USER') or os.environ.get('APP_USERNAME') or 'admin'
-            u_in = ui.input("Username for passkey", value=default_user).classes("w-full")
+            u_in = ui.input("Username for passkey", value=default_user).classes("w-full").props("id=pk_user")
 
             def do_register():
                 username = (u_in.value or "").strip()
@@ -4229,7 +4258,7 @@ def security_page() -> None:
                 js = js.replace("%%U%%", username)
                 ui.run_javascript(js)
 
-            ui.html(f"""<button class='q-btn q-btn--unelevated q-btn--rectangle bg-primary text-white full-width' style='width:100%; padding:12px; border-radius:12px;' onclick=\"mfPasskeyRegister({json.dumps(username)})\"><span class='q-btn__content text-center col items-center q-anchor--skip justify-center row'>Register Passkey on this device</span></button>""").classes("w-full mt-2")
+            ui.html("""<button class='q-btn q-btn-item non-selectable no-outline q-btn--standard q-btn--rectangle bg-primary text-white full-width' onclick=\"mfPasskeyRegister((document.querySelector('#pk_user input')||{}).value||'');\">Register Passkey on this device</button>""").classes("w-full mt-2")
             ui.label('').classes('text-xs mt-2').style('color: var(--mf-muted);').props('id=pk_status')
 
             with ui.row().classes("items-center gap-2 mt-3"):
