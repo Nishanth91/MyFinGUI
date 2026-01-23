@@ -3000,13 +3000,22 @@ def shell(content_fn, *, active_path: str = ""):
                         def _open_theme_dialog():
                             with ui.dialog() as td, ui.card().classes("my-card p-4 w-full max-w-sm"):
                                 ui.label("Theme").classes("text-base font-bold")
-                                ui.select(
-                                    ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Slate Light', 'Sand Gold'],
-                                    value=(app.storage.user.get('theme') or 'Midnight Blue'),
-                                    on_change=lambda e: (app.storage.user.__setitem__('theme', e.value), ui.run_javascript(f"mfSetTheme({e.value!r})")),
-                                ).props("dense outlined").classes("w-full").style(
-                                    "background: var(--mf-surface); border-radius: 12px;"
-                                )
+                                # Theme chooser (button list instead of dropdown; avoids iOS Safari dark menu rendering)
+                                themes = ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Slate Light', 'Sand Gold']
+                                cur = (app.storage.user.get('theme') or 'Midnight Blue')
+                                with ui.column().classes("w-full mt-2 gap-2"):
+                                    for tname in themes:
+                                        is_cur = (tname == cur)
+                                        btn = ui.button(
+                                            tname,
+                                            on_click=lambda tn=tname: (
+                                                app.storage.user.__setitem__('theme', tn),
+                                                ui.run_javascript(f"mfSetTheme({tn!r})"),
+                                                td.close(),
+                                            ),
+                                        ).classes("w-full justify-start")
+                                        btn.props("unelevated" if is_cur else "outline")
+                                        btn.style("border-radius: 12px; padding: 10px 12px;")
                                 with ui.row().classes("justify-end w-full mt-2"):
                                     ui.button("Close").props("flat").on("click", td.close)
                             td.open()
@@ -3418,7 +3427,7 @@ def dashboard_page():
                                     with ui.column().classes('items-end'):
                                         ui.label(f"{int(round(pct*100))}%").classes('text-xs font-bold').style('color: var(--mf-text)')
                                         ui.label(f"{currency(spent_amt)} / {currency(bud_amt)}").classes('text-xs').style('color: var(--mf-muted)')
-                                ui.linear_progress(value=pct).props('size=10px')
+                                ui.linear_progress(value=pct).props('size=10px show-value=false')
 
         # Upcoming paydays
         start = today()
