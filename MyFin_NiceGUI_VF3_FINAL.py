@@ -266,7 +266,19 @@ def set_month_lock(month_key_str: str, locked: bool) -> bool:
         return False
     try:
         ensure_tabs()
-        w = ws("locks")
+        try:
+            w = ws("locks")
+        except Exception:
+            # Create the optional 'locks' sheet on demand (Phase 5.12)
+            ss = get_spreadsheet()
+            w = ss.add_worksheet(title="locks", rows=500, cols=5)
+            w.append_row(TABS.get("locks", ["month", "locked"]))
+            invalidate_cache("locks")
+            # Rebuild worksheet map
+            global _tabs_ready
+            _tabs_ready = False
+            ensure_tabs()
+            w = ws("locks")
         df = cached_df("locks", force=True)
 
         row_idx = None
@@ -1062,6 +1074,10 @@ def ensure_tabs() -> None:
         w = existing.get(key)
 
         if w is None:
+            # 'locks' is optional (introduced in Phase 5.12). If it doesn't exist yet,
+            # we treat it as unlocked-by-default and do NOT fail deployment.
+            if tab == 'locks' and not ALLOW_CREATE_MISSING_SHEETS:
+                continue
             missing_tabs.append(tab)
             if not ALLOW_CREATE_MISSING_SHEETS:
                 continue
@@ -1095,7 +1111,7 @@ def ensure_tabs() -> None:
             + ", ".join(missing_tabs)
             + ". Existing tabs: "
             + ", ".join(existing_titles)
-            + ".\nFix: rename your sheets to match (Transactions, Rules, Cards, Recurring) "
+            + ".\nFix: rename your sheets to match (Transactions, Rules, Cards, Recurring, Budgets, Admin, Locks) "
             + "or set ALLOW_CREATE_MISSING_SHEETS=1 to let the app create them."
         )
 
