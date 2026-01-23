@@ -2650,10 +2650,7 @@ html.mf-light .q-btn__content {
 /* Remove any numeric label rendered inside progress bars */
 .q-linear-progress__label { display: none !important; }
 """
-ui.add_head_html(f"<style>{BANK_CSS}
-/* Budget progress: hide numeric overlay label */
-.mf-budget .q-linear-progress__label{display:none !important;}
-</style>", shared=True)
+ui.add_head_html("<style>" + BANK_CSS + "\n/* Budget progress: hide numeric overlay label */\n.mf-budget .q-linear-progress__label{display:none !important;}\n</style>", shared=True)
 
 ui.add_head_html(
     """<script>
