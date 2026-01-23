@@ -219,6 +219,79 @@ def today() -> dt.date:
 def month_key(d: dt.date) -> str:
     return f"{d.year:04d}-{d.month:02d}"
 
+
+def _normalize_month_key(m: str) -> str:
+    m = (m or "").strip()
+    if not m:
+        return ""
+    if len(m) >= 7 and m[4] == "-":
+        return m[:7]
+    return m
+
+def list_locked_months() -> set[str]:
+    try:
+        ensure_tabs()
+        df = cached_df("locks")
+        if df.empty:
+            return set()
+        col_m = None
+        col_l = None
+        for c in df.columns:
+            lc = str(c).strip().lower()
+            if lc in ("month", "mkey", "month_key"):
+                col_m = c
+            if lc in ("locked", "is_locked", "lock"):
+                col_l = c
+        if col_m is None:
+            return set()
+        locked = set()
+        for _, r in df.iterrows():
+            mk = _normalize_month_key(str(r.get(col_m, "")))
+            if not mk:
+                continue
+            v = str(r.get(col_l, "true") if col_l else "true").strip().lower()
+            if v in ("1", "true", "yes", "y", "locked"):
+                locked.add(mk)
+        return locked
+    except Exception:
+        return set()
+
+def is_month_locked(month_key_str: str) -> bool:
+    mk = _normalize_month_key(month_key_str)
+    return bool(mk) and (mk in list_locked_months())
+
+def set_month_lock(month_key_str: str, locked: bool) -> bool:
+    mk = _normalize_month_key(month_key_str)
+    if not mk:
+        return False
+    try:
+        ensure_tabs()
+        w = ws("locks")
+        df = cached_df("locks", force=True)
+
+        row_idx = None
+        if not df.empty:
+            month_col = None
+            for c in df.columns:
+                if str(c).strip().lower() == "month":
+                    month_col = c
+                    break
+            if month_col:
+                for i, r in df.iterrows():
+                    if _normalize_month_key(str(r.get(month_col, ""))) == mk:
+                        row_idx = int(i) + 2
+                        break
+
+        if row_idx is None:
+            gs_retry(lambda: w.append_row([mk, "TRUE" if locked else "FALSE"]))
+        else:
+            gs_retry(lambda: w.update_acell(f"B{row_idx}", "TRUE" if locked else "FALSE"))
+
+        invalidate_cache("locks")
+        return True
+    except Exception:
+        return False
+
 def parse_date(x: Any) -> Optional[dt.date]:
     if x is None:
         return None
@@ -842,6 +915,7 @@ TABS = {
     "recurring": ["recurring_id", "owner", "type", "amount", "method", "account", "category", "notes",
                   "day_of_month", "start_date", "active", "last_generated_month"],
     "rules": ["keyword", "category"],
+    "locks": ["month", "locked"],
 }
 
 _gc: Optional[gspread.Client] = None
@@ -2175,6 +2249,13 @@ body, .q-layout, .q-page {
   color: var(--mf-text) !important;
 }
 
+.q-item:hover, .q-item.q-manual-focusable--focused {
+  background: rgba(120,160,255,0.14) !important;
+}
+.q-item:hover .q-item__label {
+  color: var(--mf-text) !important;
+}
+
 
 /* Light-mode safety: prevent Quasar 'dark' surfaces from forcing dark menus/dialogs */
 html.mf-light .q-menu--dark,
@@ -2800,7 +2881,7 @@ def shell(content_fn, *, active_path: str = ""):
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-nav-open')"))
                         with ui.element("div").classes("mf-title"):
-                            ui.label("MyFin").classes("t1")
+                            ui.link("MyFin", "/").classes("t1").style("color: inherit; text-decoration: none;")
                             ui.label("Phase 5 UI + Phase 4 realtime logic").classes("t2")
 
                     # RIGHT: theme + actions
@@ -2927,8 +3008,6 @@ def login_page():
                     ui.notify("Invalid login", type="negative")
 
             ui.button("Login", on_click=attempt).classes("w-full").props("unelevated")
-            ui.button("Use Passkey (Face ID)", on_click=lambda: passkey_login(u_in.value or "")).classes("w-full").props("outline")
-            ui.label("Tip: Register a Passkey in Admin → Security (Phase 5.6)").classes("text-xs").style("color: var(--mf-muted); margin-top:6px;")
 
 
 
@@ -3149,7 +3228,9 @@ def dashboard_page():
                 ("Investments (this month)", invest, "savings"),
                 ("Net (this month)", net, "insights"),
             ]:
-                with ui.card().classes("my-card p-4 w-full").style("min-height: 110px;"):
+                _lbl = label.lower()
+                _tint = "rgba(46, 204, 113, 0.10)" if "income" in _lbl else ("rgba(231, 76, 60, 0.10)" if "expense" in _lbl else ("rgba(52, 152, 219, 0.10)" if "invest" in _lbl else "rgba(155, 89, 182, 0.08)"))
+                with ui.card().classes("my-card p-4 w-full").style(f"min-height: 110px; background: {_tint};"):
                     with ui.row().classes("items-center justify-between"):
                         ui.label(label).classes("text-xs uppercase").style("color: var(--mf-muted); letter-spacing: .12em")
                         ui.icon(icon).style("color: var(--mf-muted)")
@@ -3222,9 +3303,11 @@ def dashboard_page():
 
                             for cat, spent_amt, bud_amt in rows[:10]:
                                 pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
-                                with ui.row().classes('w-full items-center justify-between'):
+                                with ui.row().classes('w-full items-start justify-between'):
                                     ui.label(cat).classes('text-sm')
-                                    ui.label(f"{currency(spent_amt)} / {currency(bud_amt)}").classes('text-xs').style('color: var(--mf-muted)')
+                                    with ui.column().classes('items-end'):
+                                        ui.label(f"{int(round(pct*100))}%").classes('text-xs font-bold').style('color: var(--mf-text)')
+                                        ui.label(f"{currency(spent_amt)} / {currency(bud_amt)}").classes('text-xs').style('color: var(--mf-muted)')
                                 ui.linear_progress(value=pct).props('size=10px')
 
         # Upcoming paydays
@@ -3845,7 +3928,6 @@ def admin_page() -> None:
                 ui.button("Transactions (Fix Mistakes)", on_click=lambda: nav_to("/tx")).props("unelevated").classes("w-full")
                 ui.button("Budgets", on_click=lambda: nav_to("/budgets")).props("unelevated").classes("w-full")
                 ui.button("Data Tools (Import/Backup)", on_click=lambda: nav_to("/data_tools")).props("unelevated").classes("w-full")
-                ui.button("Security (Face ID / Passkeys)", on_click=lambda: nav_to("/security")).props("unelevated").classes("w-full")
 
         with ui.card().classes("my-card p-5"):
             ui.label("Locks").classes("text-lg font-bold")
@@ -3977,6 +4059,9 @@ def transactions_page():
             d.open()
 
         def _apply_category_selected(table_ref, category_val: str) -> None:
+            if is_month_locked(f_month.value or mkey):
+                ui.notify("This month is locked. Unlock it to edit.", type="warning")
+                return
             if not getattr(table_ref, 'selected', None):
                 ui.notify('Select a transaction row first.', type='warning')
                 return
@@ -3995,6 +4080,25 @@ def transactions_page():
 
         with ui.card().classes("my-card p-5"):
             ui.label("Transactions").classes("text-lg font-bold")
+
+            # Month selector + lock (5.12)
+            month_options = []
+            try:
+                if not tx.empty and "date_parsed" in tx.columns:
+                    month_options = sorted({month_key(d) for d in tx["date_parsed"].dropna().tolist()}, reverse=True)
+            except Exception:
+                month_options = []
+            if not month_options:
+                month_options = [month_key(today())]
+
+            mkey = (app.storage.user.get("tx_month") or month_key(today()))
+            if mkey not in month_options:
+                mkey = month_options[0]
+
+            with ui.row().classes("w-full items-center gap-3 mt-2"):
+                f_month = ui.select(month_options, value=mkey, label="Month").classes("w-full")
+                lock_sw = ui.switch("Month Lock", value=is_month_locked(mkey)).classes("shrink-0")
+
             f_type = ui.select(["All"] + types, value="All", label="Type").classes("w-full")
             f_text = ui.input("Search notes/category/account").classes("w-full")
             try:
@@ -4088,9 +4192,30 @@ def transactions_page():
                 with ui.row().classes('gap-2 items-center'):
                     fix_cat = ui.select(cat_choices, value=cat_choices[0], label='Quick set category').classes('w-64')
                     ui.button('Apply to selected', icon='label').props('unelevated').on('click', lambda: _apply_category_selected(table, fix_cat.value))
+            # Handlers for month + lock (5.12)
+            def _on_month_changed(e=None):
+                mk = f_month.value or mkey
+                app.storage.user["tx_month"] = mk
+                try:
+                    lock_sw.value = is_month_locked(mk)
+                except Exception:
+                    pass
+                refresh_table()
 
+            f_month.on('update:model-value', lambda e: _on_month_changed())
+            lock_sw.on('update:model-value', lambda e: (set_month_lock(f_month.value or mkey, bool(lock_sw.value)),
+                                                        ui.notify(('Month locked' if lock_sw.value else 'Month unlocked'), type='positive'),
+                                                        refresh_table()))
             def refresh_table():
                 df = tx.copy()
+                mk = (f_month.value or mkey)
+                app.storage.user["tx_month"] = mk
+                try:
+                    lock_sw.value = is_month_locked(mk)
+                except Exception:
+                    pass
+                if "date_parsed" in df.columns:
+                    df = df[df["date_parsed"].apply(lambda d: month_key(d) if pd.notna(d) else "") == mk]
                 if f_type.value != "All":
                     df = df[df["type"].astype(str) == f_type.value]
                 # Date filter (inclusive)
@@ -4154,6 +4279,9 @@ def transactions_page():
 
             # Edit/Delete
             def open_edit(row: Dict[str, Any]):
+                if is_month_locked(f_month.value or mkey):
+                    ui.notify("This month is locked. Unlock it to edit.", type="warning")
+                    return
                 dlg = ui.dialog()
                 with dlg, ui.card().classes("my-card p-5 w-[720px] max-w-[95vw]"):
                     ui.label("Edit transaction").classes("text-lg font-bold")
@@ -4420,6 +4548,46 @@ def cards_page() -> None:
             pct = (balance/lim) if lim else 0.0
             pct = max(0.0, min(1.0, pct))
 
+            # Trend since last payoff (balance reset when repaid to ~0)
+            spark_x: List[str] = []
+            spark_y: List[float] = []
+            try:
+                hist = txu.copy()
+                if 'date_parsed' not in hist.columns:
+                    hist['date_parsed'] = hist.get('date','').apply(parse_date)
+
+                hist = hist[hist.get('account','').astype(str).str.strip() == card_key].copy()
+                hist = hist[hist['date_parsed'].notna()].sort_values('date_parsed')
+
+                if not hist.empty:
+                    spend_m = hist['type_norm'].isin(['debit','expense','spend'])
+                    repay_m = hist['type_norm'].isin(['credit card repay','cc repay','credit card repayment','cc repayment'])
+                    hist = hist[spend_m | repay_m].copy()
+
+                    hist['signed'] = 0.0
+                    hist.loc[spend_m, 'signed'] = hist.loc[spend_m, 'amount_num'].astype(float)
+                    hist.loc[repay_m, 'signed'] = -hist.loc[repay_m, 'amount_num'].astype(float)
+
+                    if not hist.empty:
+                        hist['bal'] = hist['signed'].cumsum()
+
+                        payoff_rows = hist.index[hist['bal'] <= 0.00001].tolist()
+                        if payoff_rows:
+                            last_payoff = payoff_rows[-1]
+                            hist2 = hist.loc[hist.index > last_payoff].copy()
+                        else:
+                            hist2 = hist.copy()
+
+                        if not hist2.empty:
+                            daily = hist2.groupby('date_parsed', as_index=False)['signed'].sum()
+                            daily = daily.sort_values('date_parsed')
+                            daily['bal'] = daily['signed'].cumsum()
+
+                            spark_x = [d.isoformat() for d in daily['date_parsed'].tolist()]
+                            spark_y = [float(x) for x in daily['bal'].tolist()]
+            except Exception:
+                pass
+
             entries.append({
                 'name': name,
                 'emoji': emoji,
@@ -4429,6 +4597,8 @@ def cards_page() -> None:
                 'balance': balance,
                 'remaining': remaining,
                 'pct': pct,
+                'spark_x': spark_x,
+                'spark_y': spark_y,
             })
 
         def _is_ct(c):
@@ -4497,12 +4667,34 @@ def cards_page() -> None:
                         ui.label('Remaining').classes('text-xs').style('color: var(--mf-muted);')
                         ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '—').classes('text-sm font-semibold').style('color: var(--mf-text);')
 
+                    # Mini trend chart: balance since last payoff (resets after fully repaid)
+                    try:
+                        sx = c.get('spark_x') or []
+                        sy = c.get('spark_y') or []
+                        if len(sx) >= 2 and len(sy) == len(sx):
+                            import plotly.graph_objects as go
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(x=sx, y=sy, mode='lines', line=dict(width=2)))
+                            fig.update_layout(
+                                height=90,
+                                margin=dict(l=0, r=0, t=6, b=0),
+                                paper_bgcolor='rgba(0,0,0,0)',
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                showlegend=False,
+                                xaxis=dict(visible=False),
+                                yaxis=dict(visible=False),
+                            )
+                            ui.plotly(fig).classes('w-full mt-2')
+                        else:
+                            ui.label('No recent activity').classes('text-xs mt-2').style('color: var(--mf-muted);')
+                    except Exception:
+                        ui.label('No recent activity').classes('text-xs mt-2').style('color: var(--mf-muted);')
+
         def _two_row(items):
-            # Quasar grid: row + columns
-            for i in range(0, len(items), 2):
-                with ui.row().classes('row w-full q-col-gutter-md'):
-                    for c in items[i:i+2]:
-                        _tile(c, col='col-12 col-sm-6')
+            # Responsive grid (prevents large empty right space on wide desktops)
+            with ui.element('div').classes('grid grid-cols-1 md:grid-cols-2 gap-4 w-full'):
+                for c in items:
+                    _tile(c, col='w-full')
 
         # --- Render: Canadian Tire (2 in a row)
         if ct:
