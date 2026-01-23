@@ -2650,7 +2650,10 @@ html.mf-light .q-btn__content {
 /* Remove any numeric label rendered inside progress bars */
 .q-linear-progress__label { display: none !important; }
 """
-ui.add_head_html(f"<style>{BANK_CSS}</style>", shared=True)
+ui.add_head_html(f"<style>{BANK_CSS}
+/* Budget progress: hide numeric overlay label */
+.mf-budget .q-linear-progress__label{display:none !important;}
+</style>", shared=True)
 
 ui.add_head_html(
     """<script>
@@ -3320,7 +3323,7 @@ def dashboard_page():
         except Exception:
             days_to_next = None
 
-        with ui.card().classes('my-card p-5'):
+        with ui.card().classes('my-card p-5 mf-budget'):
             ui.label('Overview').classes('text-xs uppercase').style('color: var(--mf-muted); letter-spacing: 0.12em')
             with ui.row().classes('w-full items-end justify-between gap-4'):
                 with ui.column().classes('gap-1'):
@@ -3427,7 +3430,7 @@ def dashboard_page():
                                     with ui.column().classes('items-end'):
                                         ui.label(f"{int(round(pct*100))}%").classes('text-xs font-bold').style('color: var(--mf-text)')
                                         ui.label(f"{currency(spent_amt)} / {currency(bud_amt)}").classes('text-xs').style('color: var(--mf-muted)')
-                                ui.linear_progress(value=pct).props('size=10px show-value=false')
+                                ui.linear_progress(value=pct).props('size=10px')  # hide numeric label
 
         # Upcoming paydays
         start = today()
