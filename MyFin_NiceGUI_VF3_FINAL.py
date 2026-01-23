@@ -2143,6 +2143,10 @@ html.mf-light {
   --mf-menu-bg: rgba(255,255,255,0.92);
   --mf-g1: rgba(91,140,255,0.16);
   --mf-g2: rgba(70,230,166,0.10);
+  --mf-card-top: rgba(255,255,255,0.88);
+  --mf-card-bottom: rgba(255,255,255,0.72);
+  --mf-card-border: rgba(0,0,0,0.10);
+  --mf-card-shadow: 0 20px 55px rgba(0,0,0,0.14);
 }
 body, .q-layout, .q-page {
   background: radial-gradient(1200px 700px at 18% 12%, var(--mf-g1), transparent 60%),
@@ -2158,7 +2162,7 @@ body, .q-layout, .q-page {
   border: 1px solid var(--mf-card-border) !important;
   border-radius: 24px !important;
   box-shadow:
-    0 20px 55px rgba(0,0,0,0.42),
+    var(--mf-card-shadow, 0 20px 55px rgba(0,0,0,0.42)),
     inset 0 1px 0 rgba(255,255,255,0.12);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -2284,6 +2288,28 @@ body, .q-layout, .q-page {
 }
 .q-item:hover .q-item__label {
   color: var(--mf-text) !important;
+}
+
+
+
+/* 5.12.3: Ensure form fields and icons are readable in both themes */
+.q-field__control, .q-field__native, .q-field__label, .q-field__marginal, .q-select__dropdown-icon,
+.q-field__append, .q-field__prepend, .q-icon, .q-btn, .q-btn__content, .q-btn__content * {
+  color: var(--mf-text) !important;
+}
+.q-field--filled .q-field__control, .q-field--outlined .q-field__control {
+  background: rgba(0,0,0,0.00) !important;
+}
+html.mf-light .q-field--filled .q-field__control,
+html.mf-light .q-field--outlined .q-field__control {
+  background: rgba(255,255,255,0.60) !important;
+}
+html.mf-light .my-card::before { opacity: 0.45; }
+
+/* Progress labels (Budgets) */
+.q-linear-progress__label {
+  color: var(--mf-text) !important;
+  font-weight: 700;
 }
 
 /* Select field readability + active option highlight */
@@ -3275,7 +3301,7 @@ def dashboard_page():
             ]:
                 _lbl = label.lower()
                 _tint = "rgba(46, 204, 113, 0.10)" if "income" in _lbl else ("rgba(231, 76, 60, 0.10)" if "expense" in _lbl else ("rgba(52, 152, 219, 0.10)" if "invest" in _lbl else "rgba(155, 89, 182, 0.08)"))
-                with ui.card().classes("my-card p-4 w-full").style(f"min-height: 110px; --mf-card-bg: {_tint};"):
+                with ui.card().classes("my-card p-4 w-full").style(f"min-height: 110px; --mf-card-bg: linear-gradient(135deg, {_tint} 0%, rgba(0,0,0,0) 62%), linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom));"):
                     with ui.row().classes("items-center justify-between"):
                         ui.label(label).classes("text-xs uppercase").style("color: var(--mf-muted); letter-spacing: .12em")
                         ui.icon(icon).style("color: var(--mf-muted)")
