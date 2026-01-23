@@ -2333,7 +2333,7 @@ html.mf-light .q-menu--dark,
 html.mf-light .q-dialog__inner--minimized > div.q-card,
 html.mf-light .q-dialog__inner > div.q-card,
 html.mf-light .q-card--dark {
-  background: var(--mf-menu-bg) !important;
+  background: linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom)) !important;
   color: var(--mf-text) !important;
 }
 html.mf-light .q-item,
@@ -2610,6 +2610,45 @@ html.mf-light .q-btn__content {
 .mf-scroll {
   -webkit-overflow-scrolling: touch;
 }
+
+
+/* --- 5.12.4 fixes: dropdown + dialog + progress label --- */
+
+/* Make selects & inputs readable in BOTH themes */
+.q-field__native, .q-field__input, .q-field__label, .q-field__bottom, .q-field__messages,
+.q-select__dropdown-icon, .q-field__append .q-icon, .q-field__prepend .q-icon {
+  color: var(--mf-text) !important;
+}
+.q-field__control, .q-field__marginal {
+  color: var(--mf-text) !important;
+}
+
+/* Dropdown menu readability + highlight */
+.q-menu, .q-menu .q-list {
+  background: var(--mf-menu-bg) !important;
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--mf-border) !important;
+}
+.q-item, .q-item .q-item__label, .q-item .q-item__section {
+  color: var(--mf-text) !important;
+}
+.q-item--active, .q-item--active .q-item__label {
+  color: var(--mf-text) !important;
+  background: rgba(120,160,255,0.18) !important;
+}
+.q-item:hover, .q-item.q-manual-focusable--focused {
+  background: rgba(120,160,255,0.14) !important;
+}
+
+/* Dialog cards must follow theme surface (fix light theme dark dialog) */
+.q-dialog .my-card, .q-dialog .q-card.my-card {
+  background: linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom)) !important;
+  border: 1px solid var(--mf-card-border) !important;
+  color: var(--mf-text) !important;
+}
+
+/* Remove any numeric label rendered inside progress bars */
+.q-linear-progress__label { display: none !important; }
 """
 ui.add_head_html(f"<style>{BANK_CSS}</style>", shared=True)
 
@@ -3300,12 +3339,12 @@ def dashboard_page():
                 ("Net (this month)", net, "insights"),
             ]:
                 _lbl = label.lower()
-                _tint = "rgba(46, 204, 113, 0.10)" if "income" in _lbl else ("rgba(231, 76, 60, 0.10)" if "expense" in _lbl else ("rgba(52, 152, 219, 0.10)" if "invest" in _lbl else "rgba(155, 89, 182, 0.08)"))
-                with ui.card().classes("my-card p-4 w-full").style(f"min-height: 110px; --mf-card-bg: linear-gradient(135deg, {_tint} 0%, rgba(0,0,0,0) 62%), linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom));"):
+                _col = "rgba(34,197,94,0.95)" if "income" in _lbl else ("rgba(239,68,68,0.95)" if "expense" in _lbl else ("rgba(59,130,246,0.95)" if "invest" in _lbl else "rgba(168,85,247,0.92)"))
+                with ui.card().classes("my-card p-4 w-full").style("min-height: 110px;"):
                     with ui.row().classes("items-center justify-between"):
                         ui.label(label).classes("text-xs uppercase").style("color: var(--mf-muted); letter-spacing: .12em")
                         ui.icon(icon).style("color: var(--mf-muted)")
-                    ui.label(currency(val)).classes("text-2xl font-bold mt-1")
+                    ui.label(currency(val)).classes("text-2xl font-bold mt-1").style(f"color: {_col};")
                     ui.label(mkey).classes("text-xs").style("color: var(--mf-muted)")
 
         with ui.row().classes('w-full gap-3'):
