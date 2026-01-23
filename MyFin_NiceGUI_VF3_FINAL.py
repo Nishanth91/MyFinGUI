@@ -56,6 +56,8 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
+APP_VERSION = '5.14'
+
 
 def log(message: str) -> None:
     """Log a message to stdout and the configured logger."""
@@ -266,7 +268,19 @@ def set_month_lock(month_key_str: str, locked: bool) -> bool:
         return False
     try:
         ensure_tabs()
-        w = ws("locks")
+        try:
+            w = ws("locks")
+        except Exception:
+            # Create the optional 'locks' sheet on demand (Phase 5.12)
+            ss = get_spreadsheet()
+            w = ss.add_worksheet(title="locks", rows=500, cols=5)
+            w.append_row(TABS.get("locks", ["month", "locked"]))
+            invalidate_cache("locks")
+            # Rebuild worksheet map
+            global _tabs_ready
+            _tabs_ready = False
+            ensure_tabs()
+            w = ws("locks")
         df = cached_df("locks", force=True)
 
         row_idx = None
@@ -1062,6 +1076,10 @@ def ensure_tabs() -> None:
         w = existing.get(key)
 
         if w is None:
+            # 'locks' is optional (introduced in Phase 5.12). If it doesn't exist yet,
+            # we treat it as unlocked-by-default and do NOT fail deployment.
+            if tab == 'locks' and not ALLOW_CREATE_MISSING_SHEETS:
+                continue
             missing_tabs.append(tab)
             if not ALLOW_CREATE_MISSING_SHEETS:
                 continue
@@ -1095,7 +1113,7 @@ def ensure_tabs() -> None:
             + ", ".join(missing_tabs)
             + ". Existing tabs: "
             + ", ".join(existing_titles)
-            + ".\nFix: rename your sheets to match (Transactions, Rules, Cards, Recurring) "
+            + ".\nFix: rename your sheets to match (Transactions, Rules, Cards, Recurring, Budgets, Admin, Locks) "
             + "or set ALLOW_CREATE_MISSING_SHEETS=1 to let the app create them."
         )
 
@@ -2099,6 +2117,7 @@ BANK_CSS = r"""
   --mf-bg-2: #0B1020;
   --mf-surface: rgba(255,255,255,0.05);
   --mf-surface-2: rgba(255,255,255,0.08);
+  --mf-menu-bg: rgba(255,255,255,0.09);
   --mf-border: rgba(255,255,255,0.12);
   --mf-text: rgba(255,255,255,0.92);
   --mf-muted: rgba(255,255,255,0.62);
@@ -2114,6 +2133,23 @@ BANK_CSS = r"""
   --mf-card-border: rgba(255,255,255,0.14);
 }
 
+
+html.mf-light {
+  --mf-bg: #F4F6FB;
+  --mf-bg-2: #EEF2FA;
+  --mf-surface: rgba(0,0,0,0.04);
+  --mf-surface-2: rgba(0,0,0,0.06);
+  --mf-border: rgba(0,0,0,0.10);
+  --mf-text: rgba(10,12,20,0.92);
+  --mf-muted: rgba(10,12,20,0.62);
+  --mf-menu-bg: rgba(255,255,255,0.92);
+  --mf-g1: rgba(91,140,255,0.16);
+  --mf-g2: rgba(70,230,166,0.10);
+  --mf-card-top: rgba(255,255,255,0.88);
+  --mf-card-bottom: rgba(255,255,255,0.72);
+  --mf-card-border: rgba(0,0,0,0.10);
+  --mf-card-shadow: 0 20px 55px rgba(0,0,0,0.14);
+}
 body, .q-layout, .q-page {
   background: radial-gradient(1200px 700px at 18% 12%, var(--mf-g1), transparent 60%),
               radial-gradient(900px 600px at 82% 18%, var(--mf-g2), transparent 58%),
@@ -2124,11 +2160,11 @@ body, .q-layout, .q-page {
 }
 
 .my-card {
-  background: linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom)) !important;
+  background: var(--mf-card-bg, linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom))) !important;
   border: 1px solid var(--mf-card-border) !important;
   border-radius: 24px !important;
   box-shadow:
-    0 20px 55px rgba(0,0,0,0.42),
+    var(--mf-card-shadow, 0 20px 55px rgba(0,0,0,0.42)),
     inset 0 1px 0 rgba(255,255,255,0.12);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -2257,12 +2293,49 @@ body, .q-layout, .q-page {
 }
 
 
+
+/* 5.12.3: Ensure form fields and icons are readable in both themes */
+.q-field__control, .q-field__native, .q-field__label, .q-field__marginal, .q-select__dropdown-icon,
+.q-field__append, .q-field__prepend, .q-icon, .q-btn, .q-btn__content, .q-btn__content * {
+  color: var(--mf-text) !important;
+}
+.q-field--filled .q-field__control, .q-field--outlined .q-field__control {
+  background: rgba(0,0,0,0.00) !important;
+}
+html.mf-light .q-field--filled .q-field__control,
+html.mf-light .q-field--outlined .q-field__control {
+  background: rgba(255,255,255,0.60) !important;
+}
+html.mf-light .my-card::before { opacity: 0.45; }
+
+/* Progress labels (Budgets) */
+.q-linear-progress__label {
+  color: var(--mf-text) !important;
+  font-weight: 700;
+}
+
+/* Select field readability + active option highlight */
+.q-field__control, .q-field__native, .q-select__dropdown-icon {
+  color: var(--mf-text) !important;
+}
+.q-field__control {
+  background: rgba(255,255,255,0.06);
+}
+html.mf-light .q-field__control {
+  background: rgba(0,0,0,0.03) !important;
+}
+.q-item--active {
+  background: rgba(91,140,255,0.16) !important;
+}
+
+
+
 /* Light-mode safety: prevent Quasar 'dark' surfaces from forcing dark menus/dialogs */
 html.mf-light .q-menu--dark,
 html.mf-light .q-dialog__inner--minimized > div.q-card,
 html.mf-light .q-dialog__inner > div.q-card,
 html.mf-light .q-card--dark {
-  background: var(--mf-menu-bg) !important;
+  background: linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom)) !important;
   color: var(--mf-text) !important;
 }
 html.mf-light .q-item,
@@ -2539,8 +2612,47 @@ html.mf-light .q-btn__content {
 .mf-scroll {
   -webkit-overflow-scrolling: touch;
 }
+
+
+/* --- 5.12.4 fixes: dropdown + dialog + progress label --- */
+
+/* Make selects & inputs readable in BOTH themes */
+.q-field__native, .q-field__input, .q-field__label, .q-field__bottom, .q-field__messages,
+.q-select__dropdown-icon, .q-field__append .q-icon, .q-field__prepend .q-icon {
+  color: var(--mf-text) !important;
+}
+.q-field__control, .q-field__marginal {
+  color: var(--mf-text) !important;
+}
+
+/* Dropdown menu readability + highlight */
+.q-menu, .q-menu .q-list {
+  background: var(--mf-menu-bg) !important;
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--mf-border) !important;
+}
+.q-item, .q-item .q-item__label, .q-item .q-item__section {
+  color: var(--mf-text) !important;
+}
+.q-item--active, .q-item--active .q-item__label {
+  color: var(--mf-text) !important;
+  background: rgba(120,160,255,0.18) !important;
+}
+.q-item:hover, .q-item.q-manual-focusable--focused {
+  background: rgba(120,160,255,0.14) !important;
+}
+
+/* Dialog cards must follow theme surface (fix light theme dark dialog) */
+.q-dialog .my-card, .q-dialog .q-card.my-card {
+  background: linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom)) !important;
+  border: 1px solid var(--mf-card-border) !important;
+  color: var(--mf-text) !important;
+}
+
+/* Remove any numeric label rendered inside progress bars */
+.q-linear-progress__label { display: none !important; }
 """
-ui.add_head_html(f"<style>{BANK_CSS}</style>", shared=True)
+ui.add_head_html("<style>" + BANK_CSS + "\n/* Budget progress: hide numeric overlay label */\n.mf-budget .q-linear-progress__label{display:none !important;}\n</style>", shared=True)
 
 ui.add_head_html(
     """<script>
@@ -2881,22 +2993,41 @@ def shell(content_fn, *, active_path: str = ""):
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-nav-open')"))
                         with ui.element("div").classes("mf-title"):
-                            ui.link("MyFin", "/").classes("t1").style("color: inherit; text-decoration: none;")
-                            ui.label("Phase 5 UI + Phase 4 realtime logic").classes("t2")
-
+                            ui.link("MyFin", "/").classes("t1 text-2xl md:text-3xl").style("color: inherit; text-decoration: none;")
+                            
                     # RIGHT: theme + actions
                     with ui.row().classes("items-center gap-2"):
                         # Theme control (desktop: inline select, mobile: palette dialog)
                         def _open_theme_dialog():
                             with ui.dialog() as td, ui.card().classes("my-card p-4 w-full max-w-sm"):
                                 ui.label("Theme").classes("text-base font-bold")
-                                ui.select(
-                                    ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Slate Light', 'Sand Gold'],
-                                    value=(app.storage.user.get('theme') or 'Midnight Blue'),
-                                    on_change=lambda e: (app.storage.user.__setitem__('theme', e.value), ui.run_javascript(f"mfSetTheme({e.value!r})")),
-                                ).props("dense outlined").classes("w-full").style(
-                                    "background: var(--mf-surface); border-radius: 12px;"
-                                )
+                                # Theme chooser (button list instead of dropdown; avoids iOS Safari dark menu rendering)
+                                themes = ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Slate Light', 'Sand Gold']
+                                cur = app.storage.user.get('theme')
+                                if not cur:
+                                    # Auto theme: dark at night, light in daytime (based on server TIMEZONE)
+                                    try:
+                                        h = now().hour
+                                    except Exception:
+                                        h = datetime.datetime.now().hour
+                                    cur = 'Midnight Blue' if (h >= 19 or h < 7) else 'Arctic Light'
+                                    app.storage.user['theme'] = cur
+                                else:
+                                    cur = str(cur)
+
+                                with ui.column().classes("w-full mt-2 gap-2"):
+                                    for tname in themes:
+                                        is_cur = (tname == cur)
+                                        btn = ui.button(
+                                            tname,
+                                            on_click=lambda tn=tname: (
+                                                app.storage.user.__setitem__('theme', tn),
+                                                ui.run_javascript(f"mfSetTheme({tn!r})"),
+                                                td.close(),
+                                            ),
+                                        ).classes("w-full justify-start")
+                                        btn.props("unelevated" if is_cur else "outline")
+                                        btn.style("border-radius: 12px; padding: 10px 12px;")
                                 with ui.row().classes("justify-end w-full mt-2"):
                                     ui.button("Close").props("flat").on("click", td.close)
                             td.open()
@@ -3201,7 +3332,7 @@ def dashboard_page():
         except Exception:
             days_to_next = None
 
-        with ui.card().classes('my-card p-5'):
+        with ui.card().classes('my-card p-5 mf-budget'):
             ui.label('Overview').classes('text-xs uppercase').style('color: var(--mf-muted); letter-spacing: 0.12em')
             with ui.row().classes('w-full items-end justify-between gap-4'):
                 with ui.column().classes('gap-1'):
@@ -3229,12 +3360,12 @@ def dashboard_page():
                 ("Net (this month)", net, "insights"),
             ]:
                 _lbl = label.lower()
-                _tint = "rgba(46, 204, 113, 0.10)" if "income" in _lbl else ("rgba(231, 76, 60, 0.10)" if "expense" in _lbl else ("rgba(52, 152, 219, 0.10)" if "invest" in _lbl else "rgba(155, 89, 182, 0.08)"))
-                with ui.card().classes("my-card p-4 w-full").style(f"min-height: 110px; background: {_tint};"):
+                _col = "rgba(34,197,94,0.95)" if "income" in _lbl else ("rgba(239,68,68,0.95)" if "expense" in _lbl else ("rgba(59,130,246,0.95)" if "invest" in _lbl else "rgba(168,85,247,0.92)"))
+                with ui.card().classes("my-card p-4 w-full").style("min-height: 110px;"):
                     with ui.row().classes("items-center justify-between"):
                         ui.label(label).classes("text-xs uppercase").style("color: var(--mf-muted); letter-spacing: .12em")
                         ui.icon(icon).style("color: var(--mf-muted)")
-                    ui.label(currency(val)).classes("text-2xl font-bold mt-1")
+                    ui.label(currency(val)).classes("text-2xl font-bold mt-1").style(f"color: {_col};")
                     ui.label(mkey).classes("text-xs").style("color: var(--mf-muted)")
 
         with ui.row().classes('w-full gap-3'):
@@ -3308,7 +3439,7 @@ def dashboard_page():
                                     with ui.column().classes('items-end'):
                                         ui.label(f"{int(round(pct*100))}%").classes('text-xs font-bold').style('color: var(--mf-text)')
                                         ui.label(f"{currency(spent_amt)} / {currency(bud_amt)}").classes('text-xs').style('color: var(--mf-muted)')
-                                ui.linear_progress(value=pct).props('size=10px')
+                                ui.linear_progress(value=pct, show_value=False).props('size=10px')
 
         # Upcoming paydays
         start = today()
@@ -3464,13 +3595,66 @@ def add_page():
             d_amount = ui.number("Amount", value=0.0, format="%.2f").classes("w-full")
 
             is_debit = entry_type.lower() == 'debit'
-            default_method = ("Card" if is_debit else "Other")
+            is_income = entry_type.lower() in ('credit', 'income')
+            is_invest = entry_type.lower() == 'investment'
+            is_cc_repay = entry_type.lower() in ('cc repay', 'cc_repay', 'ccrepay', 'credit card repay', 'credit card repayment')
+
+            # Per 5.14 UX rules:
+            # - Income: Method fixed to Bank (no method dropdown)
+            # - Investment: Method fixed to Bank, Account disabled, Category default Investment
+            # - CC Repay: Method fixed to Card (no method dropdown)
+            fixed_method = None
+            hide_method = False
+            disable_account = False
+            fixed_category = preset_category
+
+            if is_income:
+                fixed_method = 'Bank'
+                hide_method = True
+            if is_invest:
+                fixed_method = 'Bank'
+                hide_method = True
+                disable_account = True
+                if not fixed_category:
+                    fixed_category = 'Investment'
+            if is_cc_repay:
+                fixed_method = 'Card'
+                hide_method = True
+
+            default_method = ("Card" if is_debit else ("Bank" if (is_income or is_invest) else "Other"))
+
             # Presets override remembered defaults.
-            method_default = (preset_method or (last_debit_method if (is_debit and last_debit_method in methods) else default_method))
-            account_default = (preset_account or (last_debit_account if (is_debit and last_debit_account in accounts) else (accounts[0] if accounts else "")))
-            d_method = ui.select(methods, value=method_default, label="Method").classes("w-full")
-            d_account = ui.select(accounts or [""], value=account_default, label="Account").classes("w-full")
-            d_category = ui.select(categories, value="Uncategorized", label="Category").classes("w-full")
+            method_default = (fixed_method or preset_method or (last_debit_method if (is_debit and last_debit_method in methods) else default_method))
+            # Choose a sensible default account
+            if disable_account:
+                # Prefer a non-card/bank-like account for Investment (locked)
+                def _is_card_account(name: str) -> bool:
+                    n = (name or '').lower()
+                    return any(x in n for x in ['mastercard', 'visa', 'card', 'ct ', 'canadiantire', 'credit'])
+                bank_candidates = [a for a in accounts if a and (not _is_card_account(str(a)))]
+                account_default = (preset_account or (bank_candidates[0] if bank_candidates else (accounts[0] if accounts else "")))
+            else:
+                account_default = (preset_account or (last_debit_account if (is_debit and last_debit_account in accounts) else (accounts[0] if accounts else "")))
+
+
+            # Ensure defaults are valid options (NiceGUI select raises if value not in options)
+            if method_default and method_default not in methods:
+                methods = [method_default] + [m for m in methods if m != method_default]
+            if account_default and account_default not in (accounts or []):
+                accounts = [account_default] + [a for a in (accounts or []) if a != account_default]
+
+            if hide_method:
+                d_method = None
+            else:
+                d_method = ui.select(methods or [""], value=(method_default if method_default in (methods or []) else ""), label="Method").classes("w-full")
+
+            d_account = ui.select(accounts or [""], value=(account_default if account_default in (accounts or []) else ""), label="Account").classes("w-full")
+            if disable_account:
+                d_account.props("disable")
+
+            if hide_method and fixed_method:
+                ui.label(f"Method: {fixed_method}").classes("text-xs").style("color: var(--mf-muted); margin-top:-6px;")
+            d_category = ui.select(categories, value=(fixed_category or "Uncategorized"), label="Category").classes("w-full")
             d_notes = ui.textarea("Notes", value="").classes("w-full")
             d_rec = ui.checkbox("Mark as recurring (creates template for future cycles only)")
 
@@ -3745,7 +3929,7 @@ def add_page():
             _refresh_suggestion()
 
             # Apply presets (used for special flows like LOC withdrawal/repayment)
-            if preset_method is not None:
+            if preset_method is not None and d_method is not None:
                 d_method.value = preset_method
                 d_method.disable()
             if preset_account is not None:
@@ -3775,7 +3959,7 @@ def add_page():
 
                 owner = "Family"
 
-                method = str(d_method.value or "Other").strip()
+                method = str(((d_method.value if d_method is not None else method_default) or "Other")).strip()
 
                 account = str(d_account.value or "").strip()
 
