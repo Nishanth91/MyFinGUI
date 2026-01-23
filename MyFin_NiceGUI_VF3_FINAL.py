@@ -2115,6 +2115,7 @@ BANK_CSS = r"""
   --mf-bg-2: #0B1020;
   --mf-surface: rgba(255,255,255,0.05);
   --mf-surface-2: rgba(255,255,255,0.08);
+  --mf-menu-bg: rgba(255,255,255,0.09);
   --mf-border: rgba(255,255,255,0.12);
   --mf-text: rgba(255,255,255,0.92);
   --mf-muted: rgba(255,255,255,0.62);
@@ -2130,6 +2131,19 @@ BANK_CSS = r"""
   --mf-card-border: rgba(255,255,255,0.14);
 }
 
+
+html.mf-light {
+  --mf-bg: #F4F6FB;
+  --mf-bg-2: #EEF2FA;
+  --mf-surface: rgba(0,0,0,0.04);
+  --mf-surface-2: rgba(0,0,0,0.06);
+  --mf-border: rgba(0,0,0,0.10);
+  --mf-text: rgba(10,12,20,0.92);
+  --mf-muted: rgba(10,12,20,0.62);
+  --mf-menu-bg: rgba(255,255,255,0.92);
+  --mf-g1: rgba(91,140,255,0.16);
+  --mf-g2: rgba(70,230,166,0.10);
+}
 body, .q-layout, .q-page {
   background: radial-gradient(1200px 700px at 18% 12%, var(--mf-g1), transparent 60%),
               radial-gradient(900px 600px at 82% 18%, var(--mf-g2), transparent 58%),
@@ -2140,7 +2154,7 @@ body, .q-layout, .q-page {
 }
 
 .my-card {
-  background: linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom)) !important;
+  background: var(--mf-card-bg, linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom))) !important;
   border: 1px solid var(--mf-card-border) !important;
   border-radius: 24px !important;
   box-shadow:
@@ -2271,6 +2285,21 @@ body, .q-layout, .q-page {
 .q-item:hover .q-item__label {
   color: var(--mf-text) !important;
 }
+
+/* Select field readability + active option highlight */
+.q-field__control, .q-field__native, .q-select__dropdown-icon {
+  color: var(--mf-text) !important;
+}
+.q-field__control {
+  background: rgba(255,255,255,0.06);
+}
+html.mf-light .q-field__control {
+  background: rgba(0,0,0,0.03) !important;
+}
+.q-item--active {
+  background: rgba(91,140,255,0.16) !important;
+}
+
 
 
 /* Light-mode safety: prevent Quasar 'dark' surfaces from forcing dark menus/dialogs */
@@ -3246,7 +3275,7 @@ def dashboard_page():
             ]:
                 _lbl = label.lower()
                 _tint = "rgba(46, 204, 113, 0.10)" if "income" in _lbl else ("rgba(231, 76, 60, 0.10)" if "expense" in _lbl else ("rgba(52, 152, 219, 0.10)" if "invest" in _lbl else "rgba(155, 89, 182, 0.08)"))
-                with ui.card().classes("my-card p-4 w-full").style(f"min-height: 110px; background: {_tint};"):
+                with ui.card().classes("my-card p-4 w-full").style(f"min-height: 110px; --mf-card-bg: {_tint};"):
                     with ui.row().classes("items-center justify-between"):
                         ui.label(label).classes("text-xs uppercase").style("color: var(--mf-muted); letter-spacing: .12em")
                         ui.icon(icon).style("color: var(--mf-muted)")
@@ -3484,8 +3513,15 @@ def add_page():
             # Presets override remembered defaults.
             method_default = (preset_method or (last_debit_method if (is_debit and last_debit_method in methods) else default_method))
             account_default = (preset_account or (last_debit_account if (is_debit and last_debit_account in accounts) else (accounts[0] if accounts else "")))
-            d_method = ui.select(methods, value=method_default, label="Method").classes("w-full")
-            d_account = ui.select(accounts or [""], value=account_default, label="Account").classes("w-full")
+
+            # Ensure defaults are valid options (NiceGUI select raises if value not in options)
+            if method_default and method_default not in methods:
+                methods = [method_default] + [m for m in methods if m != method_default]
+            if account_default and account_default not in (accounts or []):
+                accounts = [account_default] + [a for a in (accounts or []) if a != account_default]
+
+            d_method = ui.select(methods or [""], value=(method_default if method_default in (methods or []) else ""), label="Method").classes("w-full")
+            d_account = ui.select(accounts or [""], value=(account_default if account_default in (accounts or []) else ""), label="Account").classes("w-full")
             d_category = ui.select(categories, value="Uncategorized", label="Category").classes("w-full")
             d_notes = ui.textarea("Notes", value="").classes("w-full")
             d_rec = ui.checkbox("Mark as recurring (creates template for future cycles only)")
