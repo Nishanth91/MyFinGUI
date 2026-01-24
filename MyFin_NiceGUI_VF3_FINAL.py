@@ -2278,6 +2278,21 @@ body, .q-layout, .q-page {
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
 }
+
+/* Theme-menu portal fix: force q-menu to light surface when html has mf-light */
+html.mf-light .q-menu,
+html.mf-light .q-menu.mf-menu-light {
+  background: var(--mf-menu-bg) !important;
+  color: var(--mf-text) !important;
+}
+html.mf-light .q-menu .q-item,
+html.mf-light .q-menu .q-item__label,
+html.mf-light .q-menu .q-item__section {
+  color: var(--mf-text) !important;
+}
+html.mf-light .q-menu .q-item:hover {
+  background: rgba(17,24,39,0.08) !important;
+}
 .q-item, .q-item__label, .q-item__section, .q-field__native, .q-field__label, .q-field__prefix, .q-field__suffix {
   color: var(--mf-text) !important;
 }
@@ -2861,6 +2876,44 @@ window.mfSetTheme = function(name){
 
       // menu background needs stronger contrast on light themes (Safari especially)
       root.style.setProperty('--mf-menu-bg', isLight ? 'rgba(255,255,255,0.96)' : 'rgba(10,14,24,0.92)');
+      // mark theme on <html> for CSS targeting
+      root.classList.toggle('mf-light', isLight);
+      root.classList.toggle('mf-dark', !isLight);
+      
+      // Force dropdown menus (q-menu) to match theme, especially inside dialogs on iOS Safari
+      try {
+        if (!window.__mfMenuObserver) {
+          const fixMenuNode = (node) => {
+            if (!node || !node.classList) return;
+            if (!node.classList.contains('q-menu')) return;
+            const light = document.documentElement.classList.contains('mf-light');
+            if (light) {
+              node.classList.remove('q-dark');
+              node.classList.add('mf-menu-light');
+            } else {
+              node.classList.remove('mf-menu-light');
+              node.classList.add('q-dark');
+            }
+          };
+      
+          const scanMenus = () => {
+            document.querySelectorAll('.q-menu').forEach(fixMenuNode);
+          };
+      
+          window.__mfMenuObserver = new MutationObserver((mutations) => {
+            for (const m of mutations) {
+              for (const n of (m.addedNodes || [])) {
+                fixMenuNode(n);
+                if (n && n.querySelectorAll) {
+                  n.querySelectorAll('.q-menu').forEach(fixMenuNode);
+                }
+              }
+            }
+          });
+          window.__mfMenuObserver.observe(document.body, { childList: true, subtree: true });
+          setTimeout(scanMenus, 50);
+        }
+      } catch (e) {}
 
       localStorage.setItem("mf_theme", name);
       window.__mfThemeName = name;
