@@ -2285,6 +2285,27 @@ body, .q-layout, .q-page {
   color: var(--mf-text) !important;
 }
 
+
+/* Light theme: Quasar menus can render with dark inline defaults on iOS Safari */
+html.mf-light .q-menu,
+html.mf-light .q-menu .q-list {
+  background: var(--mf-menu-bg) !important;
+  color: var(--mf-text) !important;
+}
+html.mf-light .q-menu .q-item,
+html.mf-light .q-menu .q-item__label,
+html.mf-light .q-menu .q-item__section {
+  color: var(--mf-text) !important;
+}
+html.mf-light .q-menu .q-item:hover,
+html.mf-light .q-menu .q-item.q-manual-focusable--focused {
+  background: rgba(91,140,255,0.18) !important;
+}
+
+/* Budgets: never show raw decimal label inside progress bars */
+.mf-budget-bar .q-linear-progress__label {
+  display: none !important;
+}
 .q-item:hover, .q-item.q-manual-focusable--focused {
   background: rgba(120,160,255,0.14) !important;
 }
@@ -3439,7 +3460,7 @@ def dashboard_page():
                                     with ui.column().classes('items-end'):
                                         ui.label(f"{int(round(pct*100))}%").classes('text-xs font-bold').style('color: var(--mf-text)')
                                         ui.label(f"{currency(spent_amt)} / {currency(bud_amt)}").classes('text-xs').style('color: var(--mf-muted)')
-                                ui.linear_progress(value=pct, show_value=False).props('size=10px')
+                                ui.linear_progress(value=pct).classes('mf-budget-bar').props('size=10px')
 
         # Upcoming paydays
         start = today()
@@ -3611,6 +3632,7 @@ def add_page():
             if is_income:
                 fixed_method = 'Bank'
                 hide_method = True
+                disable_account = True  # income goes to bank; avoid card/LOC accounts
             if is_invest:
                 fixed_method = 'Bank'
                 hide_method = True
@@ -3633,6 +3655,8 @@ def add_page():
                     return any(x in n for x in ['mastercard', 'visa', 'card', 'ct ', 'canadiantire', 'credit'])
                 bank_candidates = [a for a in accounts if a and (not _is_card_account(str(a)))]
                 account_default = (preset_account or (bank_candidates[0] if bank_candidates else (accounts[0] if accounts else "")))
+                if is_income:
+                    accounts = bank_candidates  # hide card/LOC accounts for income
             else:
                 account_default = (preset_account or (last_debit_account if (is_debit and last_debit_account in accounts) else (accounts[0] if accounts else "")))
 
