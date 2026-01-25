@@ -2710,11 +2710,21 @@ html.mf-light .q-btn__content {
 /* Remove any numeric label rendered inside progress bars */
 .q-linear-progress__label { display: none !important; }
 """
-ui.add_head_html("<style>" + BANK_CSS + "\n/* Budget progress: hide numeric overlay label */\n.mf-budget .q-linear-progress__label{display:none !important;}\n</style>", shared=True)
+ui.add_head_html("<style>" + BANK_CSS + """
+/* Budget progress: hide numeric overlay label */
+.mf-budget .q-linear-progress__label{display:none !important;}
+/* Light theme: force dropdown menus to render light */
+html.mf-light .q-menu, html.mf-light .q-menu.q-dark{background: var(--mf-menu-bg) !important; color: var(--mf-text) !important;}
+html.mf-light .q-menu .q-list{background: var(--mf-menu-bg) !important; color: var(--mf-text) !important;}
+html.mf-light .q-menu .q-item__label{color: var(--mf-text) !important;}
+html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
+</style>""", shared=True)
 
 ui.add_head_html(
     """<script>
 (function(){
+  window.__mfBooting = true;
+
   const THEMES = {
     "Midnight Blue": {
       "--mf-bg":"#070A12", "--mf-bg-2":"#0B1020",
@@ -2892,6 +2902,8 @@ window.mfSetTheme = function(name){
           window.Quasar.Dark.set(!isLight);
         }
       } catch (e) {}
+      document.documentElement.classList.toggle('q-dark', !isLight);
+      document.documentElement.classList.toggle('q-light', isLight);
       document.body.classList.toggle('q-dark', !isLight);
       document.body.classList.toggle('body--dark', !isLight);
       document.body.classList.toggle('body--light', isLight);
@@ -2984,6 +2996,8 @@ window.mfSetTheme = function(name){
       } catch (e) {}
 
       localStorage.setItem("mf_theme", name);
+      if(!window.__mfBooting){ localStorage.setItem("mf_theme_user","1"); }
+
       window.__mfThemeName = name;
       // Re-scan menus after applying theme (Quasar may reuse existing q-menu nodes)
       setTimeout(()=>{ try{ window.__mfScanMenus && window.__mfScanMenus(); } catch(e) {} }, 60);
@@ -2997,10 +3011,30 @@ window.mfSetTheme = function(name){
   try{
     const saved = localStorage.getItem("mf_theme");
     if(saved){ window.mfSetTheme(saved); }
-    else { window.mfSetTheme("Midnight Blue"); }
+    else {
+      // Default to system preference: Dark -> Emerald Gold, Light -> Sand Gold
+      try{
+        const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        window.mfSetTheme(prefersDark ? "Emerald Gold" : "Sand Gold");
+      }catch(e){
+        window.mfSetTheme("Emerald Gold");
+      }
+    }
     try{ setTimeout(()=>{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }, 120);}catch(e){}
+    // finish booting
+    window.__mfBooting = false;
+    // If user never picked a theme manually, follow system preference changes
+    try{
+      if(!(localStorage.getItem("mf_theme_user")==="1") && window.matchMedia){
+        const mq = window.matchMedia('(prefers-color-scheme: dark)');
+        const handler = (e)=>{ try{ window.mfSetTheme(e.matches ? "Emerald Gold" : "Sand Gold"); }catch(_e){} };
+        if(mq && mq.addEventListener){ mq.addEventListener('change', handler); }
+        else if(mq && mq.addListener){ mq.addListener(handler); }
+      }
+    }catch(e){}
+
   }catch(e){
-    try{ window.mfSetTheme("Midnight Blue"); }catch(_){}
+    try{ window.mfSetTheme("Emerald Gold"); }catch(_){}
   }
 })();
 </script>""",
