@@ -2317,8 +2317,30 @@ html.mf-light .q-menu .q-item.q-manual-focusable--focused {
   background: rgba(91,140,255,0.18) !important;
 }
 
+
+/* iOS Safari: allow dialogs to scroll fully (reach Save/Cancel) */
+.q-dialog__inner > div {
+  max-height: min(92vh, 92dvh);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+
+html.mf-light .q-menu.q-dark,
+html.mf-light .q-menu.q-dark .q-list {
+  background: var(--mf-menu-bg) !important;
+  color: var(--mf-text) !important;
+}
+html.mf-light .q-menu.q-dark .q-item,
+html.mf-light .q-menu.q-dark .q-item__label,
+html.mf-light .q-menu.q-dark .q-item__section {
+  color: var(--mf-text) !important;
+}
+
 /* Budgets: never show raw decimal label inside progress bars */
-.mf-budget-bar .q-linear-progress__label {
+.mf-budget-bar .q-linear-progress__label,
+.mf-budget-bar .q-linear-progress__label--internal,
+.mf-budget-bar .q-linear-progress__label--external {
   display: none !important;
 }
 .q-item:hover, .q-item.q-manual-focusable--focused {
@@ -2875,7 +2897,7 @@ window.mfSetTheme = function(name){
       document.body.classList.toggle('body--light', isLight);
 
       // menu background needs stronger contrast on light themes (Safari especially)
-      root.style.setProperty('--mf-menu-bg', isLight ? 'rgba(255,255,255,0.96)' : 'rgba(10,14,24,0.92)');
+      root.style.setProperty('--mf-menu-bg', isLight ? '#FFFFFF' : 'rgba(10,14,24,0.92)');
       // mark theme on <html> for CSS targeting
       root.classList.toggle('mf-light', isLight);
       root.classList.toggle('mf-dark', !isLight);
@@ -2886,13 +2908,49 @@ window.mfSetTheme = function(name){
           const fixMenuNode = (node) => {
             if (!node || !node.classList) return;
             if (!node.classList.contains('q-menu')) return;
-            const light = document.documentElement.classList.contains('mf-light');
+
+            const root = document.documentElement;
+            const light = root.classList.contains('mf-light');
+
             if (light) {
               node.classList.remove('q-dark');
               node.classList.add('mf-menu-light');
+
+              // Quasar sometimes keeps dark inline defaults on iOS Safari; force inline light surface.
+              try {
+                const cs = getComputedStyle(root);
+                const bg = (cs.getPropertyValue('--mf-menu-bg') || '#FFFFFF').trim();
+                const text = (cs.getPropertyValue('--mf-text') || 'rgba(10,12,20,0.92)').trim();
+                const border = (cs.getPropertyValue('--mf-border') || 'rgba(0,0,0,0.10)').trim();
+
+                node.style.background = bg;
+                node.style.color = text;
+                node.style.border = '1px solid ' + border;
+
+                const list = node.querySelector('.q-list');
+                if (list) {
+                  list.style.background = bg;
+                  list.style.color = text;
+                }
+                node.querySelectorAll('.q-item, .q-item__label, .q-item__section').forEach((el) => {
+                  el.style.color = text;
+                });
+              } catch (e) {}
             } else {
               node.classList.remove('mf-menu-light');
               node.classList.add('q-dark');
+              // clean inline styles
+              node.style.background = '';
+              node.style.color = '';
+              node.style.border = '';
+              const list = node.querySelector('.q-list');
+              if (list) {
+                list.style.background = '';
+                list.style.color = '';
+              }
+              node.querySelectorAll('.q-item, .q-item__label, .q-item__section').forEach((el) => {
+                el.style.color = '';
+              });
             }
           };
       
@@ -2900,6 +2958,9 @@ window.mfSetTheme = function(name){
             document.querySelectorAll('.q-menu').forEach(fixMenuNode);
           };
       
+          window.__mfScanMenus = scanMenus;
+          window.__mfFixMenuNode = fixMenuNode;
+
           window.__mfMenuObserver = new MutationObserver((mutations) => {
             for (const m of mutations) {
               for (const n of (m.addedNodes || [])) {
@@ -2912,11 +2973,20 @@ window.mfSetTheme = function(name){
           });
           window.__mfMenuObserver.observe(document.body, { childList: true, subtree: true });
           setTimeout(scanMenus, 50);
+          try {
+            if (!window.__mfMenuEvents) {
+              window.__mfMenuEvents = true;
+              const kick = () => { try { window.__mfScanMenus && window.__mfScanMenus(); } catch(e) {} };
+              ['click','touchstart','focusin','keydown'].forEach((ev) => document.addEventListener(ev, () => setTimeout(kick, 0), true));
+            }
+          } catch (e) {}
         }
       } catch (e) {}
 
       localStorage.setItem("mf_theme", name);
       window.__mfThemeName = name;
+      // Re-scan menus after applying theme (Quasar may reuse existing q-menu nodes)
+      setTimeout(()=>{ try{ window.__mfScanMenus && window.__mfScanMenus(); } catch(e) {} }, 60);
 
       // Fix Plotly text colors after theme is applied
       setTimeout(()=>{ try{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }catch(e){} }, 60);
@@ -3513,7 +3583,7 @@ def dashboard_page():
                                     with ui.column().classes('items-end'):
                                         ui.label(f"{int(round(pct*100))}%").classes('text-xs font-bold').style('color: var(--mf-text)')
                                         ui.label(f"{currency(spent_amt)} / {currency(bud_amt)}").classes('text-xs').style('color: var(--mf-muted)')
-                                ui.linear_progress(value=pct).classes('mf-budget-bar').props('size=10px')
+                                ui.linear_progress(value=pct, show_value=False).classes('mf-budget-bar').props('size=10px')
 
         # Upcoming paydays
         start = today()
