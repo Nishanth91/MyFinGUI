@@ -122,6 +122,14 @@ def gs_retry(fn, *, retries: int = 6, base_sleep: float = 0.8):
 from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 from nicegui import ui, app
+
+# --- Compatibility alias (some older code uses run_javascript without ui.)
+run_javascript = getattr(ui, 'run_javascript', None)
+if run_javascript is None:
+    # Very old NiceGUI fallback
+    def run_javascript(js: str):
+        return ui.run_javascript(js)
+
 # --- NiceGUI Html sanitize compatibility (prevents TypeError on some NiceGUI versions)
 try:
     from nicegui.elements.html import Html as _NiceHtml
@@ -4759,7 +4767,41 @@ def transactions_page():
                     df = df[df['date'].apply(_in_range)]
                 q = (f_text.value or "").strip().lower()
                 if q:
-                    hay = (df["notes"].astype(str) + " " + df["category"].astype(str) + " " + df["account"].astype(str)).str.lower()
+                    # Support prefixes: merchant:, category:, account:
+                    q_raw = (f_text.value or "").strip()
+                    q = q_raw.lower()
+                    if q:
+                        field = None
+                        qval = q_raw
+                        if ":" in q_raw:
+                            k, v = q_raw.split(":", 1)
+                            kk = k.strip().lower()
+                            vv = v.strip()
+                            if vv and kk in ("m","merchant","cat","category","acct","account"):
+                                field = {"m":"merchant","merchant":"merchant",
+                                         "cat":"category","category":"category",
+                                         "acct":"account","account":"account"}[kk]
+                                qval = vv
+                        ql = str(qval or "").strip().lower()
+                        if field == "merchant" and "merchant" in df.columns:
+                            s = df["merchant"].astype(str).str.lower()
+                            df = df[s.str.contains(re.escape(ql), na=False)]
+                        elif field == "category" and "category" in df.columns:
+                            s = df["category"].astype(str).str.lower()
+                            df = df[s.str.contains(re.escape(ql), na=False)]
+                        elif field == "account" and "account" in df.columns:
+                            s = df["account"].astype(str).str.lower()
+                            df = df[s.str.contains(re.escape(ql), na=False)]
+                        else:
+                            parts = []
+                            for c in ("merchant","notes","category","account","method","type"):
+                                if c in df.columns:
+                                    parts.append(df[c].astype(str))
+                            hay = (parts[0] if parts else df.astype(str).agg(" ".join, axis=1))
+                            for s2 in parts[1:]:
+                                hay = hay + " " + s2
+                            hay = hay.str.lower()
+                            df = df[hay.str.contains(re.escape(ql), na=False)]
                     df = df[hay.str.contains(q, na=False)]
                 # Sorting
                 try:
