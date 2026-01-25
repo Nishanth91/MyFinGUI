@@ -1,17 +1,17 @@
 # ======================================
-# MyFin App – Phase 4.6A (REAL FIX BUILD)
+# FinTrackr App – Phase 4.6A (REAL FIX BUILD)
 # Changes vs P4.5: Dashboard hero, Rules selection, OCR toast timeout, richer palette
 # ======================================
 
 # ==============================
-# MyFin App – Phase 4.5 (P4.4 + P4.5 combined)
+# FinTrackr App – Phase 4.5 (P4.4 + P4.5 combined)
 # Base: Myfin_NICEGUI_VF2_P4_2 (last stable)
 # Changes: Budgets setup UX, Transactions table mobile UX, Rules edit, Cards utilization bars,
 #          Dashboard pay-period view, Premium login styling
 # ==============================
 
 """
-MyFin — NiceGUI Stable
+FinTrackr — NiceGUI Stable
 File: Myfin_NICEGUI_VF2_P4_2.py
 
 Purpose
@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '5.14'
+APP_VERSION = '5.15'
 
 
 def log(message: str) -> None:
@@ -193,8 +193,8 @@ if not STORAGE_SECRET:
     seed = SERVICE_ACCOUNT_JSON or os.environ.get("SPREADSHEET_NAME", "") or "local-dev"
     STORAGE_SECRET = hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
-APP_TITLE = "MyFin"
-APP_SUBTITLE = "Finance Tracker"
+APP_TITLE = "FinTrackr"
+APP_SUBTITLE = ""
 
 # Pay cycle config
 ABHI_PAY_DAYS = (15, 30)              # semimonthly
@@ -790,7 +790,7 @@ def wide_transactions_to_long(df: pd.DataFrame) -> pd.DataFrame:
     """Convert a 'wide' Transactions sheet into the app's long format.
 
     If the sheet already contains 'type' and 'amount' columns, this returns df unchanged.
-    Otherwise it looks for common MyFin columns like:
+    Otherwise it looks for common FinTrackr columns like:
     Date, International transaction, Credit, Investment, Credit card repay, Debit,
     LOC Withdrawal, LOC Repayment, Account, Reason/Notes.
     """
@@ -1040,13 +1040,13 @@ def get_spreadsheet():
             _ss = gc.open(SPREADSHEET_NAME)
     except Exception as e:
         # Surface spreadsheet open issues clearly in Render logs.
-        print(f"[MyFin] Failed to open spreadsheet. id={bool(SPREADSHEET_ID)} name={SPREADSHEET_NAME!r}: {e}")
+        print(f"[FinTrackr] Failed to open spreadsheet. id={bool(SPREADSHEET_ID)} name={SPREADSHEET_NAME!r}: {e}")
         raise
 
     # Helpful diagnostics in logs so we can confirm the app is reading the correct file.
     try:
         titles = [w.title for w in _ss.worksheets()]
-        print(f"[MyFin] Opened spreadsheet: '{_ss.title}' | worksheets={titles}")
+        print(f"[FinTrackr] Opened spreadsheet: '{_ss.title}' | worksheets={titles}")
     except Exception:
         pass
     return _ss
@@ -1418,7 +1418,7 @@ def cached_df(tab: str, force: bool = False) -> pd.DataFrame:
             # by converting it into the app's long ledger format.
             before_cols = list(df.columns)
             df = wide_transactions_to_long(df)
-            print(f"[MyFin] transactions loaded: rows={len(df)} cols={list(df.columns)} (source cols={before_cols})")
+            print(f"[FinTrackr] transactions loaded: rows={len(df)} cols={list(df.columns)} (source cols={before_cols})")
 
     except Exception as e:
         import traceback
@@ -1701,7 +1701,7 @@ from typing import Dict, Any, Tuple, Optional, List
 
 _PASSKEYS_PATH = os.environ.get("MYFIN_PASSKEYS_PATH", "myfin_passkeys.json")
 _RP_ID = os.environ.get("MYFIN_RP_ID")  # optional override (e.g., your custom domain)
-_RP_NAME = os.environ.get("MYFIN_RP_NAME", "MyFin")
+_RP_NAME = os.environ.get("MYFIN_RP_NAME", "FinTrackr")
 _ORIGIN = os.environ.get("MYFIN_ORIGIN")  # optional override (e.g., https://nishanthajay.com)
 
 def _b64url_enc(b: bytes) -> str:
@@ -2887,7 +2887,7 @@ ui.add_head_html(
       }
     };
 
-window.mfSetTheme = function(name){
+window.mfSetTheme = function(name, persist=true){
     try{
       const t = THEMES[name] || THEMES["Midnight Blue"];
       const root = document.documentElement;
@@ -2935,15 +2935,22 @@ window.mfSetTheme = function(name){
                 const text = (cs.getPropertyValue('--mf-text') || 'rgba(10,12,20,0.92)').trim();
                 const border = (cs.getPropertyValue('--mf-border') || 'rgba(0,0,0,0.10)').trim();
 
-                node.style.background = bg;
-                node.style.color = text;
-                node.style.border = '1px solid ' + border;
+                node.style.setProperty('background', bg, 'important');
+                node.style.setProperty('color', text, 'important');
+                node.style.setProperty('border', '1px solid ' + border, 'important');
 
                 const list = node.querySelector('.q-list');
                 if (list) {
-                  list.style.background = bg;
-                  list.style.color = text;
+                  list.style.setProperty('background', bg, 'important');
+                  list.style.setProperty('color', text, 'important');
                 }
+                try {
+                  const content = node.querySelector('.q-menu__content');
+                  if(content){
+                    content.style.setProperty('background', bg, 'important');
+                    content.style.setProperty('color', text, 'important');
+                  }
+                } catch(e) {}
                 node.querySelectorAll('.q-item, .q-item__label, .q-item__section').forEach((el) => {
                   el.style.color = text;
                 });
@@ -2995,8 +3002,10 @@ window.mfSetTheme = function(name){
         }
       } catch (e) {}
 
-      localStorage.setItem("mf_theme", name);
-      if(!window.__mfBooting){ localStorage.setItem("mf_theme_user","1"); }
+      if(persist){
+        localStorage.setItem("mf_theme", name);
+        if(!window.__mfBooting){ localStorage.setItem("mf_theme_user","1"); }
+      }
 
       window.__mfThemeName = name;
       // Re-scan menus after applying theme (Quasar may reuse existing q-menu nodes)
@@ -3008,19 +3017,43 @@ window.mfSetTheme = function(name){
   };
 
   // Apply saved theme ASAP
-  try{
-    const saved = localStorage.getItem("mf_theme");
-    if(saved){ window.mfSetTheme(saved); }
-    else {
+  
+try{
+    const userPicked = (localStorage.getItem("mf_theme_user")==="1");
+    if(!userPicked){
+      // don't let a previously auto-set theme "stick"
+      try{ localStorage.removeItem("mf_theme"); }catch(e){}
+    }
+    const saved = userPicked ? localStorage.getItem("mf_theme") : null;
+
+    if(saved){ 
+      window.mfSetTheme(saved, false); 
+    } else {
       // Default to system preference: Dark -> Emerald Gold, Light -> Sand Gold
       try{
         const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        window.mfSetTheme(prefersDark ? "Emerald Gold" : "Sand Gold");
+        window.mfSetTheme(prefersDark ? "Emerald Gold" : "Sand Gold", false);
       }catch(e){
-        window.mfSetTheme("Emerald Gold");
+        window.mfSetTheme("Emerald Gold", false);
       }
     }
+
     try{ setTimeout(()=>{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }, 120);}catch(e){}
+    // finish booting
+    window.__mfBooting = false;
+
+    // Follow system preference changes ONLY if user has not chosen a theme manually
+    try{
+      if(!userPicked && window.matchMedia){
+        const mq = window.matchMedia('(prefers-color-scheme: dark)');
+        const sync = () => { try{ window.mfSetTheme(mq.matches ? "Emerald Gold" : "Sand Gold", false); }catch(e){} };
+        // initial sync in case browser applied late
+        setTimeout(sync, 250);
+        if(mq.addEventListener){ mq.addEventListener('change', sync); }
+        else if(mq.addListener){ mq.addListener(sync); }
+      }
+    }catch(e){}
+}    try{ setTimeout(()=>{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }, 120);}catch(e){}
     // finish booting
     window.__mfBooting = false;
     // If user never picked a theme manually, follow system preference changes
@@ -3077,28 +3110,111 @@ def plotly_template() -> str:
 # -----------------------------
 # Global Search
 # -----------------------------
+
 def open_search_dialog() -> None:
-    """Open a search dialog and jump to Transactions with the query prefilled."""
-    with ui.dialog() as d, ui.card().classes("my-card p-5 w-full max-w-lg"):
-        ui.label("Search transactions").classes("text-lg font-bold")
-        q = ui.input(placeholder="Merchant, category, account, amount...").props("dense outlined").classes("w-full")
-        with ui.row().classes("w-full justify-end gap-2 mt-2"):
-            ui.button("Cancel", on_click=d.close).props("flat")
-            def _go():
+    """Global search across transactions (shows results in-place; optionally jump to Transactions)."""
+    with ui.dialog() as d, ui.card().classes("my-card p-5 w-full max-w-2xl"):
+        ui.label("Search").classes("text-lg font-bold")
+        q = ui.input(placeholder="Merchant, notes, category, account, amount...").props("dense outlined clearable").classes("w-full")
+
+        info = ui.label("").classes("text-xs mt-1").style("color: var(--mf-muted)")
+        results_area = ui.column().classes("w-full gap-2 mt-3").style("max-height: 55vh; overflow:auto;")
+
+        last_q = {"v": ""}
+
+        def _norm(s: str) -> str:
+            return (str(s or "").strip().lower())
+
+        def render() -> None:
+            results_area.clear()
+            query = (q.value or "").strip()
+            if not query:
+                info.text = "Type to search. You'll see matches here (no page jump)."
+                return
+
+            ql = query.lower()
+            try:
+                df = cached_df("transactions")
+            except Exception:
+                df = None
+
+            if df is None or getattr(df, "empty", True):
+                info.text = "No transactions loaded yet."
+                return
+
+            # build a searchable text field
+            try:
+                cols = df.columns.tolist()
+                cand_cols = [c for c in cols if str(c).strip().lower() in ("merchant","notes","note","category","account","method","type")]
+                # also allow amount and date as strings
+                text_series = None
+                if cand_cols:
+                    text_series = df[cand_cols].astype(str).agg(" | ".join, axis=1)
+                else:
+                    text_series = df.astype(str).agg(" | ".join, axis=1)
+                text_series = text_series.str.lower()
+                mask = text_series.str.contains(re.escape(ql), na=False)
+                hits = df[mask].copy()
+            except Exception:
+                hits = df.copy()
+
+            # rank: prefer recent + amount proximity not needed; just sort by date desc if present
+            try:
+                if "date_parsed" in hits.columns:
+                    hits = hits.sort_values("date_parsed", ascending=False)
+                elif "date" in hits.columns:
+                    hits = hits.sort_values("date", ascending=False)
+            except Exception:
+                pass
+
+            n = len(hits)
+            info.text = f"{n} match(es). Tap a result to open Transactions filtered."
+
+            show = hits.head(12)
+
+            def _open_in_tx(prefill: str) -> None:
                 try:
-                    app.storage.user["tx_search_prefill"] = (q.value or "").strip()
+                    app.storage.user["tx_search_prefill"] = prefill
                 except Exception:
                     pass
                 d.close()
-                if q:
-                    try:
-                        app.storage.user['tx_search_prefill'] = q
-                    except Exception:
-                        pass
-                    nav_to("/tx")
-                else:
-                    ui.notify('Type something to search', type='warning')
-            ui.button("Search", icon="search", on_click=_go).props("unelevated")
+                nav_to("/tx")
+
+            for _, r in show.iterrows():
+                dt = str(r.get("date", "") or "")
+                cat = str(r.get("category", "") or "")
+                acct = str(r.get("account", "") or "")
+                merch = str(r.get("merchant", "") or r.get("notes", "") or "")
+                amt = r.get("amount_num", r.get("amount", ""))
+                try:
+                    amt_s = currency(float(amt)) if str(amt).replace(".","",1).replace("-","",1).isdigit() else str(amt)
+                except Exception:
+                    amt_s = str(amt)
+
+                prefill = query
+                with ui.card().classes("my-card p-3 w-full").style("cursor:pointer;").on("click", lambda e, p=prefill: _open_in_tx(p)):
+                    with ui.row().classes("w-full items-center justify-between"):
+                        ui.label(merch[:60] if merch else "(no merchant)").classes("text-sm font-semibold").style("color: var(--mf-text)")
+                        ui.label(amt_s).classes("text-sm font-semibold").style("color: var(--mf-text)")
+                    ui.label(f"{dt} • {cat} • {acct}").classes("text-xs").style("color: var(--mf-muted)")
+
+            if n > 12:
+                ui.button(f"Show all {n} in Transactions", icon="open_in_new",
+                          on_click=lambda: _open_in_tx(query)).props("flat").classes("w-full")
+
+        # simple debounce via timer
+        def tick() -> None:
+            cur = (q.value or "")
+            if cur != last_q["v"]:
+                last_q["v"] = cur
+                render()
+
+        ui.timer(0.2, tick)
+
+        with ui.row().classes("w-full justify-end gap-2 mt-3"):
+            ui.button("Close", on_click=d.close).props("flat")
+            ui.button("Open Transactions", icon="open_in_new", on_click=lambda: (app.storage.user.__setitem__("tx_search_prefill", (q.value or "").strip()), d.close(), nav_to("/tx")) if (q.value or "").strip() else ui.notify("Type something to search", type="warning")).props("unelevated")
+
     d.open()
 
 def topbar():
@@ -3171,7 +3287,7 @@ def shell(content_fn, *, active_path: str = ""):
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-nav-open')"))
                         with ui.element("div").classes("mf-title"):
-                            ui.link("MyFin", "/").classes("t1 text-2xl md:text-3xl").style("color: inherit; text-decoration: none;")
+                            ui.link("FinTrackr", "/").classes("t1 text-2xl md:text-3xl").style("color: inherit; text-decoration: none;")
                             
                     # RIGHT: theme + actions
                     with ui.row().classes("items-center gap-2"):
@@ -3300,7 +3416,7 @@ def login_page():
                 with ui.row().classes('items-center gap-3'):
                     ui.label('💳').classes('text-3xl')
                     with ui.column().classes('gap-0'):
-                        ui.label('Welcome to MyFin').classes('text-2xl font-bold')
+                        ui.label('Welcome to FinTrackr').classes('text-2xl font-bold')
                         ui.label('Sign in to continue').classes('text-sm').style('color: var(--mf-muted)')
                 ui.badge('Secure').style('background: rgba(46,125,255,0.18); color: var(--mf-text); border: 1px solid var(--mf-border);')
             ui.separator().classes('my-4 opacity-30')
@@ -3918,7 +4034,7 @@ def add_page():
                             except Exception as ex:
                                 ui.notify(f'Upload failed: {ex}', type='negative')
 
-                        upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt').props("accept='image/*'").classes('w-full')
+                        upload_upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt').props("accept='image/*' capture='environment'").classes('w-full')
                         try:
                             upload_receipt.on_upload(_on_upload)
                         except Exception:
