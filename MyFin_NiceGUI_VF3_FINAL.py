@@ -2709,6 +2709,27 @@ html.mf-light .q-btn__content {
 
 /* Remove any numeric label rendered inside progress bars */
 .q-linear-progress__label { display: none !important; }
+
+/* --- FinTrackr: Force dropdown menus to respect Light theme (iOS Safari + Quasar q-menu portal) --- */
+html.mf-light .q-menu,
+html.mf-light .q-menu.q-dark,
+html.mf-light .q-menu__content,
+html.mf-light .q-menu .q-list {
+  background: var(--mf-menu-bg) !important;
+  color: var(--mf-text) !important;
+  border: 1px solid var(--mf-border) !important;
+}
+html.mf-light .q-menu .q-item,
+html.mf-light .q-menu .q-item__label,
+html.mf-light .q-menu .q-item__section {
+  color: var(--mf-text) !important;
+}
+html.mf-light .q-menu .q-item:hover,
+html.mf-light .q-menu .q-item--active,
+html.mf-light .q-menu .q-item.q-manual-focusable--focused {
+  background: rgba(17,24,39,0.08) !important;
+}
+
 """
 ui.add_head_html("<style>" + BANK_CSS + """
 /* Budget progress: hide numeric overlay label */
@@ -3037,22 +3058,6 @@ try{
         window.mfSetTheme("Emerald Gold", false);
       }
     }
-
-    try{ setTimeout(()=>{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }, 120);}catch(e){}
-    // finish booting
-    window.__mfBooting = false;
-
-    // Follow system preference changes ONLY if user has not chosen a theme manually
-    try{
-      if(!userPicked && window.matchMedia){
-        const mq = window.matchMedia('(prefers-color-scheme: dark)');
-        const sync = () => { try{ window.mfSetTheme(mq.matches ? "Emerald Gold" : "Sand Gold", false); }catch(e){} };
-        // initial sync in case browser applied late
-        setTimeout(sync, 250);
-        if(mq.addEventListener){ mq.addEventListener('change', sync); }
-        else if(mq.addListener){ mq.addListener(sync); }
-      }
-    }catch(e){}
 }    try{ setTimeout(()=>{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }, 120);}catch(e){}
     // finish booting
     window.__mfBooting = false;
@@ -3142,22 +3147,50 @@ def open_search_dialog() -> None:
                 info.text = "No transactions loaded yet."
                 return
 
-            # build a searchable text field
+            # build search hits (merchant-first, with optional field prefixes)
+            # Prefixes supported: merchant: , cat: / category: , acct: / account:
+            field = None
+            qval = query
+            if ":" in query:
+                k, v = query.split(":", 1)
+                kk = k.strip().lower()
+                vv = v.strip()
+                if vv and kk in ("m", "merchant", "cat", "category", "acct", "account"):
+                    field = {"m": "merchant", "merchant": "merchant",
+                             "cat": "category", "category": "category",
+                             "acct": "account", "account": "account"}[kk]
+                    qval = vv
+
+            ql2 = qval.lower()
             try:
-                cols = df.columns.tolist()
-                cand_cols = [c for c in cols if str(c).strip().lower() in ("merchant","notes","note","category","account","method","type")]
-                # also allow amount and date as strings
-                text_series = None
-                if cand_cols:
-                    text_series = df[cand_cols].astype(str).agg(" | ".join, axis=1)
+                if field and field in df.columns:
+                    s = df[field].astype(str).str.lower()
+                    mask = s.str.contains(re.escape(ql2), na=False)
+                    hits = df[mask].copy()
                 else:
-                    text_series = df.astype(str).agg(" | ".join, axis=1)
-                text_series = text_series.str.lower()
-                mask = text_series.str.contains(re.escape(ql), na=False)
-                hits = df[mask].copy()
+                    # Merchant-first search: if we find merchant hits, use only those (more meaningful)
+                    hits = None
+                    if "merchant" in df.columns:
+                        s = df["merchant"].astype(str).str.lower()
+                        mask = s.str.contains(re.escape(ql2), na=False)
+                        h1 = df[mask].copy()
+                        if len(h1) > 0:
+                            hits = h1
+                    if hits is None:
+                        # fallback to notes/category/account/method/type
+                        cols = df.columns.tolist()
+                        cand_cols = [c for c in cols if str(c).strip().lower() in ("merchant","notes","note","category","account","method","type")]
+                        if cand_cols:
+                            text_series = df[cand_cols].astype(str).agg(" | ".join, axis=1)
+                        else:
+                            text_series = df.astype(str).agg(" | ".join, axis=1)
+                        text_series = text_series.str.lower()
+                        mask = text_series.str.contains(re.escape(ql2), na=False)
+                        hits = df[mask].copy()
             except Exception:
                 hits = df.copy()
 
+            # rank:
             # rank: prefer recent + amount proximity not needed; just sort by date desc if present
             try:
                 if "date_parsed" in hits.columns:
@@ -3168,7 +3201,15 @@ def open_search_dialog() -> None:
                 pass
 
             n = len(hits)
-            info.text = f"{n} match(es). Tap a result to open Transactions filtered."
+            if field == "merchant" or ("merchant" in (hits.columns if hasattr(hits,"columns") else []) and (qval.strip() != "")):
+                # Show brief summary for merchant-focused results
+                try:
+                    total_amt = float(hits.get("amount_num").fillna(0).astype(float).sum()) if "amount_num" in hits.columns else 0.0
+                except Exception:
+                    total_amt = 0.0
+                info.text = f"{n} match(es). Total: {currency(total_amt)}. Tap a result to open filtered Transactions."
+            else:
+                info.text = f"{n} match(es). Tap a result to open filtered Transactions."
 
             show = hits.head(12)
 
@@ -3191,7 +3232,7 @@ def open_search_dialog() -> None:
                 except Exception:
                     amt_s = str(amt)
 
-                prefill = query
+                prefill = (f"merchant:{merch}" if merch else query)
                 with ui.card().classes("my-card p-3 w-full").style("cursor:pointer;").on("click", lambda e, p=prefill: _open_in_tx(p)):
                     with ui.row().classes("w-full items-center justify-between"):
                         ui.label(merch[:60] if merch else "(no merchant)").classes("text-sm font-semibold").style("color: var(--mf-text)")
@@ -3264,7 +3305,7 @@ def shell(content_fn, *, active_path: str = ""):
         # Left rail
         with ui.element("div").classes("mf-rail"):
             with ui.element("div").classes("mf-rail-card"):
-                ui.label("MYFIN").classes("mf-brand")
+                ui.label("FinTrackr").classes("mf-brand")
                 ui.separator().props("dark").classes("opacity-20 my-1")
 
                 nav_btn("Home", "dashboard", "/")
@@ -3275,7 +3316,6 @@ def shell(content_fn, *, active_path: str = ""):
                 nav_btn("Admin", "settings", "/admin")
 
                 ui.separator().props("dark").classes("opacity-20 my-1")
-                ui.label("Phase 5.2").classes("text-xs").style("color: var(--mf-muted); text-align:center;")
 
         # Main
         with ui.element("main").classes("mf-main"):
@@ -3316,7 +3356,7 @@ def shell(content_fn, *, active_path: str = ""):
                                             tname,
                                             on_click=lambda tn=tname: (
                                                 app.storage.user.__setitem__('theme', tn),
-                                                ui.run_javascript(f"mfSetTheme({tn!r})"),
+                                                ui.run_javascript(f"mfSetTheme({tn!r}, true)"),
                                                 td.close(),
                                             ),
                                         ).classes("w-full justify-start")
@@ -3330,7 +3370,7 @@ def shell(content_fn, *, active_path: str = ""):
                         theme_select = ui.select(
                             _theme_names,
                             value=(app.storage.user.get('theme') or 'Midnight Blue'),
-                            on_change=lambda e: (app.storage.user.__setitem__('theme', e.value), ui.run_javascript(f"mfSetTheme({e.value!r})")),
+                            on_change=lambda e: (app.storage.user.__setitem__('theme', e.value), ui.run_javascript(f"mfSetTheme({e.value!r}, true)")),
                         ).props("dense outlined").classes("mf-hide-mobile").style(
                             "min-width: 190px; background: var(--mf-surface); border-radius: 12px;"
                         )
@@ -4034,7 +4074,7 @@ def add_page():
                             except Exception as ex:
                                 ui.notify(f'Upload failed: {ex}', type='negative')
 
-                        upload_upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt').props("accept='image/*' capture='environment'").classes('w-full')
+                        upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt').props("accept='image/*' capture='environment'").classes('w-full')
                         try:
                             upload_receipt.on_upload(_on_upload)
                         except Exception:
