@@ -2337,6 +2337,38 @@ html.mf-light .q-menu.q-dark .q-item__section {
   color: var(--mf-text) !important;
 }
 
+/* ---- Phase 5.14.5 HF4: iOS/mobile QSelect uses a dialog/bottom-sheet, not a q-menu.
+   Force light-surface + readable text in those overlays when using a light theme. ---- */
+html.mf-light .q-dialog__inner > div,
+html.mf-light .q-bottom-sheet,
+html.mf-light .q-select__dialog {
+  background: var(--mf-menu-bg, #FFFFFF) !important;
+  color: var(--mf-text, rgba(10,12,20,0.92)) !important;
+  border: 1px solid var(--mf-border, rgba(0,0,0,0.10)) !important;
+}
+
+html.mf-light .q-dialog__inner > div .q-item,
+html.mf-light .q-dialog__inner > div .q-item__label,
+html.mf-light .q-dialog__inner > div .q-item__section,
+html.mf-light .q-bottom-sheet .q-item,
+html.mf-light .q-bottom-sheet .q-item__label,
+html.mf-light .q-bottom-sheet .q-item__section,
+html.mf-light .q-select__dialog .q-item,
+html.mf-light .q-select__dialog .q-item__label,
+html.mf-light .q-select__dialog .q-item__section {
+  color: var(--mf-text, rgba(10,12,20,0.92)) !important;
+}
+
+html.mf-light .q-dialog__inner > div .q-item:hover,
+html.mf-light .q-bottom-sheet .q-item:hover,
+html.mf-light .q-select__dialog .q-item:hover,
+html.mf-light .q-dialog__inner > div .q-item.q-manual-focusable--focused,
+html.mf-light .q-bottom-sheet .q-item.q-manual-focusable--focused,
+html.mf-light .q-select__dialog .q-item.q-manual-focusable--focused {
+  background: rgba(17,24,39,0.06) !important;
+}
+
+
 /* Budgets: never show raw decimal label inside progress bars */
 .mf-budget-bar .q-linear-progress__label,
 .mf-budget-bar .q-linear-progress__label--internal,
