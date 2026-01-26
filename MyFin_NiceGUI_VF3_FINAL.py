@@ -1,17 +1,17 @@
 # ======================================
-# MyFin App – Phase 4.6A (REAL FIX BUILD)
+# FinTrackr App – Phase 4.6A (REAL FIX BUILD)
 # Changes vs P4.5: Dashboard hero, Rules selection, OCR toast timeout, richer palette
 # ======================================
 
 # ==============================
-# MyFin App – Phase 4.5 (P4.4 + P4.5 combined)
+# FinTrackr App – Phase 4.5 (P4.4 + P4.5 combined)
 # Base: Myfin_NICEGUI_VF2_P4_2 (last stable)
 # Changes: Budgets setup UX, Transactions table mobile UX, Rules edit, Cards utilization bars,
 #          Dashboard pay-period view, Premium login styling
 # ==============================
 
 """
-MyFin — NiceGUI Stable
+FinTrackr — NiceGUI Stable
 File: Myfin_NICEGUI_VF2_P4_2.py
 
 Purpose
@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '5.14'
+APP_VERSION = '5.14.5-hf1'
 
 
 def log(message: str) -> None:
@@ -193,7 +193,7 @@ if not STORAGE_SECRET:
     seed = SERVICE_ACCOUNT_JSON or os.environ.get("SPREADSHEET_NAME", "") or "local-dev"
     STORAGE_SECRET = hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
-APP_TITLE = "MyFin"
+APP_TITLE = "FinTrackr"
 APP_SUBTITLE = "Finance Tracker"
 
 # Pay cycle config
@@ -790,7 +790,7 @@ def wide_transactions_to_long(df: pd.DataFrame) -> pd.DataFrame:
     """Convert a 'wide' Transactions sheet into the app's long format.
 
     If the sheet already contains 'type' and 'amount' columns, this returns df unchanged.
-    Otherwise it looks for common MyFin columns like:
+    Otherwise it looks for common FinTrackr columns like:
     Date, International transaction, Credit, Investment, Credit card repay, Debit,
     LOC Withdrawal, LOC Repayment, Account, Reason/Notes.
     """
@@ -1040,13 +1040,13 @@ def get_spreadsheet():
             _ss = gc.open(SPREADSHEET_NAME)
     except Exception as e:
         # Surface spreadsheet open issues clearly in Render logs.
-        print(f"[MyFin] Failed to open spreadsheet. id={bool(SPREADSHEET_ID)} name={SPREADSHEET_NAME!r}: {e}")
+        print(f"[FinTrackr] Failed to open spreadsheet. id={bool(SPREADSHEET_ID)} name={SPREADSHEET_NAME!r}: {e}")
         raise
 
     # Helpful diagnostics in logs so we can confirm the app is reading the correct file.
     try:
         titles = [w.title for w in _ss.worksheets()]
-        print(f"[MyFin] Opened spreadsheet: '{_ss.title}' | worksheets={titles}")
+        print(f"[FinTrackr] Opened spreadsheet: '{_ss.title}' | worksheets={titles}")
     except Exception:
         pass
     return _ss
@@ -1418,7 +1418,7 @@ def cached_df(tab: str, force: bool = False) -> pd.DataFrame:
             # by converting it into the app's long ledger format.
             before_cols = list(df.columns)
             df = wide_transactions_to_long(df)
-            print(f"[MyFin] transactions loaded: rows={len(df)} cols={list(df.columns)} (source cols={before_cols})")
+            print(f"[FinTrackr] transactions loaded: rows={len(df)} cols={list(df.columns)} (source cols={before_cols})")
 
     except Exception as e:
         import traceback
@@ -1701,7 +1701,7 @@ from typing import Dict, Any, Tuple, Optional, List
 
 _PASSKEYS_PATH = os.environ.get("MYFIN_PASSKEYS_PATH", "myfin_passkeys.json")
 _RP_ID = os.environ.get("MYFIN_RP_ID")  # optional override (e.g., your custom domain)
-_RP_NAME = os.environ.get("MYFIN_RP_NAME", "MyFin")
+_RP_NAME = os.environ.get("MYFIN_RP_NAME", "FinTrackr")
 _ORIGIN = os.environ.get("MYFIN_ORIGIN")  # optional override (e.g., https://nishanthajay.com)
 
 def _b64url_enc(b: bytes) -> str:
@@ -2720,6 +2720,21 @@ html.mf-light .q-menu .q-item__label{color: var(--mf-text) !important;}
 html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 </style>""", shared=True)
 
+ui.add_head_html(r'''
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%0A%3Cstop%20offset%3D%220%22%20stop-color%3D%22%235B8CFF%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%2346E6A6%22/%3E%0A%3C/linearGradient%3E%3C/defs%3E%0A%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2214%22%20fill%3D%22%23070A12%22/%3E%0A%3Cpath%20d%3D%22M18%2044V20h10c9%200%2016%205%2016%2012s-7%2012-16%2012H18zm6-6h4c6%200%2010-3%2010-6s-4-6-10-6h-4v12z%22%20fill%3D%22url%28%23g%29%22/%3E%0A%3C/svg%3E">
+<style>
+/* Remove ugly yellow background on browser autofill (Safari/Chrome) */
+input:-webkit-autofill,
+textarea:-webkit-autofill,
+select:-webkit-autofill{
+  -webkit-text-fill-color: var(--mf-text) !important;
+  box-shadow: 0 0 0px 1000px rgba(0,0,0,0) inset !important;
+  transition: background-color 9999s ease-in-out 0s;
+  caret-color: var(--mf-text) !important;
+}
+</style>
+''', shared=True)
+
 ui.add_head_html(
     """<script>
 (function(){
@@ -3148,7 +3163,7 @@ def shell(content_fn, *, active_path: str = ""):
         # Left rail
         with ui.element("div").classes("mf-rail"):
             with ui.element("div").classes("mf-rail-card"):
-                ui.label("MYFIN").classes("mf-brand")
+                ui.label("FinTrackr").classes("mf-brand")
                 ui.separator().props("dark").classes("opacity-20 my-1")
 
                 nav_btn("Home", "dashboard", "/")
@@ -3171,7 +3186,7 @@ def shell(content_fn, *, active_path: str = ""):
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-nav-open')"))
                         with ui.element("div").classes("mf-title"):
-                            ui.link("MyFin", "/").classes("t1 text-2xl md:text-3xl").style("color: inherit; text-decoration: none;")
+                            ui.link("FinTrackr", "/").classes("t1 text-2xl md:text-3xl").style("color: inherit; text-decoration: none;")
                             
                     # RIGHT: theme + actions
                     with ui.row().classes("items-center gap-2"):
@@ -3200,7 +3215,7 @@ def shell(content_fn, *, active_path: str = ""):
                                             tname,
                                             on_click=lambda tn=tname: (
                                                 app.storage.user.__setitem__('theme', tn),
-                                                ui.run_javascript(f"mfSetTheme({tn!r})"),
+                                                ui.run_javascript(f"window.mfSetTheme({tn!r})"),
                                                 td.close(),
                                             ),
                                         ).classes("w-full justify-start")
@@ -3214,7 +3229,7 @@ def shell(content_fn, *, active_path: str = ""):
                         theme_select = ui.select(
                             _theme_names,
                             value=(app.storage.user.get('theme') or 'Midnight Blue'),
-                            on_change=lambda e: (app.storage.user.__setitem__('theme', e.value), ui.run_javascript(f"mfSetTheme({e.value!r})")),
+                            on_change=lambda e: (app.storage.user.__setitem__('theme', e.value), ui.run_javascript(f"window.mfSetTheme({e.value!r})")),
                         ).props("dense outlined").classes("mf-hide-mobile").style(
                             "min-width: 190px; background: var(--mf-surface); border-radius: 12px;"
                         )
@@ -3230,7 +3245,7 @@ def shell(content_fn, *, active_path: str = ""):
                         ui.button("", icon="palette").props("flat round dense").classes("mf-show-mobile").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", _open_theme_dialog)
-                        ui.run_javascript('mfSetTheme(localStorage.getItem(\"mf_theme\") || \"Midnight Blue\")')
+                        ui.run_javascript('window.mfSetTheme(localStorage.getItem(\"mf_theme\") || \"Midnight Blue\")')
                         ui.button("", icon="refresh").props("flat round dense").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", lambda: ui.navigate.to(ui.context.client.page.path))
@@ -3300,7 +3315,7 @@ def login_page():
                 with ui.row().classes('items-center gap-3'):
                     ui.label('💳').classes('text-3xl')
                     with ui.column().classes('gap-0'):
-                        ui.label('Welcome to MyFin').classes('text-2xl font-bold')
+                        ui.label('Welcome to FinTrackr').classes('text-2xl font-bold')
                         ui.label('Sign in to continue').classes('text-sm').style('color: var(--mf-muted)')
                 ui.badge('Secure').style('background: rgba(46,125,255,0.18); color: var(--mf-text); border: 1px solid var(--mf-border);')
             ui.separator().classes('my-4 opacity-30')
@@ -4241,7 +4256,7 @@ def add_page():
                 ui.button("Cancel", on_click=dlg.close).props("flat")
                 ui.button("Save", on_click=save).props("unelevated")
 
-        ui.run_javascript('mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
+        ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
         dlg.open()
 
     def content():
