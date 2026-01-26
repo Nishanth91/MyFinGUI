@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '5.14.5-hf1'
+APP_VERSION = '5.14.5-hf3'
 
 
 def log(message: str) -> None:
@@ -2728,9 +2728,10 @@ input:-webkit-autofill,
 textarea:-webkit-autofill,
 select:-webkit-autofill{
   -webkit-text-fill-color: var(--mf-text) !important;
-  box-shadow: 0 0 0px 1000px rgba(0,0,0,0) inset !important;
+  box-shadow: 0 0 0px 1000px var(--mf-bg-2) inset !important;
   transition: background-color 9999s ease-in-out 0s;
   caret-color: var(--mf-text) !important;
+  background-color: var(--mf-bg-2) !important;
 }
 </style>
 ''', shared=True)
@@ -3100,19 +3101,16 @@ def open_search_dialog() -> None:
         with ui.row().classes("w-full justify-end gap-2 mt-2"):
             ui.button("Cancel", on_click=d.close).props("flat")
             def _go():
+                query = (q.value or "").strip()
+                if not query:
+                    ui.notify("Type something to search", type="warning")
+                    return
                 try:
-                    app.storage.user["tx_search_prefill"] = (q.value or "").strip()
+                    app.storage.user["tx_search_prefill"] = query
                 except Exception:
                     pass
                 d.close()
-                if q:
-                    try:
-                        app.storage.user['tx_search_prefill'] = q
-                    except Exception:
-                        pass
-                    nav_to("/tx")
-                else:
-                    ui.notify('Type something to search', type='warning')
+                nav_to("/tx")
             ui.button("Search", icon="search", on_click=_go).props("unelevated")
     d.open()
 
@@ -3845,6 +3843,7 @@ def add_page():
                 d_method = ui.select(methods or [""], value=(method_default if method_default in (methods or []) else ""), label="Method").classes("w-full")
 
             d_account = ui.select(accounts or [""], value=(account_default if account_default in (accounts or []) else ""), label="Account").classes("w-full")
+            d_account.props('popup-content-class="mf-menu-light"')
             if disable_account:
                 d_account.props("disable")
 
@@ -4618,8 +4617,27 @@ def transactions_page():
                     df = df[df['date'].apply(_in_range)]
                 q = (f_text.value or "").strip().lower()
                 if q:
-                    hay = (df["notes"].astype(str) + " " + df["category"].astype(str) + " " + df["account"].astype(str)).str.lower()
-                    df = df[hay.str.contains(q, na=False)]
+                    # search across common text fields (merchant/notes/category/account/method/etc.)
+                    cols = [c for c in ["merchant", "payee", "description", "notes", "category", "account", "method", "card", "source"] if c in df.columns]
+                    if cols:
+                        hay = df[cols].astype(str).agg(" ".join, axis=1).str.lower()
+                    else:
+                        # fallback: stringify the row
+                        hay = df.astype(str).agg(" ".join, axis=1).str.lower()
+
+                    mask_text = hay.str.contains(q, na=False)
+
+                    # numeric search: if user typed a number, also match amount closely (OR with text match)
+                    mask_amt = False
+                    try:
+                        q_num = float(q.replace(",", "").replace("$", ""))
+                    except Exception:
+                        q_num = None
+                    if q_num is not None and "amount" in df.columns:
+                        amt = df["amount"].apply(to_float)
+                        mask_amt = (amt - q_num).abs() < 0.01
+
+                    df = df[mask_text | mask_amt]
                 # Sorting
                 try:
                     sort_choice = f_sort.value or "Date (new → old)"
