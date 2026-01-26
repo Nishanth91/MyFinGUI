@@ -123,6 +123,74 @@ from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 from nicegui import ui, app
 
+
+# --- FinTrackr PWA manifest + icons (single-file) ---
+import io as _io
+try:
+    from fastapi.responses import Response, JSONResponse
+except Exception:
+    Response = None
+    JSONResponse = None
+
+def _make_fintrackr_icon(size: int) -> bytes:
+    # Generate a simple FinTrackr icon PNG at runtime (no external files).
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        img = Image.new("RGBA", (size, size), (11, 16, 32, 255))
+        d = ImageDraw.Draw(img)
+        r = max(24, size // 8)
+        d.rounded_rectangle((int(size*0.10), int(size*0.10), int(size*0.90), int(size*0.90)),
+                            radius=r, fill=(30, 90, 170, 255))
+        pts = [(int(size*0.22), int(size*0.64)),
+               (int(size*0.36), int(size*0.52)),
+               (int(size*0.48), int(size*0.60)),
+               (int(size*0.62), int(size*0.40)),
+               (int(size*0.78), int(size*0.46))]
+        d.line(pts, fill=(255, 255, 255, 235), width=max(6, size//28))
+        for x, y in pts[1:-1]:
+            rr = max(6, size//45)
+            d.ellipse((x-rr, y-rr, x+rr, y+rr), fill=(255,255,255,235))
+        try:
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", max(22, size//5))
+        except Exception:
+            font = ImageFont.load_default()
+        d.text((int(size*0.22), int(size*0.18)), "FT", font=font, fill=(255,255,255,240))
+        buf = _io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return b""
+
+_ICON_192 = _make_fintrackr_icon(192)
+_ICON_512 = _make_fintrackr_icon(512)
+
+try:
+    @app.get('/manifest.json')
+    def _manifest():
+        data = {
+            "name": "FinTrackr",
+            "short_name": "FinTrackr",
+            "start_url": "/",
+            "display": "standalone",
+            "background_color": "#0B1020",
+            "theme_color": "#0B1020",
+            "icons": [
+                {"src": "/fintrackr-192.png", "sizes": "192x192", "type": "image/png"},
+                {"src": "/fintrackr-512.png", "sizes": "512x512", "type": "image/png"},
+            ],
+        }
+        return JSONResponse(data) if JSONResponse else data
+
+    @app.get('/fintrackr-192.png')
+    def _icon192():
+        return Response(_ICON_192, media_type="image/png") if Response else _ICON_192
+
+    @app.get('/fintrackr-512.png')
+    def _icon512():
+        return Response(_ICON_512, media_type="image/png") if Response else _ICON_512
+except Exception:
+    pass
+
 # --- Compatibility alias (some older code uses run_javascript without ui.)
 run_javascript = getattr(ui, 'run_javascript', None)
 if run_javascript is None:
@@ -2738,6 +2806,24 @@ html.mf-light .q-menu .q-item.q-manual-focusable--focused {
   background: rgba(17,24,39,0.08) !important;
 }
 
+
+
+/* Fix ugly yellow autofill on iOS/Chrome */
+input:-webkit-autofill,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--mf-text) !important;
+  transition: background-color 9999s ease-in-out 0s;
+  box-shadow: 0 0 0px 1000px rgba(255,255,255,0.10) inset !important;
+  caret-color: var(--mf-text) !important;
+}
+.mf-light input:-webkit-autofill,
+.mf-light textarea:-webkit-autofill,
+.mf-light select:-webkit-autofill {
+  -webkit-text-fill-color: rgba(10,12,20,0.92) !important;
+  box-shadow: 0 0 0px 1000px rgba(255,255,255,0.85) inset !important;
+  caret-color: rgba(10,12,20,0.92) !important;
+}
 """
 ui.add_head_html("<style>" + BANK_CSS + """
 /* Budget progress: hide numeric overlay label */
@@ -2747,7 +2833,13 @@ html.mf-light .q-menu, html.mf-light .q-menu.q-dark{background: var(--mf-menu-bg
 html.mf-light .q-menu .q-list{background: var(--mf-menu-bg) !important; color: var(--mf-text) !important;}
 html.mf-light .q-menu .q-item__label{color: var(--mf-text) !important;}
 html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
-</style>""", shared=True)
+</style>
+<meta name="apple-mobile-web-app-title" content="FinTrackr">
+<meta name="application-name" content="FinTrackr">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/fintrackr-192.png">
+<link rel="icon" type="image/png" href="/fintrackr-192.png">
+""", shared=True)
 
 ui.add_head_html(
     """<script>
@@ -2824,6 +2916,8 @@ ui.add_head_html(
       "--mf-card-top":"rgba(255,255,255,0.90)", "--mf-card-bottom":"rgba(255,255,255,0.74)", "--mf-card-border":"rgba(17,24,39,0.10)"
     }
   };
+  window.__mfThemes = THEMES;
+
 
   window.
   window.mfFixPlotlyText = function(){
@@ -3056,31 +3150,75 @@ try{
     const saved = userPicked ? localStorage.getItem("mf_theme") : null;
 
     if(saved){ 
-      window.mfSetTheme(saved, false); 
+      window.mfApplyTheme(saved, false); 
     } else {
       // Default to system preference: Dark -> Emerald Gold, Light -> Sand Gold
       try{
         const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        window.mfSetTheme(prefersDark ? "Emerald Gold" : "Sand Gold", false);
+        window.mfApplyTheme(prefersDark ? "Emerald Gold" : "Sand Gold", false);
       }catch(e){
-        window.mfSetTheme("Emerald Gold", false);
+        window.mfApplyTheme("Emerald Gold", false);
       }
     }
 }    try{ setTimeout(()=>{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }, 120);}catch(e){}
     // finish booting
-    window.__mfBooting = false;
+    
+  // Strong theme apply wrapper (used by Python)
+  window.mfApplyTheme = function(name, persist=true, markUser=true){
+    try{
+      if (typeof window.mfSetTheme === 'function') {
+        window.mfApplyTheme(name, persist);
+      } else {
+        const THEMES = window.__mfThemes || {};
+        const t = THEMES[name] || THEMES["Midnight Blue"] || {};
+        const root = document.documentElement;
+        Object.keys(t).forEach(k => root.style.setProperty(k, t[k]));
+      }
+      if (markUser) { try { localStorage.setItem("mf_theme_user","1"); } catch(e){} }
+      // Fix Quasar menu portal on light theme (iOS Safari)
+      try{
+        const isLight = document.documentElement.classList.contains('mf-light') || document.documentElement.classList.contains('q-light');
+        if (isLight){
+          document.querySelectorAll('.q-menu').forEach(menu=>{
+            menu.classList.remove('q-dark');
+            menu.style.setProperty('background', '#fff', 'important');
+            menu.style.setProperty('color', 'rgba(10,12,20,0.92)', 'important');
+            const list = menu.querySelector('.q-list') || menu.querySelector('.q-menu__content');
+            if(list){
+              list.style.setProperty('background','#fff','important');
+              list.style.setProperty('color','rgba(10,12,20,0.92)','important');
+            }
+            menu.querySelectorAll('.q-item, .q-item__label, .q-item__section').forEach(el=>{
+              el.style.setProperty('color','rgba(10,12,20,0.92)','important');
+            });
+          });
+        }
+      }catch(e){}
+    }catch(e){ console.error(e); }
+  };
+  // Apply system preference if user has not chosen a theme
+  window.mfApplySystemTheme = function(){
+    try{
+      const userPicked = (localStorage.getItem("mf_theme_user")==="1");
+      if (userPicked) return;
+      const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      window.mfApplyTheme(dark ? "Emerald Gold" : "Sand Gold", true, false);
+    }catch(e){}
+  };
+try{ window.mfApplySystemTheme(); }catch(e){}
+window.__mfBooting = false;
     // If user never picked a theme manually, follow system preference changes
     try{
       if(!(localStorage.getItem("mf_theme_user")==="1") && window.matchMedia){
         const mq = window.matchMedia('(prefers-color-scheme: dark)');
-        const handler = (e)=>{ try{ window.mfSetTheme(e.matches ? "Emerald Gold" : "Sand Gold"); }catch(_e){} };
+        const handler = (e)=>{ try{ window.mfApplyTheme(e.matches ? "Emerald Gold" : "Sand Gold"); }catch(_e){} };
         if(mq && mq.addEventListener){ mq.addEventListener('change', handler); }
         else if(mq && mq.addListener){ mq.addListener(handler); }
       }
     }catch(e){}
 
   }catch(e){
-    try{ window.mfSetTheme("Emerald Gold"); }catch(_){}
+    try{ window.mfApplyTheme("Emerald Gold"); }catch(_){}
   }
 })();
 </script>""",
@@ -3364,7 +3502,7 @@ def shell(content_fn, *, active_path: str = ""):
                                             tname,
                                             on_click=lambda tn=tname: (
                                                 app.storage.user.__setitem__('theme', tn),
-                                                ui.run_javascript(f"mfSetTheme({tn!r}, true)"),
+                                                ui.run_javascript(f"mfApplyTheme({tn!r}, true)"),
                                                 td.close(),
                                             ),
                                         ).classes("w-full justify-start")
@@ -3378,7 +3516,7 @@ def shell(content_fn, *, active_path: str = ""):
                         theme_select = ui.select(
                             _theme_names,
                             value=(app.storage.user.get('theme') or 'Midnight Blue'),
-                            on_change=lambda e: (app.storage.user.__setitem__('theme', e.value), ui.run_javascript(f"mfSetTheme({e.value!r}, true)")),
+                            on_change=lambda e: (app.storage.user.__setitem__('theme', e.value), ui.run_javascript(f"mfApplyTheme({e.value!r}, true)")),
                         ).props("dense outlined").classes("mf-hide-mobile").style(
                             "min-width: 190px; background: var(--mf-surface); border-radius: 12px;"
                         )
@@ -3394,7 +3532,7 @@ def shell(content_fn, *, active_path: str = ""):
                         ui.button("", icon="palette").props("flat round dense").classes("mf-show-mobile").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", _open_theme_dialog)
-                        ui.run_javascript('mfSetTheme(localStorage.getItem(\"mf_theme\") || \"Midnight Blue\")')
+                        ui.run_javascript('mfApplyTheme(localStorage.getItem(\"mf_theme\") || \"Midnight Blue\")')
                         ui.button("", icon="refresh").props("flat round dense").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface);"
                         ).on("click", lambda: ui.navigate.to(ui.context.client.page.path))
@@ -4405,7 +4543,7 @@ def add_page():
                 ui.button("Cancel", on_click=dlg.close).props("flat")
                 ui.button("Save", on_click=save).props("unelevated")
 
-        ui.run_javascript('mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
+        ui.run_javascript('mfApplyTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
         dlg.open()
 
     def content():
@@ -4629,7 +4767,7 @@ def transactions_page():
                 lock_sw = ui.switch("Month Lock", value=is_month_locked(mkey)).classes("shrink-0")
 
             f_type = ui.select(["All"] + types, value="All", label="Type").classes("w-full")
-            f_text = ui.input("Search notes/category/account").classes("w-full")
+            f_text = ui.input("Search (merchant/category/account) or use merchant:Walmart").classes("w-full")
             try:
                 q_prefill = (app.storage.user.get('tx_search_prefill') or '').strip()
                 if q_prefill:
@@ -4802,8 +4940,7 @@ def transactions_page():
                                 hay = hay + " " + s2
                             hay = hay.str.lower()
                             df = df[hay.str.contains(re.escape(ql), na=False)]
-                    df = df[hay.str.contains(q, na=False)]
-                # Sorting
+# Sorting
                 try:
                     sort_choice = f_sort.value or "Date (new → old)"
                 except Exception:
