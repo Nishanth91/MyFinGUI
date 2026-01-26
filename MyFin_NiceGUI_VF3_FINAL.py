@@ -2754,6 +2754,7 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 /* ==============================
    Phase 6.1 – Dashboard-only UI polish (scoped)
    ============================== */
+html.mf-light .dash-scope .q-card,
 html.mf-light .dash-scope .my-card{
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -2762,6 +2763,7 @@ html.mf-light .dash-scope .my-card{
   border-radius: 14px !important;
   box-shadow: 0 10px 24px rgba(0,0,0,0.06) !important;
 }
+html.mf-dark .dash-scope .q-card,
 html.mf-dark .dash-scope .my-card{
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -2770,8 +2772,8 @@ html.mf-dark .dash-scope .my-card{
   border-radius: 14px !important;
   box-shadow: 0 12px 28px rgba(0,0,0,0.38) !important;
 }
-.dash-scope .my-card{ transition: transform 140ms ease, box-shadow 140ms ease; }
-.dash-scope .my-card:hover{ transform: translateY(-1px); }
+.dash-scope .q-card, .dash-scope .my-card{ transition: transform 140ms ease, box-shadow 140ms ease; }
+.dash-scope .q-card:hover, .dash-scope .my-card:hover{ transform: translateY(-1px); }
 </style>""", shared=True)
 
 ui.add_head_html(r'''
@@ -3465,7 +3467,7 @@ def dashboard_page():
             tx["type_l"] = tx["type"].astype(str).str.lower().str.strip()
 
             mkey = month_key(today())
-            ui.label(f"Your financial snapshot · {mkey}").classes('text-sm').style('color: var(--mf-muted); margin-bottom: 10px;')
+            ui.label(f"Your financial snapshot · {mkey}").classes('text-sm font-medium').style('color: var(--mf-muted); margin: 2px 0 12px 2px;')
             mtx = tx[tx["date_parsed"].apply(lambda d: month_key(d) == mkey)].copy()
 
             # Defensive normalization: some sheets may have different header casing/spacing
