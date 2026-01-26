@@ -2750,6 +2750,19 @@ html.mf-light .q-menu, html.mf-light .q-menu.q-dark{background: var(--mf-menu-bg
 html.mf-light .q-menu .q-list{background: var(--mf-menu-bg) !important; color: var(--mf-text) !important;}
 html.mf-light .q-menu .q-item__label{color: var(--mf-text) !important;}
 html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
+
+/* Phase 6.3: Add page iOS zoom + shift fix (scoped to Add dialog only) */
+.mf-add-dialog{box-sizing:border-box;}
+.mf-add-dialog input,
+.mf-add-dialog textarea,
+.mf-add-dialog .q-field__native,
+.mf-add-dialog .q-field__input{
+  font-size:16px !important; /* prevents iOS Safari zoom on focus */
+  line-height:1.35;
+}
+.mf-add-dialog .q-field__control{min-height:48px;}
+/* Avoid accidental horizontal scroll on mobile when keyboard toggles */
+.mf-add-dialog{max-width:95vw; overflow-x:hidden;}
 </style>""", shared=True)
 
 ui.add_head_html(r'''
@@ -3810,7 +3823,7 @@ def add_page():
         last_debit_account = str(app.storage.user.get('last_debit_account', '') or '').strip()
 
         dlg = ui.dialog()
-        with dlg, ui.card().classes("my-card p-5 w-[620px] max-w-[95vw]").style("max-height: 88vh; overflow-y: auto; padding-bottom: 18px;"):
+        with dlg, ui.card().classes("my-card mf-add-dialog p-5 w-[620px] max-w-[95vw]").style("max-height: 88vh; overflow-y: auto; padding-bottom: 18px;"):
 
             ui.label(f"Add: {entry_type}").classes("text-lg font-bold")
 
@@ -4134,7 +4147,8 @@ def add_page():
             _setting_category = {"v": False}        # internal guard so programmatic changes don't mark touched
             _debounce_task = {"t": None}
 
-            suggest_label = ui.label("").classes("text-xs").style("color: var(--mf-muted)")
+            suggest_chip = ui.chip("").props("dense outline").classes("text-xs").style("color: var(--mf-muted); margin-top:6px;")
+            suggest_chip.visible = False
 
             # Use the rules loaded at dialog open; fall back to a non-forced load once if empty.
             _active_rules = rules or []
@@ -4157,12 +4171,12 @@ def add_page():
                     return
                 active_rules = _active_rules
                 if not active_rules:
-                    suggest_label.text = "Suggested category: Uncategorized (no rules loaded)"
+                    suggest_chip.text = "Auto: Uncategorized (no rules loaded)"; suggest_chip.visible = False
                     _set_category_safely("Uncategorized")
                     return
 
                 suggestion = infer_category(str(d_notes.value or ""), active_rules) or "Uncategorized"
-                suggest_label.text = f"Suggested category: {suggestion}"
+                suggest_chip.text = f"Auto: {suggestion}"; suggest_chip.visible = (not category_touched["v"] and str(d_notes.value or "").strip() and suggestion!="Uncategorized")
                 _set_category_safely(suggestion)
 
             def _schedule_refresh(_: Any = None) -> None:
@@ -4185,7 +4199,16 @@ def add_page():
                 _debounce_task["t"] = asyncio.create_task(_job())
 
             # Mark manual override ONLY for user-initiated changes (ignore programmatic sets)
-            d_category.on('update:model-value', lambda e: (None if _setting_category["v"] else category_touched.__setitem__('v', True)))
+            def _on_category_change(e: Any) -> None:
+                if _setting_category["v"]:
+                    return
+                category_touched["v"] = True
+                try:
+                    suggest_chip.visible = False
+                except Exception:
+                    pass
+
+            d_category.on('update:model-value', _on_category_change)
 
             # Auto-categorize as Notes changes
             d_notes.on('update:model-value', _schedule_refresh)
