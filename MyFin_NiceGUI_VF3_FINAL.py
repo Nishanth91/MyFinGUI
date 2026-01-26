@@ -957,12 +957,57 @@ def _is_noise_receipt_line(line: str) -> bool:
 def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
     """Extract best-effort line items from OCR text.
 
-    Returns list of dicts: {name:str, price:float}
+    Returns list of dicts: {name:str, price:float, raw:str}
     Heuristic: lines that end with a price (e.g., 'BANANAS 2.97').
+
+    Phase 6.5 HF1 improvements:
+    - Strip long numeric item codes (e.g., 6290...) before matching.
+    - Keep a 'raw' copy for debugging.
+    - Less aggressive digit filtering (Walmart lines often include codes).
     """
     items: list[dict[str, Any]] = []
     if not text:
         return items
+
+    for ln in str(text).splitlines():
+        ln = ln.strip()
+        if not ln or _is_noise_receipt_line(ln):
+            continue
+
+        ln2 = ln.replace('CAD', '').strip()
+        m = _PRICE_RE.search(ln2.replace('$', ''))
+        if not m:
+            continue
+        try:
+            price = float(m.group('price'))
+        except Exception:
+            continue
+
+        raw_name = ln2[:m.start('price')].replace('$', '').strip(" -:·|")
+        if len(raw_name) < 2:
+            continue
+
+        # Remove long numeric codes and common trailing markers (E/D/H etc.)
+        toks = [t for t in raw_name.split() if not re.fullmatch(r"\d{5,}", t)]
+        # Drop orphan trailing tokens like 'E', 'D', 'H', '0D'
+        while toks and re.fullmatch(r"[A-Z]", toks[-1], flags=re.I):
+            toks.pop()
+        while toks and re.fullmatch(r"\d?+[A-Z]", toks[-1], flags=re.I):
+            # e.g., '0D'
+            toks.pop()
+
+        name = " ".join(toks).strip()
+        if len(name) < 2:
+            name = raw_name  # fallback
+
+        # Reject lines that are clearly not product names
+        # (but tolerate some digits because Walmart includes item codes)
+        digits = sum(ch.isdigit() for ch in name)
+        if digits > max(12, int(0.75 * len(name))):
+            continue
+
+        items.append({'name': name, 'price': price, 'raw': raw_name})
+    return items
     for ln in str(text).splitlines():
         ln = ln.strip()
         if not ln or _is_noise_receipt_line(ln):
@@ -4286,7 +4331,7 @@ def add_page():
                     ui.label("Adjust the split, then tap Apply.").classes("text-xs").style("color: var(--mf-muted)")
 
                     # Right-side category toggle (Household default, Shopping optional)
-                    right_choice = {"v": "Household"}
+                    right_choice = {"v": str(split_state.get("right_cat") or "Household")}
 
                     with ui.row().classes("w-full items-center justify-between q-mt-sm"):
                         left_badge = ui.label("Groceries").classes("mf-split-pill text-sm font-medium")
@@ -4295,7 +4340,7 @@ def add_page():
                             btn_shop = ui.button("Shopping").props("flat").classes("mf-split-pill text-sm")
 
                     # Slider (percentage for Groceries)
-                    pct_slider = ui.slider(min=0, max=100, value=70).props("label label-always color=primary").classes("w-full q-mt-md")
+                    pct_slider = ui.slider(min=0, max=100, value=int(split_state.get("pct") or 70)).props("label color=primary").classes("w-full q-mt-md")
                     amounts_line = ui.label("").classes("text-sm q-mt-sm")
                     health_line = ui.label("").classes("text-xs q-mt-xs").style("opacity:0.85;")
 
@@ -4338,7 +4383,7 @@ def add_page():
 
                     btn_house.on('click', lambda e: _choose_household())
                     btn_shop.on('click', lambda e: _choose_shopping())
-                    pct_slider.on('update:model-value', _recalc_preview)
+                    pct_slider.on('change', _recalc_preview)
 
                     def _apply_split_plan() -> None:
                         # Store the plan; actual save happens on Save click
