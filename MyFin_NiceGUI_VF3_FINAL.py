@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '5.14.5-hf3'
+APP_VERSION = '6.5'
 
 
 def log(message: str) -> None:
@@ -932,6 +932,115 @@ TABS = {
     "locks": ["month", "locked"],
 }
 
+
+# -----------------------------
+# Phase 6.5: OCR line-item intelligence
+# -----------------------------
+
+_PRICE_RE = re.compile(r"(?P<price>-?\d{1,6}\.\d{2})\s*$")
+
+def _is_noise_receipt_line(line: str) -> bool:
+    l = (line or '').strip().lower()
+    if not l:
+        return True
+    noise_words = [
+        'subtotal', 'sub total', 'total', 'gst', 'pst', 'hst', 'tax', 'balance', 'change',
+        'debit', 'credit', 'visa', 'mastercard', 'approval', 'approved', 'auth', 'aid',
+        'terminal', 'term', 'tran', 'trans', 'transaction', 'ref', 'trace', 'invoice',
+        'cash', 'tender', 'thank you', 'survey', 'items sold', 'reg', 'operator',
+        'st#', 'tr#', 'store #', 'store:', 'pos', 'order', 'barcode'
+    ]
+    if any(w in l for w in noise_words):
+        return True
+    return False
+
+def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
+    """Extract best-effort line items from OCR text.
+
+    Returns list of dicts: {name:str, price:float}
+    Heuristic: lines that end with a price (e.g., 'BANANAS 2.97').
+    """
+    items: list[dict[str, Any]] = []
+    if not text:
+        return items
+    for ln in str(text).splitlines():
+        ln = ln.strip()
+        if not ln or _is_noise_receipt_line(ln):
+            continue
+        ln2 = ln.replace('CAD', '').strip()
+        m = _PRICE_RE.search(ln2.replace('$',''))
+        if not m:
+            continue
+        try:
+            price = float(m.group('price'))
+        except Exception:
+            continue
+        name = ln2[:m.start('price')].replace('$','').strip(" -:·|")
+        if len(name) < 2:
+            continue
+        # Reject lines that are mostly digits/codes
+        if sum(ch.isdigit() for ch in name) > max(6, int(0.6 * len(name))):
+            continue
+        items.append({'name': name, 'price': price})
+    return items
+
+def _build_rules_index(rules: List[Tuple[str, str]]) -> Dict[str, List[str]]:
+    out: dict[str, list[str]] = {}
+    for kw, cat in (rules or []):
+        c = str(cat or '').strip()
+        k = str(kw or '').strip().lower()
+        if not c or not k:
+            continue
+        out.setdefault(c.lower(), []).append(k)
+    return out
+
+def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, str]]) -> Dict[str, Any]:
+    """Classify receipt line items into Groceries/Household/Shopping/Health using the rules sheet."""
+    idx = _build_rules_index(rules)
+
+    # Gather keywords (tolerate singular/plural)
+    kw_health = idx.get('health', []) + idx.get('medical', [])
+    kw_groc = idx.get('groceries', []) + idx.get('grocery', [])
+    kw_house = idx.get('household', [])
+    kw_shop = idx.get('shopping', [])
+
+    # Minimal fallbacks for robustness
+    fb_health = ['pharm', 'pharmacy', 'rx']
+    fb_shop = ['shirt', 'wov', 'woven', 'tank', 'dress', 'toy', 'toys', 'apparel', 'mens', 'women', 'womens', 'kids']
+    fb_house = ['detergent', 'bleach', 'paper towel', 'toilet paper', 'tissue', 'garbage bag', 'trash bag', 'soap', 'wipes', 'clean', 'spray']
+    fb_groc = ['milk', 'eggs', 'egg', 'bread', 'rice', 'banana', 'tomato', 'onion', 'yogurt', 'dal', 'atta']
+
+    def _match(name_l: str, kws: List[str]) -> bool:
+        return any(k and k in name_l for k in kws)
+
+    amounts = {'Groceries': 0.0, 'Household': 0.0, 'Shopping': 0.0, 'Health': 0.0}
+    counts = {'Groceries': 0, 'Household': 0, 'Shopping': 0, 'Health': 0}
+    per_item: list[dict[str, Any]] = []
+
+    for it in items or []:
+        name = str(it.get('name') or '').strip()
+        price = float(it.get('price') or 0.0)
+        name_l = name.lower()
+
+        # Priority: Health > Shopping > Groceries > Household
+        cat = ''
+        if _match(name_l, kw_health) or _match(name_l, fb_health):
+            cat = 'Health'
+        elif _match(name_l, kw_shop) or _match(name_l, fb_shop):
+            cat = 'Shopping'
+        elif _match(name_l, kw_groc) or _match(name_l, fb_groc):
+            cat = 'Groceries'
+        elif _match(name_l, kw_house) or _match(name_l, fb_house):
+            cat = 'Household'
+
+        per_item.append({'name': name, 'price': price, 'category': cat})
+        if cat:
+            amounts[cat] += price
+            counts[cat] += 1
+
+    return {'amounts': amounts, 'counts': counts, 'per_item': per_item}
+
+
 _gc: Optional[gspread.Client] = None
 _ss = None
 _ws: Dict[str, gspread.Worksheet] = {}
@@ -1451,78 +1560,46 @@ def invalidate(*tabs: str) -> None:
 # Rules + Category inference
 # -----------------------------
 def load_rules(force: bool = False) -> List[Tuple[str, str]]:
-    """Load category rules from BOTH:
+    """Load category rules from the **rules** sheet only.
 
-    1) Primary **rules** sheet (keyword/category)
-    2) Legacy/admin **rules_text** sheet (Key/Category) if it exists
-
-    Rules sheet has priority; rules_text acts as fallback.
-    Missing/empty rules_text never errors.
+    Phase 6.5 change:
+    - The legacy/admin `rules_text` source is deprecated and ignored to avoid conflicts.
     """
-
-    # --- primary Rules sheet ---
     df = cached_df('rules', force=force)
 
-    primary: list[tuple[str, str]] = []
+    rules: list[tuple[str, str]] = []
     if not df.empty:
         cols = list(df.columns)
         lmap = {str(c).strip().lower(): c for c in cols}
 
-        keyword_col = None
-        for k in ['keyword', 'keywords', 'key', 'keys', 'rule', 'match', 'pattern']:
-            if k in lmap:
-                keyword_col = lmap[k]
-                break
-
-        category_col = None
-        for k in ['category', 'cat', 'label', 'bucket', 'type']:
-            if k in lmap:
-                category_col = lmap[k]
-                break
-
-        if keyword_col is None or category_col is None:
-            log(f"Rules sheet missing expected columns. Found: {cols}")
-        else:
-            for _, r in df.iterrows():
-                raw_kw = str(r.get(keyword_col, '')).strip()
-                cat = str(r.get(category_col, '')).strip()
-                if not raw_kw or not cat or raw_kw.lower() == 'nan' or cat.lower() == 'nan':
-                    continue
-
-                parts = [p.strip() for p in re.split(r"[;,]", raw_kw) if p.strip()]
-                for p in parts:
-                    primary.append((p.lower(), cat))
-
-    # --- legacy/admin rules_text sheet ---
-    admin: list[tuple[str, str]] = []
-    adf = read_df_optional('rules_text')
-    if adf is not None and not adf.empty:
-        cols = list(adf.columns)
-        lmap = {str(c).strip().lower(): c for c in cols}
-
         key_col = None
-        for k in ['key', 'keyword', 'keywords', 'rules', 'rule']:
+        cat_col = None
+        for k in ['keywords', 'keyword', 'key', 'match', 'contains']:
             if k in lmap:
                 key_col = lmap[k]
                 break
-
-        cat_col = None
-        for k in ['category', 'cat', 'label', 'bucket', 'type']:
+        for k in ['category', 'cat']:
             if k in lmap:
                 cat_col = lmap[k]
                 break
 
-        if key_col and cat_col:
-            for _, r in adf.iterrows():
-                raw_kw = str(r.get(key_col, '')).strip()
-                cat = str(r.get(cat_col, '')).strip()
-                if not raw_kw or not cat or raw_kw.lower() == 'nan' or cat.lower() == 'nan':
-                    continue
-                parts = [p.strip() for p in re.split(r"[;,]", raw_kw) if p.strip()]
-                for p in parts:
-                    admin.append((p.lower(), cat))
+        if key_col is None and len(cols) >= 1:
+            key_col = cols[0]
+        if cat_col is None and len(cols) >= 2:
+            cat_col = cols[1]
 
-    return primary + admin
+        for _, r in df.iterrows():
+            key = str(r.get(key_col, '')).strip()
+            cat = str(r.get(cat_col, '')).strip()
+            if not key or not cat:
+                continue
+            if key.lower() == 'nan' or cat.lower() == 'nan':
+                continue
+            parts = [p.strip() for p in re.split(r'[,;\n]+', key) if p.strip()]
+            for p in parts:
+                rules.append((p.lower(), cat))
+
+    return rules
 
 
 
@@ -2751,18 +2828,22 @@ html.mf-light .q-menu .q-list{background: var(--mf-menu-bg) !important; color: v
 html.mf-light .q-menu .q-item__label{color: var(--mf-text) !important;}
 html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 
-/* Phase 6.3: Add page iOS zoom + shift fix (scoped to Add dialog only) */
-.mf-add-dialog{box-sizing:border-box;}
+/* Add dialog (iOS): prevent input zoom + sideways shift */
 .mf-add-dialog input,
 .mf-add-dialog textarea,
 .mf-add-dialog .q-field__native,
-.mf-add-dialog .q-field__input{
-  font-size:16px !important; /* prevents iOS Safari zoom on focus */
-  line-height:1.35;
+.mf-add-dialog .q-field__input {
+  font-size: 16px !important;
 }
-.mf-add-dialog .q-field__control{min-height:48px;}
-/* Avoid accidental horizontal scroll on mobile when keyboard toggles */
-.mf-add-dialog{max-width:95vw; overflow-x:hidden;}
+.mf-add-dialog .q-dialog__inner > div { max-width: 95vw; }
+.mf-add-dialog .q-card { box-sizing: border-box; overflow-x: hidden; }
+
+/* Split slider polish */
+.mf-split-card .q-slider__track-container { height: 6px; }
+.mf-split-card .q-slider__thumb { transform: scale(1.05); }
+.mf-split-pill { border-radius: 999px; padding: 6px 10px; border: 1px solid var(--mf-border); background: rgba(255,255,255,0.06); }
+html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
+
 </style>""", shared=True)
 
 ui.add_head_html(r'''
@@ -3335,7 +3416,7 @@ def categories_list() -> List[str]:
     if not tx.empty:
         cats |= set(tx["category"].astype(str).tolist())
     cats = {c.strip() for c in cats if c and c.strip()}
-    base = ["Uncategorized", "Groceries", "Rent", "Utilities", "Subscriptions", "Dining", "Fuel", "Shopping", "Travel", "Health", "Salary", "Transfer"]
+    base = ["Uncategorized", "Groceries", "Rent", "Utilities", "Subscriptions", "Dining", "Fuel", "Shopping", "Household", "Travel", "Health", "Salary", "Transfer"]
     return sorted(set(base) | cats)
 
 
@@ -3835,6 +3916,16 @@ def add_page():
             is_invest = entry_type.lower() == 'investment'
             is_cc_repay = entry_type.lower() in ('cc repay', 'cc_repay', 'ccrepay', 'credit card repay', 'credit card repayment')
 
+            # Phase 6.4: OCR-triggered smart split (Walmart/Costco) state
+            split_state: Dict[str, Any] = {"enabled": False, "merchant": "", "pct": 70, "right_cat": "Household"}
+            _split_group: Dict[str, Any] = {"id": ""}
+
+            def _norm_merchant(s: str) -> str:
+                return re.sub(r'\s+', ' ', (s or '').strip().lower())
+
+            def _is_walmart_or_costco(s: str) -> bool:
+                t = _norm_merchant(s)
+                return ('walmart' in t) or ('costco' in t)
             # Per 5.14 UX rules:
             # - Income: Method fixed to Bank (no method dropdown)
             # - Investment: Method fixed to Bank, Account disabled, Category default Investment
@@ -4054,6 +4145,17 @@ def add_page():
 
                             parsed = parse_receipt_text(text)
                             parsed_state['parsed'] = parsed
+                            # Phase 6.5: OCR line-item intelligence (rule-sheet driven)
+                            try:
+                                rules = load_rules(force=False)
+                                items = extract_receipt_line_items(text)
+                                classified = classify_receipt_items(items, rules)
+                                parsed['line_items'] = items
+                                parsed['category_amounts'] = classified.get('amounts', {})
+                                parsed['category_counts'] = classified.get('counts', {})
+                                parsed['classified_items'] = classified.get('per_item', [])
+                            except Exception:
+                                pass
 
                             merch = str(parsed.get('merchant') or '').strip()
                             last4 = str(parsed.get('card_last4') or '').strip()
@@ -4114,7 +4216,7 @@ def add_page():
                             # If no mapping exists / no match, we keep the remembered default selection.
                             if last4:
                                 try:
-                                    cards_df = cached_df('cards', force=False)
+                                    cards_df = cached_df('cards', force=True)
                                     acct = pick_account_from_last4(cards_df, last4)
                                     if acct and (acct in accounts):
                                         d_account.value = acct
@@ -4125,7 +4227,40 @@ def add_page():
                                     pass
 
                             # Refresh category suggestion with updated notes
-                            _refresh_suggestion()
+                            _refresh_suggestion_now()
+
+                            # Phase 6.4: If OCR merchant is Walmart/Costco, prompt for split slider (optional)
+                            try:
+                                split_state["merchant"] = merch
+                                if entry_type.lower() == 'debit' and _is_walmart_or_costco(merch):
+                                                                        # Phase 6.5: pre-fill split slider using OCR line-item category breakdown when available.
+                                    suggested_pct = 70
+                                    suggested_right = "Household"
+                                    health_amt = 0.0
+                                    try:
+                                        cat_amounts = (parsed or {}).get('category_amounts') or {}
+                                        if isinstance(cat_amounts, dict) and cat_amounts:
+                                            g = float(cat_amounts.get('Groceries', 0.0))
+                                            h = float(cat_amounts.get('Household', 0.0))
+                                            s = float(cat_amounts.get('Shopping', 0.0))
+                                            health_amt = float(cat_amounts.get('Health', 0.0))
+                                            if s > h:
+                                                suggested_right = "Shopping"
+                                                right_amt = s
+                                            else:
+                                                suggested_right = "Household"
+                                                right_amt = h
+                                            denom = g + right_amt
+                                            if denom > 0.01:
+                                                suggested_pct = int(round(100.0 * (g / denom)))
+                                    except Exception:
+                                        pass
+                                    split_state["pct"] = max(0, min(100, int(suggested_pct)))
+                                    split_state["right_cat"] = suggested_right
+                                    split_state["health_amount"] = float(health_amt)
+                                    _open_split_dialog()
+                            except Exception:
+                                pass
                             if conf < 3.0:
                                 ui.notify('Applied, but amount confidence was low — please verify before saving.', type='warning')
                             else:
@@ -4142,13 +4277,109 @@ def add_page():
 
                 ui.button('Scan receipt', on_click=scan_dlg.open).props('outline').classes('w-full')
 
-            # --- Live category suggestion (Phase 6.2): auto-categorize as you type Notes (debounced), never override manual choice ---
+                # Phase 6.4: Split suggestion UI (premium slider) — shown only after OCR Apply for Walmart/Costco
+                split_hint = ui.label("").classes("text-xs").style("color: var(--mf-muted)")
+
+                split_dlg = ui.dialog()
+                with split_dlg, ui.card().classes("my-card mf-split-card p-4 w-[560px] max-w-[95vw]").style("max-height: 78vh; overflow-y:auto;"):
+                    ui.label("Split this receipt").classes("text-lg font-bold")
+                    ui.label("Adjust the split, then tap Apply.").classes("text-xs").style("color: var(--mf-muted)")
+
+                    # Right-side category toggle (Household default, Shopping optional)
+                    right_choice = {"v": "Household"}
+
+                    with ui.row().classes("w-full items-center justify-between q-mt-sm"):
+                        left_badge = ui.label("Groceries").classes("mf-split-pill text-sm font-medium")
+                        with ui.row().classes("items-center gap-2"):
+                            btn_house = ui.button("Household").props("flat").classes("mf-split-pill text-sm")
+                            btn_shop = ui.button("Shopping").props("flat").classes("mf-split-pill text-sm")
+
+                    # Slider (percentage for Groceries)
+                    pct_slider = ui.slider(min=0, max=100, value=70).props("label label-always color=primary").classes("w-full q-mt-md")
+                    amounts_line = ui.label("").classes("text-sm q-mt-sm")
+                    health_line = ui.label("").classes("text-xs q-mt-xs").style("opacity:0.85;")
+
+                    def _update_toggle_styles() -> None:
+                        try:
+                            if right_choice["v"] == "Household":
+                                btn_house.props("unelevated")
+                                btn_shop.props("flat")
+                            else:
+                                btn_shop.props("unelevated")
+                                btn_house.props("flat")
+                        except Exception:
+                            pass
+
+                    def _recalc_preview(_: Any = None) -> None:
+                        total = float(to_float(d_amount.value))
+                        p = int(round(float(pct_slider.value or 0)))
+                        p = max(0, min(100, p))
+                        left_amt = round(total * (p / 100.0), 2)
+                        right_amt = round(total - left_amt, 2)
+                        amounts_line.text = f"Groceries: ${left_amt:,.2f}   •   {right_choice['v']}: ${right_amt:,.2f}"
+                        try:
+                            ha = float(split_state.get('health_amount') or 0.0)
+                            if ha > 0.01:
+                                health_line.text = f"Pharmacy detected: ${ha:.2f} → Health"
+                            else:
+                                health_line.text = ''
+                        except Exception:
+                            health_line.text = ''
+
+                    def _choose_household() -> None:
+                        right_choice["v"] = "Household"
+                        _update_toggle_styles()
+                        _recalc_preview()
+
+                    def _choose_shopping() -> None:
+                        right_choice["v"] = "Shopping"
+                        _update_toggle_styles()
+                        _recalc_preview()
+
+                    btn_house.on('click', lambda e: _choose_household())
+                    btn_shop.on('click', lambda e: _choose_shopping())
+                    pct_slider.on('update:model-value', _recalc_preview)
+
+                    def _apply_split_plan() -> None:
+                        # Store the plan; actual save happens on Save click
+                        split_state["enabled"] = True
+                        split_state["pct"] = int(round(float(pct_slider.value or 70)))
+                        split_state["right_cat"] = right_choice["v"]
+                        # make category field reflect primary for clarity
+                        try:
+                            d_category.value = "Groceries"
+                        except Exception:
+                            pass
+                        split_hint.text = f"Split enabled: {split_state['pct']}% Groceries / {100-split_state['pct']}% {split_state['right_cat']}"
+                        split_dlg.close()
+
+                    with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
+                        ui.button("Cancel", on_click=split_dlg.close).props("flat")
+                        ui.button("Apply", on_click=_apply_split_plan).props("unelevated")
+
+                def _open_split_dialog() -> None:
+                    # default presets
+                    try:
+                        pct_slider.value = int(split_state.get("pct") or 70)
+                    except Exception:
+                        pct_slider.value = 70
+                    right_choice["v"] = str(split_state.get("right_cat") or "Household")
+                    _update_toggle_styles()
+                    _recalc_preview()
+                    split_dlg.open()            # --- Live category suggestion (Phase 6.2+): auto-categorize as you type Notes (debounced),
+            #     show a small chip "Auto: <Category>", and never override a manual category choice ---
             category_touched = {"v": False}         # user manually changed category
             _setting_category = {"v": False}        # internal guard so programmatic changes don't mark touched
             _debounce_task = {"t": None}
 
-            suggest_chip = ui.chip("").props("dense outline").classes("text-xs").style("color: var(--mf-muted); margin-top:6px;")
-            suggest_chip.visible = False
+            # Small chip-style feedback (shown only when auto is active and suggestion is meaningful)
+            suggest_chip = ui.chip("").classes("q-mt-xs").style(
+                "background: rgba(120,160,255,0.14); border: 1px solid var(--mf-border); color: var(--mf-text);"
+            )
+            try:
+                suggest_chip.set_visibility(False)
+            except Exception:
+                suggest_chip.visible = False
 
             # Use the rules loaded at dialog open; fall back to a non-forced load once if empty.
             _active_rules = rules or []
@@ -4165,65 +4396,71 @@ def add_page():
                 finally:
                     _setting_category["v"] = False
 
-            def _refresh_suggestion_now() -> None:
-                # Do nothing if user has manually chosen a category
-                if category_touched["v"]:
-                    return
-                active_rules = _active_rules
-                if not active_rules:
-                    suggest_chip.text = "Auto: Uncategorized (no rules loaded)"; suggest_chip.visible = False
-                    _set_category_safely("Uncategorized")
-                    return
-
-                suggestion = infer_category(str(d_notes.value or ""), active_rules) or "Uncategorized"
-                suggest_chip.text = f"Auto: {suggestion}"; suggest_chip.visible = (not category_touched["v"] and str(d_notes.value or "").strip() and suggestion!="Uncategorized")
-                _set_category_safely(suggestion)
-
-            def _schedule_refresh(_: Any = None) -> None:
-                # Debounce: avoid running categorization on every keystroke
+            def _update_chip(text: str, show: bool) -> None:
                 try:
-                    t = _debounce_task.get("t")
-                    if t:
-                        t.cancel()
+                    suggest_chip.set_text(text)
+                except Exception:
+                    suggest_chip.text = text
+                try:
+                    suggest_chip.set_visibility(show)
+                except Exception:
+                    suggest_chip.visible = bool(show)
+
+            def _refresh_suggestion_now() -> None:
+                if category_touched["v"]:
+                    _update_chip("", False)
+                    return
+
+                active_rules = _active_rules
+                note_txt = str(d_notes.value or "").strip()
+                if not active_rules:
+                    _set_category_safely("Uncategorized")
+                    _update_chip("", False)
+                    return
+
+                suggestion = infer_category(note_txt, active_rules) or "Uncategorized"
+                _set_category_safely(suggestion)
+                show = bool(note_txt) and suggestion != "Uncategorized"
+                _update_chip(f"Auto: {suggestion}", show)
+
+            async def _debounced_refresh() -> None:
+                try:
+                    await asyncio.sleep(0.35)
+                    _refresh_suggestion_now()
                 except Exception:
                     pass
 
-                async def _job() -> None:
-                    try:
-                        await asyncio.sleep(0.35)
-                        _refresh_suggestion_now()
-                    except Exception:
-                        # Ignore cancel + any UI timing issues
-                        pass
+            def _schedule_refresh(_: Any = None) -> None:
+                t = _debounce_task.get("t")
+                try:
+                    if t and not t.done():
+                        t.cancel()
+                except Exception:
+                    pass
+                try:
+                    _debounce_task["t"] = asyncio.create_task(_debounced_refresh())
+                except Exception:
+                    _refresh_suggestion_now()
 
-                _debounce_task["t"] = asyncio.create_task(_job())
-
-            # Mark manual override ONLY for user-initiated changes (ignore programmatic sets)
             def _on_category_change(e: Any) -> None:
                 if _setting_category["v"]:
                     return
                 category_touched["v"] = True
-                try:
-                    suggest_chip.visible = False
-                except Exception:
-                    pass
+                _update_chip("", False)
 
             d_category.on('update:model-value', _on_category_change)
-
-            # Auto-categorize as Notes changes
             d_notes.on('update:model-value', _schedule_refresh)
             _refresh_suggestion_now()
 
             def autofill():
-                # Manual button: force-refresh rules and apply (still available as a fallback)
-                category_touched["v"] = False  # allow overwrite
-                try:
-                    fresh_rules = load_rules(force=True) or []
-                    if fresh_rules:
-                        _active_rules[:] = fresh_rules
-                except Exception:
-                    pass
-                _refresh_suggestion_now()
+                category_touched["v"] = True
+                _update_chip("", False)
+                fresh_rules = load_rules(force=True)
+                if not fresh_rules:
+                    ui.notify('No rules loaded (check Rules sheet columns). Keeping Uncategorized.', type='warning')
+                    d_category.value = 'Uncategorized'
+                    return
+                d_category.value = infer_category(d_notes.value or "", fresh_rules) or "Uncategorized"
                 ui.notify("Category updated", type="positive")
 
             ui.button("Auto-category", on_click=autofill).props("flat")
@@ -4254,6 +4491,52 @@ def add_page():
 
                 notes = str(d_notes.value or "").strip()
 
+                # Phase 6.4: If a split plan is enabled (Walmart/Costco OCR), save as two linked transactions
+                if entry_type.lower() == 'debit' and bool(split_state.get("enabled")):
+                    try:
+                        total_amt = float(to_float(d_amount.value))
+                        pct = int(split_state.get("pct") or 70)
+                        pct = max(0, min(100, pct))
+                        right_cat = str(split_state.get("right_cat") or "Household").strip() or "Household"
+                        left_amt = round(total_amt * (pct / 100.0), 2)
+                        right_amt = round(total_amt - left_amt, 2)
+
+                        group_id = sha16(f"SPLIT|{owner}|{dd.isoformat()}|{account}|{method}|{total_amt}|{notes}|{dt.datetime.now().isoformat()}")
+                        # Primary (Groceries)
+                        append_tx(
+                            tx_id=sha16(group_id + "|1"),
+                            date_=dd,
+                            owner=owner,
+                            type_=entry_type,
+                            amount=left_amt,
+                            method=method,
+                            account=account,
+                            category="Groceries",
+                            notes=(notes + f" | split:{group_id} 1/2").strip(),
+                            recurring_id="",
+                        )
+                        # Secondary (Household or Shopping)
+                        append_tx(
+                            tx_id=sha16(group_id + "|2"),
+                            date_=dd,
+                            owner=owner,
+                            type_=entry_type,
+                            amount=right_amt,
+                            method=method,
+                            account=account,
+                            category=right_cat,
+                            notes=(notes + f" | split:{group_id} 2/2").strip(),
+                            recurring_id="",
+                        )
+
+                        invalidate('transactions')
+                        invalidate('recurring')
+                        ui.notify("Saved (split)", type="positive")
+                        dlg.close()
+                        return
+                    except Exception as e:
+                        ui.notify(f"Split save failed: {e}", type="negative")
+                        return
 
                 try:
 
