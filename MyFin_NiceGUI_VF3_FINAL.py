@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '6.1'
+APP_VERSION = '5.14.5-hf3'
 
 
 def log(message: str) -> None:
@@ -2750,30 +2750,6 @@ html.mf-light .q-menu, html.mf-light .q-menu.q-dark{background: var(--mf-menu-bg
 html.mf-light .q-menu .q-list{background: var(--mf-menu-bg) !important; color: var(--mf-text) !important;}
 html.mf-light .q-menu .q-item__label{color: var(--mf-text) !important;}
 html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
-
-/* ==============================
-   Phase 6.1 – Dashboard-only UI polish (scoped)
-   ============================== */
-html.mf-light .dash-scope .q-card,
-html.mf-light .dash-scope .my-card{
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  background: rgba(255,255,255,0.78) !important;
-  border: 1px solid rgba(0,0,0,0.06) !important;
-  border-radius: 14px !important;
-  box-shadow: 0 10px 24px rgba(0,0,0,0.06) !important;
-}
-html.mf-dark .dash-scope .q-card,
-html.mf-dark .dash-scope .my-card{
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  background: rgba(18,22,28,0.72) !important;
-  border: 1px solid rgba(255,255,255,0.08) !important;
-  border-radius: 14px !important;
-  box-shadow: 0 12px 28px rgba(0,0,0,0.38) !important;
-}
-.dash-scope .q-card, .dash-scope .my-card{ transition: transform 140ms ease, box-shadow 140ms ease; }
-.dash-scope .q-card:hover, .dash-scope .my-card:hover{ transform: translateY(-1px); }
 </style>""", shared=True)
 
 ui.add_head_html(r'''
@@ -3396,424 +3372,422 @@ def dashboard_page():
         return
 
     def content():
-        with ui.element('div').classes('dash-scope w-full'):
-            # Safe: run recurring generation for today once per page load
-            try:
-                created = generate_recurring_for_date(today())
-                if created:
-                    ui.notify(f"Auto-added {created} recurring entries for {today().isoformat()}", type="positive")
-            except Exception:
-                pass
+        # Safe: run recurring generation for today once per page load
+        try:
+            created = generate_recurring_for_date(today())
+            if created:
+                ui.notify(f"Auto-added {created} recurring entries for {today().isoformat()}", type="positive")
+        except Exception:
+            pass
 
-            tx = cached_df("transactions")
-            if tx.empty:
-                with ui.card().classes("my-card p-5"):
-                    ui.label("No transactions yet").classes("text-lg font-bold")
-                    ui.label("Go to Add to create your first entry.").style("color: var(--mf-muted)")
-                return
+        tx = cached_df("transactions")
+        if tx.empty:
+            with ui.card().classes("my-card p-5"):
+                ui.label("No transactions yet").classes("text-lg font-bold")
+                ui.label("Go to Add to create your first entry.").style("color: var(--mf-muted)")
+            return
 
-            # --- normalize expected columns (robust to sheet header variations) ---
-            def _first_col(df, candidates):
-                for c in candidates:
-                    if c in df.columns:
-                        return c
-                # try case-insensitive match
-                lower_map = {str(col).strip().lower(): col for col in df.columns}
-                for c in candidates:
-                    key = str(c).strip().lower()
-                    if key in lower_map:
-                        return lower_map[key]
-                return None
+        # --- normalize expected columns (robust to sheet header variations) ---
+        def _first_col(df, candidates):
+            for c in candidates:
+                if c in df.columns:
+                    return c
+            # try case-insensitive match
+            lower_map = {str(col).strip().lower(): col for col in df.columns}
+            for c in candidates:
+                key = str(c).strip().lower()
+                if key in lower_map:
+                    return lower_map[key]
+            return None
 
-            c_date = _first_col(tx, ["date", "Date", "DATE", "transaction_date", "Transaction Date"])
-            c_amount = _first_col(tx, ["amount", "Amount", "AMOUNT", "amt", "Amt", "value", "Value"])
-            c_type = _first_col(tx, ["type", "Type", "TYPE", "transaction_type", "Transaction Type", "Type (+/-)", "type (+/-)"])
+        c_date = _first_col(tx, ["date", "Date", "DATE", "transaction_date", "Transaction Date"])
+        c_amount = _first_col(tx, ["amount", "Amount", "AMOUNT", "amt", "Amt", "value", "Value"])
+        c_type = _first_col(tx, ["type", "Type", "TYPE", "transaction_type", "Transaction Type", "Type (+/-)", "type (+/-)"])
 
-            if c_date and c_date != "date":
-                tx["date"] = tx[c_date]
-            if c_amount and c_amount != "amount":
-                tx["amount"] = tx[c_amount]
-            if c_type and c_type != "type":
-                tx["type"] = tx[c_type]
+        if c_date and c_date != "date":
+            tx["date"] = tx[c_date]
+        if c_amount and c_amount != "amount":
+            tx["amount"] = tx[c_amount]
+        if c_type and c_type != "type":
+            tx["type"] = tx[c_type]
 
-            # ensure columns exist even if the sheet is missing them
-            if "date" not in tx.columns:
-                tx["date"] = ""
-            if "amount" not in tx.columns:
-                tx["amount"] = 0
-            if "type" not in tx.columns:
-                tx["type"] = ""
+        # ensure columns exist even if the sheet is missing them
+        if "date" not in tx.columns:
+            tx["date"] = ""
+        if "amount" not in tx.columns:
+            tx["amount"] = 0
+        if "type" not in tx.columns:
+            tx["type"] = ""
 
-            tx["date_parsed"] = tx["date"].apply(parse_date)
-            tx = tx[tx["date_parsed"].notna()].copy()
-            tx["amount_num"] = tx["amount"].apply(to_float)
-            # Normalize "type" column (sheet headers may vary in casing/spaces)
-            if "type" not in tx.columns:
-                _colmap = {str(c).strip().lower(): c for c in tx.columns}
-                _src = None
-                for _k in ("type", "txn type", "transaction type", "tx type"):
-                    if _k in _colmap:
-                        _src = _colmap[_k]
+        tx["date_parsed"] = tx["date"].apply(parse_date)
+        tx = tx[tx["date_parsed"].notna()].copy()
+        tx["amount_num"] = tx["amount"].apply(to_float)
+        # Normalize "type" column (sheet headers may vary in casing/spaces)
+        if "type" not in tx.columns:
+            _colmap = {str(c).strip().lower(): c for c in tx.columns}
+            _src = None
+            for _k in ("type", "txn type", "transaction type", "tx type"):
+                if _k in _colmap:
+                    _src = _colmap[_k]
+                    break
+            if _src is None:
+                for _k, _orig in _colmap.items():
+                    if "type" in _k:
+                        _src = _orig
                         break
-                if _src is None:
-                    for _k, _orig in _colmap.items():
-                        if "type" in _k:
-                            _src = _orig
-                            break
-                if _src is not None:
-                    tx["type"] = tx[_src]
-                else:
-                    tx["type"] = ""
-            tx["type_l"] = tx["type"].astype(str).str.lower().str.strip()
-
-            mkey = month_key(today())
-            ui.label(f"Your financial snapshot · {mkey}").classes('text-sm font-medium').style('color: var(--mf-muted); margin: 2px 0 12px 2px;')
-            mtx = tx[tx["date_parsed"].apply(lambda d: month_key(d) == mkey)].copy()
-
-            # Defensive normalization: some sheets may have different header casing/spacing
-            if "type_l" not in mtx.columns:
-                # try to locate a type-like column (case/space-insensitive)
-                colmap = {str(c).strip().lower(): c for c in mtx.columns}
-                src = None
-                for key in ("type", "txn type", "transaction type", "tx type", "category type"):
-                    if key in colmap:
-                        src = colmap[key]
-                        break
-                if src is None:
-                    # fallback: any column containing "type"
-                    for k, orig in colmap.items():
-                        if "type" in k:
-                            src = orig
-                            break
-                if src is not None:
-                    mtx["type_l"] = mtx[src].astype(str).str.strip().str.lower()
-                else:
-                    mtx["type_l"] = ""
-            if "amount_num" not in mtx.columns:
-                # try amount-like columns
-                colmap2 = {str(c).strip().lower(): c for c in mtx.columns}
-                src_amt = None
-                for key in ("amount", "amt", "value", "cad", "amount_cad"):
-                    if key in colmap2:
-                        src_amt = colmap2[key]
-                        break
-                if src_amt is not None:
-                    mtx["amount_num"] = pd.to_numeric(mtx[src_amt], errors="coerce").fillna(0.0)
-                else:
-                    mtx["amount_num"] = 0.0
-            typ = None
-            if "type_l" in mtx.columns:
-                typ = mtx["type_l"].astype(str).str.strip().str.lower()
+            if _src is not None:
+                tx["type"] = tx[_src]
             else:
-                # fallback: use any type-like column
-                _colmap = {str(c).strip().lower(): c for c in mtx.columns}
-                _src = None
-                for _k in ("type", "txn type", "transaction type", "tx type"):
-                    if _k in _colmap:
-                        _src = _colmap[_k]; break
-                if _src is None:
-                    for _k, _orig in _colmap.items():
-                        if "type" in _k: _src = _orig; break
-                if _src is not None:
-                    typ = mtx[_src].astype(str).str.strip().str.lower()
-                else:
-                    typ = pd.Series([""] * len(mtx))
-            amt = mtx["amount_num"] if "amount_num" in mtx.columns else pd.Series([0.0] * len(mtx))
-            income = amt[typ.isin(["credit", "income"])].sum()
-            expense = amt[typ.isin(["debit", "expense"])].sum()
-            invest = amt[typ.isin(["investment"])].sum()
-            net = income - expense - invest
+                tx["type"] = ""
+        tx["type_l"] = tx["type"].astype(str).str.lower().str.strip()
+
+        mkey = month_key(today())
+        mtx = tx[tx["date_parsed"].apply(lambda d: month_key(d) == mkey)].copy()
+
+        # Defensive normalization: some sheets may have different header casing/spacing
+        if "type_l" not in mtx.columns:
+            # try to locate a type-like column (case/space-insensitive)
+            colmap = {str(c).strip().lower(): c for c in mtx.columns}
+            src = None
+            for key in ("type", "txn type", "transaction type", "tx type", "category type"):
+                if key in colmap:
+                    src = colmap[key]
+                    break
+            if src is None:
+                # fallback: any column containing "type"
+                for k, orig in colmap.items():
+                    if "type" in k:
+                        src = orig
+                        break
+            if src is not None:
+                mtx["type_l"] = mtx[src].astype(str).str.strip().str.lower()
+            else:
+                mtx["type_l"] = ""
+        if "amount_num" not in mtx.columns:
+            # try amount-like columns
+            colmap2 = {str(c).strip().lower(): c for c in mtx.columns}
+            src_amt = None
+            for key in ("amount", "amt", "value", "cad", "amount_cad"):
+                if key in colmap2:
+                    src_amt = colmap2[key]
+                    break
+            if src_amt is not None:
+                mtx["amount_num"] = pd.to_numeric(mtx[src_amt], errors="coerce").fillna(0.0)
+            else:
+                mtx["amount_num"] = 0.0
+        typ = None
+        if "type_l" in mtx.columns:
+            typ = mtx["type_l"].astype(str).str.strip().str.lower()
+        else:
+            # fallback: use any type-like column
+            _colmap = {str(c).strip().lower(): c for c in mtx.columns}
+            _src = None
+            for _k in ("type", "txn type", "transaction type", "tx type"):
+                if _k in _colmap:
+                    _src = _colmap[_k]; break
+            if _src is None:
+                for _k, _orig in _colmap.items():
+                    if "type" in _k: _src = _orig; break
+            if _src is not None:
+                typ = mtx[_src].astype(str).str.strip().str.lower()
+            else:
+                typ = pd.Series([""] * len(mtx))
+        amt = mtx["amount_num"] if "amount_num" in mtx.columns else pd.Series([0.0] * len(mtx))
+        income = amt[typ.isin(["credit", "income"])].sum()
+        expense = amt[typ.isin(["debit", "expense"])].sum()
+        invest = amt[typ.isin(["investment"])].sum()
+        net = income - expense - invest
 
 
-            # --- Pay-period view (smarter than calendar month for end-of-month salaries) ---
-            # Build a combined payday calendar (Salary 1: semimonthly, Salary 2: biweekly anchor)
-            try:
-                start_d = today()
-                # compute paydays ~90 days around today to find previous/next
-                window_start = start_d - dt.timedelta(days=60)
-                window_end = start_d + dt.timedelta(days=60)
-                all_pays: list[dt.date] = []
-                yy, mm = window_start.year, window_start.month
-                for _ in range(6):
-                    for p in abhi_pay_dates_for_month(yy, mm):
-                        if window_start <= p <= window_end:
-                            all_pays.append(p)
-                    mm += 1
-                    if mm == 13:
-                        yy += 1
-                        mm = 1
-                for p in wife_pay_dates_between(window_start, window_end):
+        # --- Pay-period view (smarter than calendar month for end-of-month salaries) ---
+        # Build a combined payday calendar (Salary 1: semimonthly, Salary 2: biweekly anchor)
+        try:
+            start_d = today()
+            # compute paydays ~90 days around today to find previous/next
+            window_start = start_d - dt.timedelta(days=60)
+            window_end = start_d + dt.timedelta(days=60)
+            all_pays: list[dt.date] = []
+            yy, mm = window_start.year, window_start.month
+            for _ in range(6):
+                for p in abhi_pay_dates_for_month(yy, mm):
                     if window_start <= p <= window_end:
                         all_pays.append(p)
-                all_pays = sorted(set(all_pays))
-                prev_pay = max([p for p in all_pays if p <= start_d], default=None)
-                next_pay = min([p for p in all_pays if p > start_d], default=None)
-                if prev_pay is None:
-                    prev_pay = start_d - dt.timedelta(days=14)
-                if next_pay is None:
-                    next_pay = start_d + dt.timedelta(days=14)
-                pp_start = prev_pay
-                pp_end = next_pay
+                mm += 1
+                if mm == 13:
+                    yy += 1
+                    mm = 1
+            for p in wife_pay_dates_between(window_start, window_end):
+                if window_start <= p <= window_end:
+                    all_pays.append(p)
+            all_pays = sorted(set(all_pays))
+            prev_pay = max([p for p in all_pays if p <= start_d], default=None)
+            next_pay = min([p for p in all_pays if p > start_d], default=None)
+            if prev_pay is None:
+                prev_pay = start_d - dt.timedelta(days=14)
+            if next_pay is None:
+                next_pay = start_d + dt.timedelta(days=14)
+            pp_start = prev_pay
+            pp_end = next_pay
 
-                ptx = tx[(tx['date_parsed'] >= pp_start) & (tx['date_parsed'] < pp_end)].copy()
-                ptyp = ptx['type_l']
-                pamt = ptx['amount_num']
-                # broaden type matching
-                income_pp = pamt[ptyp.isin(['credit','income'])].sum()
-                expense_pp = pamt[ptyp.isin(['debit','expense'])].sum()
-                invest_pp = pamt[ptyp.isin(['investment'])].sum()
-                net_pp = income_pp - expense_pp - invest_pp
-            except Exception:
-                pp_start = today() - dt.timedelta(days=14)
-                pp_end = today() + dt.timedelta(days=14)
-                income_pp = expense_pp = invest_pp = net_pp = 0.0
+            ptx = tx[(tx['date_parsed'] >= pp_start) & (tx['date_parsed'] < pp_end)].copy()
+            ptyp = ptx['type_l']
+            pamt = ptx['amount_num']
+            # broaden type matching
+            income_pp = pamt[ptyp.isin(['credit','income'])].sum()
+            expense_pp = pamt[ptyp.isin(['debit','expense'])].sum()
+            invest_pp = pamt[ptyp.isin(['investment'])].sum()
+            net_pp = income_pp - expense_pp - invest_pp
+        except Exception:
+            pp_start = today() - dt.timedelta(days=14)
+            pp_end = today() + dt.timedelta(days=14)
+            income_pp = expense_pp = invest_pp = net_pp = 0.0
 
-            # Expenses for this month (reused by budgets + breakdown)
-            spend = mtx[mtx["type_l"].isin(["debit", "expense"])].copy()
-            if not spend.empty:
-                if "category" not in spend.columns:
-                    spend["category"] = "Uncategorized"
-                spend["category"] = spend["category"].astype(str).replace("", "Uncategorized")
+        # Expenses for this month (reused by budgets + breakdown)
+        spend = mtx[mtx["type_l"].isin(["debit", "expense"])].copy()
+        if not spend.empty:
+            if "category" not in spend.columns:
+                spend["category"] = "Uncategorized"
+            spend["category"] = spend["category"].astype(str).replace("", "Uncategorized")
 
-            # --- Phase 4.6A: Hero summary (reduces tile clutter, feels like a bank app) ---
-            try:
-                days_to_next = (next_pay - start_d).days if next_pay else None
-            except Exception:
-                days_to_next = None
+        # --- Phase 4.6A: Hero summary (reduces tile clutter, feels like a bank app) ---
+        try:
+            days_to_next = (next_pay - start_d).days if next_pay else None
+        except Exception:
+            days_to_next = None
 
-            with ui.card().classes('my-card p-5 mf-budget'):
-                ui.label('Overview').classes('text-xs uppercase').style('color: var(--mf-muted); letter-spacing: 0.12em')
-                with ui.row().classes('w-full items-end justify-between gap-4'):
-                    with ui.column().classes('gap-1'):
-                        ui.label('Pay period net').classes('text-sm').style('color: var(--mf-muted)')
-                        ui.label(currency(net_pp)).classes('text-4xl font-extrabold')
-                        ui.label(f"{pp_start.strftime('%b %d')} → {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
-                    with ui.column().classes('items-end gap-1'):
-                        if next_pay:
-                            ui.label('Next payday').classes('text-sm').style('color: var(--mf-muted)')
-                            ui.label(next_pay.strftime('%a, %b %d')).classes('text-xl font-bold')
-                            if days_to_next is not None:
-                                ui.badge(f"In {days_to_next} days").style('background: rgba(32,201,151,0.18); color: var(--mf-text); border: 1px solid var(--mf-border);')
-                ui.separator().classes('my-3 opacity-20')
-                with ui.row().classes('gap-2'):
-                    ui.button('Add expense', icon='add').props('unelevated').on('click', lambda: nav_to('/add?mode=expense'))
-                    ui.button('Add income', icon='add').props('outline').on('click', lambda: nav_to('/add?mode=income'))
-                    ui.button('View transactions', icon='receipt_long').props('flat').on('click', lambda: nav_to('/tx'))
+        with ui.card().classes('my-card p-5 mf-budget'):
+            ui.label('Overview').classes('text-xs uppercase').style('color: var(--mf-muted); letter-spacing: 0.12em')
+            with ui.row().classes('w-full items-end justify-between gap-4'):
+                with ui.column().classes('gap-1'):
+                    ui.label('Pay period net').classes('text-sm').style('color: var(--mf-muted)')
+                    ui.label(currency(net_pp)).classes('text-4xl font-extrabold')
+                    ui.label(f"{pp_start.strftime('%b %d')} → {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
+                with ui.column().classes('items-end gap-1'):
+                    if next_pay:
+                        ui.label('Next payday').classes('text-sm').style('color: var(--mf-muted)')
+                        ui.label(next_pay.strftime('%a, %b %d')).classes('text-xl font-bold')
+                        if days_to_next is not None:
+                            ui.badge(f"In {days_to_next} days").style('background: rgba(32,201,151,0.18); color: var(--mf-text); border: 1px solid var(--mf-border);')
+            ui.separator().classes('my-3 opacity-20')
+            with ui.row().classes('gap-2'):
+                ui.button('Add expense', icon='add').props('unelevated').on('click', lambda: nav_to('/add?mode=expense'))
+                ui.button('Add income', icon='add').props('outline').on('click', lambda: nav_to('/add?mode=income'))
+                ui.button('View transactions', icon='receipt_long').props('flat').on('click', lambda: nav_to('/tx'))
 
-            # KPI tiles (bank-style grid, 5.2.2)
+        # KPI tiles (bank-style grid, 5.2.2)
+        with ui.element("div").classes("grid grid-cols-2 md:grid-cols-4 gap-3 w-full"):
+            for label, val, icon in [
+                ("Income (this month)", income, "trending_up"),
+                ("Expenses (this month)", expense, "trending_down"),
+                ("Investments (this month)", invest, "savings"),
+                ("Net (this month)", net, "insights"),
+            ]:
+                _lbl = label.lower()
+                _col = "rgba(34,197,94,0.95)" if "income" in _lbl else ("rgba(239,68,68,0.95)" if "expense" in _lbl else ("rgba(59,130,246,0.95)" if "invest" in _lbl else "rgba(168,85,247,0.92)"))
+                with ui.card().classes("my-card p-4 w-full").style("min-height: 110px;"):
+                    with ui.row().classes("items-center justify-between"):
+                        ui.label(label).classes("text-xs uppercase").style("color: var(--mf-muted); letter-spacing: .12em")
+                        ui.icon(icon).style("color: var(--mf-muted)")
+                    ui.label(currency(val)).classes("text-2xl font-bold mt-1").style(f"color: {_col};")
+                    ui.label(mkey).classes("text-xs").style("color: var(--mf-muted)")
+
+        with ui.row().classes('w-full gap-3'):
+            # Pay period tiles (grid, 5.2.2)
             with ui.element("div").classes("grid grid-cols-2 md:grid-cols-4 gap-3 w-full"):
                 for label, val, icon in [
-                    ("Income (this month)", income, "trending_up"),
-                    ("Expenses (this month)", expense, "trending_down"),
-                    ("Investments (this month)", invest, "savings"),
-                    ("Net (this month)", net, "insights"),
+                    ('Income (pay period)', income_pp, "payments"),
+                    ('Expenses (pay period)', expense_pp, "receipt_long"),
+                    ('Investments (pay period)', invest_pp, "account_balance"),
+                    ('Net (pay period)', net_pp, "timeline"),
                 ]:
-                    _lbl = label.lower()
-                    _col = "rgba(34,197,94,0.95)" if "income" in _lbl else ("rgba(239,68,68,0.95)" if "expense" in _lbl else ("rgba(59,130,246,0.95)" if "invest" in _lbl else "rgba(168,85,247,0.92)"))
-                    with ui.card().classes("my-card p-4 w-full").style("min-height: 110px;"):
+                    with ui.card().classes('my-card p-4 w-full').style("min-height: 110px;"):
                         with ui.row().classes("items-center justify-between"):
-                            ui.label(label).classes("text-xs uppercase").style("color: var(--mf-muted); letter-spacing: .12em")
+                            ui.label(label).classes('text-xs uppercase').style('color: var(--mf-muted); letter-spacing: .12em')
                             ui.icon(icon).style("color: var(--mf-muted)")
-                        ui.label(currency(val)).classes("text-2xl font-bold mt-1").style(f"color: {_col};")
-                        ui.label(mkey).classes("text-xs").style("color: var(--mf-muted)")
-
-            with ui.row().classes('w-full gap-3'):
-                # Pay period tiles (grid, 5.2.2)
-                with ui.element("div").classes("grid grid-cols-2 md:grid-cols-4 gap-3 w-full"):
-                    for label, val, icon in [
-                        ('Income (pay period)', income_pp, "payments"),
-                        ('Expenses (pay period)', expense_pp, "receipt_long"),
-                        ('Investments (pay period)', invest_pp, "account_balance"),
-                        ('Net (pay period)', net_pp, "timeline"),
-                    ]:
-                        with ui.card().classes('my-card p-4 w-full').style("min-height: 110px;"):
-                            with ui.row().classes("items-center justify-between"):
-                                ui.label(label).classes('text-xs uppercase').style('color: var(--mf-muted); letter-spacing: .12em')
-                                ui.icon(icon).style("color: var(--mf-muted)")
-                            ui.label(currency(val)).classes('text-2xl font-bold mt-1')
-                            ui.label(f"{pp_start.strftime('%b %d')} → {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
+                        ui.label(currency(val)).classes('text-2xl font-bold mt-1')
+                        ui.label(f"{pp_start.strftime('%b %d')} → {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
 
 
-            # Quick actions + data quality
-            # Phase 4.6A: Quick actions moved into the Overview card to reduce clutter
-            # Budgets (Phase 4)
-            budgets = read_df_optional('budgets')
-            if budgets is not None and not budgets.empty and (not spend.empty) and "category" in spend.columns:
-                # Map budgets
-                bcols = {str(c).strip().lower(): c for c in budgets.columns}
-                c_cat = bcols.get('category') or bcols.get('cat')
-                c_budget = bcols.get('budget_monthly') or bcols.get('monthly_budget') or bcols.get('budget')
-                if c_cat and c_budget:
-                    bmap: dict[str, float] = {}
-                    for _, r in budgets.iterrows():
-                        k = str(r.get(c_cat, '')).strip()
-                        if not k:
-                            continue
-                        bmap[k] = parse_money(r.get(c_budget, 0), default=0.0)
-                    if bmap:
-                        with ui.card().classes('my-card p-5'):
-                            ui.label('Budgets (this month)').classes('text-lg font-bold')
-                            # build progress list for categories that have a budget
-                            spend_by_cat = spend.groupby('category', as_index=False)['amount_num'].sum()
-                            # show only budgeted categories
-                            rows = []
-                            for _, r in spend_by_cat.iterrows():
-                                cat = str(r['category'])
-                                if cat in bmap and bmap[cat] > 0:
-                                    rows.append((cat, float(r['amount_num']), float(bmap[cat])))
-                            # include budget categories with 0 spend yet
-                            present = set([x[0] for x in rows])
-                            for cat, bud in bmap.items():
-                                if cat not in present and bud > 0:
-                                    rows.append((cat, 0.0, float(bud)))
-                            rows.sort(key=lambda x: (x[1]/x[2]) if x[2] else 0.0, reverse=True)
-                            if not rows:
-                                ui.label('No budget categories matched your spending yet.').style('color: var(--mf-muted)')
-                            else:
-                                # Phase 4.2: in-app budget alerts
-                                try:
-                                    alerts80 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 0.80 and (s/b) < 1.0]
-                                    alerts100 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 1.0]
-                                    if alerts100:
-                                        ui.notify(f'Over budget: {alerts100[0][0]} ({currency(alerts100[0][1])} / {currency(alerts100[0][2])})', type='negative')
-                                    elif alerts80:
-                                        ui.notify(f'Budget warning (80%+): {alerts80[0][0]} ({currency(alerts80[0][1])} / {currency(alerts80[0][2])})', type='warning')
-                                except Exception:
-                                    pass
-
-                                for cat, spent_amt, bud_amt in rows[:10]:
-                                    pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
-                                    with ui.row().classes('w-full items-start justify-between'):
-                                        ui.label(cat).classes('text-sm')
-                                        with ui.column().classes('items-end'):
-                                            ui.label(f"{int(round(pct*100))}%").classes('text-xs font-bold').style('color: var(--mf-text)')
-                                            ui.label(f"{currency(spent_amt)} / {currency(bud_amt)}").classes('text-xs').style('color: var(--mf-muted)')
-                                    ui.linear_progress(value=pct, show_value=False).classes('mf-budget-bar').props('size=10px')
-
-            # Upcoming paydays
-            start = today()
-            end = start + dt.timedelta(days=45)
-            pays: List[Tuple[str, dt.date]] = []
-            y, m = start.year, start.month
-            for _ in range(3):
-                for p in abhi_pay_dates_for_month(y, m):
-                    if start <= p <= end:
-                        pays.append(("Salary 1", p))
-                m += 1
-                if m == 13:
-                    y += 1
-                    m = 1
-            for p in wife_pay_dates_between(start, end):
-                if start <= p <= end:
-                    pays.append(("Salary 2", p))
-            pays = sorted(set(pays), key=lambda x: x[1])
-
-            with ui.card().classes("my-card p-5"):
-                ui.label("Upcoming salary").classes("text-lg font-bold")
-                if not pays:
-                    ui.label("No paydays in the next 45 days.").style("color: var(--mf-muted)")
-                else:
-                    # Group paydays by person (Salary 1 = Nishanth, Salary 2 = Indhu)
-                    grouped = {"Nishanth": [], "Indhu": []}
-                    for who, d in pays:
-                        if who == "Salary 1":
-                            grouped["Nishanth"].append(d)
-                        elif who == "Salary 2":
-                            grouped["Indhu"].append(d)
-                    for k in grouped:
-                        grouped[k] = sorted(set(grouped[k]))
-
-                    def _salary_card(name: str, dates: list):
-                        next_d = next((x for x in dates if x >= today()), None)
-                        if not next_d:
-                            return
-                        days = (next_d - today()).days
-                        with ui.card().classes("my-card p-4 w-full").style("background: rgba(255,255,255,0.045);"):
-                            with ui.row().classes("items-center justify-between"):
-                                ui.label(f"{name}'s salary").classes("text-sm font-bold")
-                                ui.badge(f"In {days} days").style(
-                                    "background: rgba(255,255,255,0.10); color: var(--mf-text); border: 1px solid var(--mf-border);"
-                                )
-                            ui.label(next_d.strftime("%a, %b %d")).classes("text-2xl font-extrabold mt-1")
-                            # show 2 upcoming dates (optional)
-                            upcoming = [x for x in dates if x >= today()][:2]
-                            if len(upcoming) > 1:
-                                ui.label("Next: " + ", ".join([x.strftime("%b %d") for x in upcoming[1:]])).classes("text-xs").style("color: var(--mf-muted)")
-
-                    with ui.element("div").classes("grid grid-cols-1 md:grid-cols-2 gap-3 w-full"):
-                        _salary_card("Nishanth", grouped.get("Nishanth", []))
-                        _salary_card("Indhu", grouped.get("Indhu", []))
-
-            # Spending breakdown
-            with ui.card().classes("my-card p-5"):
-                ui.label("Spending breakdown (this month)").classes("text-lg font-bold")
-                if spend.empty:
-                    ui.label("No expenses this month.").style("color: var(--mf-muted)")
-                else:
-                    agg = spend.groupby("category", as_index=False)["amount_num"].sum()
-                    fig = px.pie(agg, names="category", values="amount_num", hole=0.55, template=plotly_template())
-                    # Ensure text stays readable across light/dark themes
-                    fig.update_traces(textfont_color=plotly_font_color())
-                    fig.update_layout(
-                        margin=dict(l=10, r=10, t=10, b=10),
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        font_color=plotly_font_color(),
-                        legend=dict(font=dict(color=plotly_font_color())),
-                    )
-                    ui.plotly(fig).classes("w-full")
-
-            # Top merchants (best-effort from Notes)
-            with ui.card().classes("my-card p-5"):
-                ui.label("Top merchants (this month)").classes("text-lg font-bold")
-                if spend.empty or "notes" not in spend.columns:
-                    ui.label("No merchant data available.").style("color: var(--mf-muted)")
-                else:
-                    def _merchant_from_notes(n: str) -> str:
-                        s = str(n or "").strip()
-                        if not s:
-                            return "(blank)"
-                        # common separators: '|', '-', '•'
-                        for sep in ("|", "•", "-"):
-                            if sep in s:
-                                s = s.split(sep, 1)[0].strip()
-                        s = re.sub(r"\s+", " ", s)
-                        return (s[:28] + "…") if len(s) > 28 else s
-
-                    spend["_merchant"] = spend["notes"].apply(_merchant_from_notes)
-                    topm = spend.groupby("_merchant", as_index=False)["amount_num"].sum().sort_values("amount_num", ascending=False)
-                    if topm.empty:
-                        ui.label("No merchant data available.").style("color: var(--mf-muted)")
-                    else:
+        # Quick actions + data quality
+        # Phase 4.6A: Quick actions moved into the Overview card to reduce clutter
+        # Budgets (Phase 4)
+        budgets = read_df_optional('budgets')
+        if budgets is not None and not budgets.empty and (not spend.empty) and "category" in spend.columns:
+            # Map budgets
+            bcols = {str(c).strip().lower(): c for c in budgets.columns}
+            c_cat = bcols.get('category') or bcols.get('cat')
+            c_budget = bcols.get('budget_monthly') or bcols.get('monthly_budget') or bcols.get('budget')
+            if c_cat and c_budget:
+                bmap: dict[str, float] = {}
+                for _, r in budgets.iterrows():
+                    k = str(r.get(c_cat, '')).strip()
+                    if not k:
+                        continue
+                    bmap[k] = parse_money(r.get(c_budget, 0), default=0.0)
+                if bmap:
+                    with ui.card().classes('my-card p-5'):
+                        ui.label('Budgets (this month)').classes('text-lg font-bold')
+                        # build progress list for categories that have a budget
+                        spend_by_cat = spend.groupby('category', as_index=False)['amount_num'].sum()
+                        # show only budgeted categories
                         rows = []
-                        for _, r in topm.head(8).iterrows():
-                            rows.append({"merchant": r["_merchant"], "spend": currency(float(r["amount_num"]))})
-                        ui.table(
-                            columns=[
-                                {"name": "merchant", "label": "Merchant", "field": "merchant", "align": "left"},
-                                {"name": "spend", "label": "Spend", "field": "spend", "align": "right"},
-                            ],
-                            rows=rows,
-                            row_key="merchant",
-                        ).classes("w-full")
+                        for _, r in spend_by_cat.iterrows():
+                            cat = str(r['category'])
+                            if cat in bmap and bmap[cat] > 0:
+                                rows.append((cat, float(r['amount_num']), float(bmap[cat])))
+                        # include budget categories with 0 spend yet
+                        present = set([x[0] for x in rows])
+                        for cat, bud in bmap.items():
+                            if cat not in present and bud > 0:
+                                rows.append((cat, 0.0, float(bud)))
+                        rows.sort(key=lambda x: (x[1]/x[2]) if x[2] else 0.0, reverse=True)
+                        if not rows:
+                            ui.label('No budget categories matched your spending yet.').style('color: var(--mf-muted)')
+                        else:
+                            # Phase 4.2: in-app budget alerts
+                            try:
+                                alerts80 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 0.80 and (s/b) < 1.0]
+                                alerts100 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 1.0]
+                                if alerts100:
+                                    ui.notify(f'Over budget: {alerts100[0][0]} ({currency(alerts100[0][1])} / {currency(alerts100[0][2])})', type='negative')
+                                elif alerts80:
+                                    ui.notify(f'Budget warning (80%+): {alerts80[0][0]} ({currency(alerts80[0][1])} / {currency(alerts80[0][2])})', type='warning')
+                            except Exception:
+                                pass
 
-            # Trend
-            with ui.card().classes("my-card p-5"):
-                ui.label("Cashflow trend (last 90 days)").classes("text-lg font-bold")
-                recent = tx[tx["date_parsed"] >= (today() - dt.timedelta(days=90))].copy()
-                recent["day"] = recent["date_parsed"].astype(str)
-                recent["sign"] = recent["type_l"].map(lambda t: 1 if t in ("credit", "income") else (-1 if t in ("debit", "expense", "investment") else 0))
-                recent["signed_amount"] = recent["amount_num"] * recent["sign"]
-                daily = recent.groupby("day", as_index=False)["signed_amount"].sum()
-                fig2 = px.area(daily, x="day", y="signed_amount", template=plotly_template())
-                fig2.update_traces(line=dict(color=None))
-                fig2.update_layout(
+                            for cat, spent_amt, bud_amt in rows[:10]:
+                                pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
+                                with ui.row().classes('w-full items-start justify-between'):
+                                    ui.label(cat).classes('text-sm')
+                                    with ui.column().classes('items-end'):
+                                        ui.label(f"{int(round(pct*100))}%").classes('text-xs font-bold').style('color: var(--mf-text)')
+                                        ui.label(f"{currency(spent_amt)} / {currency(bud_amt)}").classes('text-xs').style('color: var(--mf-muted)')
+                                ui.linear_progress(value=pct, show_value=False).classes('mf-budget-bar').props('size=10px')
+
+        # Upcoming paydays
+        start = today()
+        end = start + dt.timedelta(days=45)
+        pays: List[Tuple[str, dt.date]] = []
+        y, m = start.year, start.month
+        for _ in range(3):
+            for p in abhi_pay_dates_for_month(y, m):
+                if start <= p <= end:
+                    pays.append(("Salary 1", p))
+            m += 1
+            if m == 13:
+                y += 1
+                m = 1
+        for p in wife_pay_dates_between(start, end):
+            if start <= p <= end:
+                pays.append(("Salary 2", p))
+        pays = sorted(set(pays), key=lambda x: x[1])
+
+        with ui.card().classes("my-card p-5"):
+            ui.label("Upcoming salary").classes("text-lg font-bold")
+            if not pays:
+                ui.label("No paydays in the next 45 days.").style("color: var(--mf-muted)")
+            else:
+                # Group paydays by person (Salary 1 = Nishanth, Salary 2 = Indhu)
+                grouped = {"Nishanth": [], "Indhu": []}
+                for who, d in pays:
+                    if who == "Salary 1":
+                        grouped["Nishanth"].append(d)
+                    elif who == "Salary 2":
+                        grouped["Indhu"].append(d)
+                for k in grouped:
+                    grouped[k] = sorted(set(grouped[k]))
+
+                def _salary_card(name: str, dates: list):
+                    next_d = next((x for x in dates if x >= today()), None)
+                    if not next_d:
+                        return
+                    days = (next_d - today()).days
+                    with ui.card().classes("my-card p-4 w-full").style("background: rgba(255,255,255,0.045);"):
+                        with ui.row().classes("items-center justify-between"):
+                            ui.label(f"{name}'s salary").classes("text-sm font-bold")
+                            ui.badge(f"In {days} days").style(
+                                "background: rgba(255,255,255,0.10); color: var(--mf-text); border: 1px solid var(--mf-border);"
+                            )
+                        ui.label(next_d.strftime("%a, %b %d")).classes("text-2xl font-extrabold mt-1")
+                        # show 2 upcoming dates (optional)
+                        upcoming = [x for x in dates if x >= today()][:2]
+                        if len(upcoming) > 1:
+                            ui.label("Next: " + ", ".join([x.strftime("%b %d") for x in upcoming[1:]])).classes("text-xs").style("color: var(--mf-muted)")
+
+                with ui.element("div").classes("grid grid-cols-1 md:grid-cols-2 gap-3 w-full"):
+                    _salary_card("Nishanth", grouped.get("Nishanth", []))
+                    _salary_card("Indhu", grouped.get("Indhu", []))
+
+        # Spending breakdown
+        with ui.card().classes("my-card p-5"):
+            ui.label("Spending breakdown (this month)").classes("text-lg font-bold")
+            if spend.empty:
+                ui.label("No expenses this month.").style("color: var(--mf-muted)")
+            else:
+                agg = spend.groupby("category", as_index=False)["amount_num"].sum()
+                fig = px.pie(agg, names="category", values="amount_num", hole=0.55, template=plotly_template())
+                # Ensure text stays readable across light/dark themes
+                fig.update_traces(textfont_color=plotly_font_color())
+                fig.update_layout(
                     margin=dict(l=10, r=10, t=10, b=10),
                     paper_bgcolor="rgba(0,0,0,0)",
                     font_color=plotly_font_color(),
-                    xaxis=dict(tickfont=dict(color=plotly_font_color()), title_font=dict(color=plotly_font_color())),
-                    yaxis=dict(tickfont=dict(color=plotly_font_color()), title_font=dict(color=plotly_font_color())),
+                    legend=dict(font=dict(color=plotly_font_color())),
                 )
-                ui.plotly(fig2).classes("w-full")
+                ui.plotly(fig).classes("w-full")
+
+        # Top merchants (best-effort from Notes)
+        with ui.card().classes("my-card p-5"):
+            ui.label("Top merchants (this month)").classes("text-lg font-bold")
+            if spend.empty or "notes" not in spend.columns:
+                ui.label("No merchant data available.").style("color: var(--mf-muted)")
+            else:
+                def _merchant_from_notes(n: str) -> str:
+                    s = str(n or "").strip()
+                    if not s:
+                        return "(blank)"
+                    # common separators: '|', '-', '•'
+                    for sep in ("|", "•", "-"):
+                        if sep in s:
+                            s = s.split(sep, 1)[0].strip()
+                    s = re.sub(r"\s+", " ", s)
+                    return (s[:28] + "…") if len(s) > 28 else s
+
+                spend["_merchant"] = spend["notes"].apply(_merchant_from_notes)
+                topm = spend.groupby("_merchant", as_index=False)["amount_num"].sum().sort_values("amount_num", ascending=False)
+                if topm.empty:
+                    ui.label("No merchant data available.").style("color: var(--mf-muted)")
+                else:
+                    rows = []
+                    for _, r in topm.head(8).iterrows():
+                        rows.append({"merchant": r["_merchant"], "spend": currency(float(r["amount_num"]))})
+                    ui.table(
+                        columns=[
+                            {"name": "merchant", "label": "Merchant", "field": "merchant", "align": "left"},
+                            {"name": "spend", "label": "Spend", "field": "spend", "align": "right"},
+                        ],
+                        rows=rows,
+                        row_key="merchant",
+                    ).classes("w-full")
+
+        # Trend
+        with ui.card().classes("my-card p-5"):
+            ui.label("Cashflow trend (last 90 days)").classes("text-lg font-bold")
+            recent = tx[tx["date_parsed"] >= (today() - dt.timedelta(days=90))].copy()
+            recent["day"] = recent["date_parsed"].astype(str)
+            recent["sign"] = recent["type_l"].map(lambda t: 1 if t in ("credit", "income") else (-1 if t in ("debit", "expense", "investment") else 0))
+            recent["signed_amount"] = recent["amount_num"] * recent["sign"]
+            daily = recent.groupby("day", as_index=False)["signed_amount"].sum()
+            fig2 = px.area(daily, x="day", y="signed_amount", template=plotly_template())
+            fig2.update_traces(line=dict(color=None))
+            fig2.update_layout(
+                margin=dict(l=10, r=10, t=10, b=10),
+                paper_bgcolor="rgba(0,0,0,0)",
+                font_color=plotly_font_color(),
+                xaxis=dict(tickfont=dict(color=plotly_font_color()), title_font=dict(color=plotly_font_color())),
+                yaxis=dict(tickfont=dict(color=plotly_font_color()), title_font=dict(color=plotly_font_color())),
+            )
+            ui.plotly(fig2).classes("w-full")
 
     shell(content)
 
@@ -4127,7 +4101,7 @@ def add_page():
                             # If no mapping exists / no match, we keep the remembered default selection.
                             if last4:
                                 try:
-                                    cards_df = cached_df('cards', force=True)
+                                    cards_df = cached_df('cards', force=False)
                                     acct = pick_account_from_last4(cards_df, last4)
                                     if acct and (acct in accounts):
                                         d_account.value = acct
@@ -4155,51 +4129,78 @@ def add_page():
 
                 ui.button('Scan receipt', on_click=scan_dlg.open).props('outline').classes('w-full')
 
-            # --- Live category suggestion (Option B): show suggestion while typing, apply on save unless user overrides ---
-            category_touched = {"v": False}
-            suggest_label = ui.label("").classes("text-xs")
-            suggest_label.style("color: var(--mf-muted)")
+            # --- Live category suggestion (Phase 6.2): auto-categorize as you type Notes (debounced), never override manual choice ---
+            category_touched = {"v": False}         # user manually changed category
+            _setting_category = {"v": False}        # internal guard so programmatic changes don't mark touched
+            _debounce_task = {"t": None}
 
-            def _refresh_suggestion(_: Any = None) -> None:
-                active_rules = rules
-                if not active_rules:
-                    # Try once to load rules (in case sheet headers were fixed after app boot)
-                    active_rules = load_rules(force=True)
+            suggest_label = ui.label("").classes("text-xs").style("color: var(--mf-muted)")
+
+            # Use the rules loaded at dialog open; fall back to a non-forced load once if empty.
+            _active_rules = rules or []
+            if not _active_rules:
+                try:
+                    _active_rules = load_rules(force=False) or []
+                except Exception:
+                    _active_rules = []
+
+            def _set_category_safely(val: str) -> None:
+                try:
+                    _setting_category["v"] = True
+                    d_category.value = val
+                finally:
+                    _setting_category["v"] = False
+
+            def _refresh_suggestion_now() -> None:
+                # Do nothing if user has manually chosen a category
+                if category_touched["v"]:
+                    return
+                active_rules = _active_rules
                 if not active_rules:
                     suggest_label.text = "Suggested category: Uncategorized (no rules loaded)"
-                    if not category_touched["v"]:
-                        d_category.value = "Uncategorized"
+                    _set_category_safely("Uncategorized")
                     return
+
                 suggestion = infer_category(str(d_notes.value or ""), active_rules) or "Uncategorized"
                 suggest_label.text = f"Suggested category: {suggestion}"
-                if not category_touched["v"]:
-                    d_category.value = suggestion
+                _set_category_safely(suggestion)
 
-            # mark manual override
-            d_category.on('update:model-value', lambda e: category_touched.__setitem__('v', True))
-            # refresh suggestion on notes changes
-            d_notes.on('update:model-value', _refresh_suggestion)
-            _refresh_suggestion()
+            def _schedule_refresh(_: Any = None) -> None:
+                # Debounce: avoid running categorization on every keystroke
+                try:
+                    t = _debounce_task.get("t")
+                    if t:
+                        t.cancel()
+                except Exception:
+                    pass
 
-            # Apply presets (used for special flows like LOC withdrawal/repayment)
-            if preset_method is not None and d_method is not None:
-                d_method.value = preset_method
-                d_method.disable()
-            if preset_account is not None:
-                d_account.value = preset_account
-            if preset_category is not None:
-                d_category.value = preset_category
+                async def _job() -> None:
+                    try:
+                        await asyncio.sleep(0.35)
+                        _refresh_suggestion_now()
+                    except Exception:
+                        # Ignore cancel + any UI timing issues
+                        pass
+
+                _debounce_task["t"] = asyncio.create_task(_job())
+
+            # Mark manual override ONLY for user-initiated changes (ignore programmatic sets)
+            d_category.on('update:model-value', lambda e: (None if _setting_category["v"] else category_touched.__setitem__('v', True)))
+
+            # Auto-categorize as Notes changes
+            d_notes.on('update:model-value', _schedule_refresh)
+            _refresh_suggestion_now()
 
             def autofill():
-                # manual button: set category based on current notes
-                category_touched["v"] = True
-                # force-refresh rules so updates in the sheet are picked up
-                fresh_rules = load_rules(force=True)  # force refresh so sheet updates are picked up
-                if not fresh_rules:
-                    ui.notify('No rules loaded (check Rules sheet columns). Keeping Uncategorized.', type='warning')
-                    d_category.value = 'Uncategorized'
-                    return
-                d_category.value = infer_category(d_notes.value or "", fresh_rules) or "Uncategorized"
+                # Manual button: force-refresh rules and apply (still available as a fallback)
+                category_touched["v"] = False  # allow overwrite
+                try:
+                    fresh_rules = load_rules(force=True) or []
+                    if fresh_rules:
+                        _active_rules[:] = fresh_rules
+                except Exception:
+                    pass
+                _refresh_suggestion_now()
                 ui.notify("Category updated", type="positive")
 
             ui.button("Auto-category", on_click=autofill).props("flat")
