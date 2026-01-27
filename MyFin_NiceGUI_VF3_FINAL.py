@@ -1049,11 +1049,11 @@ def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, s
     kw_house = idx.get('household', [])
     kw_shop = idx.get('shopping', [])
 
-    # Minimal fallbacks for robustness
-    fb_health = ['pharm', 'pharmacy', 'rx']
-    fb_shop = ['shirt', 'wov', 'woven', 'tank', 'dress', 'toy', 'toys', 'apparel', 'mens', 'women', 'womens', 'kids']
-    fb_house = ['detergent', 'bleach', 'paper towel', 'toilet paper', 'tissue', 'garbage bag', 'trash bag', 'soap', 'wipes', 'clean', 'spray']
-    fb_groc = ['milk', 'eggs', 'egg', 'bread', 'rice', 'banana', 'tomato', 'onion', 'yogurt', 'dal', 'atta']
+    # Minimal fallbacks for robustness (works even if Rules sheet is empty)
+    fb_health = ['pharm', 'pharmacy', 'rx', 'vitamin', 'advil', 'tylenol', 'benadryl', 'bandage', 'first aid']
+    fb_house = ['detergent', 'bleach', 'paper towel', 'toilet paper', 'tissue', 'garbage bag', 'trash bag', 'soap', 'wipes', 'clean', 'spray', 'dish', 'disinfect', 'laundry', 'softener', 'shampoo', 'conditioner']
+    fb_shop = ['shirt', 'sleep', 'jeans', 'pant', 'pants', 'wom', 'women', 'womens', 'men', 'mens', 'kids', 'toy', 'toys', 'dress', 'skirt', 'bra', 'brief', 'sock', 'socks', 'shoe', 'shoes', 'top', 'tank', 'apparel', 'woven']
+    fb_groc = ['milk', 'eggs', 'egg', 'bread', 'rice', 'banana', 'tomato', 'onion', 'yogurt', 'dal', 'atta', 'apple', 'avocado', 'carrot', 'cucumber', 'beans', 'fruit', 'veg', 'vegetable']
 
     def _match(name_l: str, kws: List[str]) -> bool:
         return any(k and k in name_l for k in kws)
@@ -1067,17 +1067,19 @@ def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, s
         price = float(it.get('price') or 0.0)
         name_l = name.lower()
 
-        # Priority: Health > Shopping > Groceries > Household
+        # Priority: Health > Household > Shopping > Groceries
         cat = ''
         if _match(name_l, kw_health) or _match(name_l, fb_health):
             cat = 'Health'
+        elif _match(name_l, kw_house) or _match(name_l, fb_house):
+            cat = 'Household'
         elif _match(name_l, kw_shop) or _match(name_l, fb_shop):
             cat = 'Shopping'
         elif _match(name_l, kw_groc) or _match(name_l, fb_groc):
             cat = 'Groceries'
-        elif _match(name_l, kw_house) or _match(name_l, fb_house):
-            cat = 'Household'
 
+        if not cat:
+            cat = 'Groceries'
         per_item.append({'name': name, 'price': price, 'category': cat})
         if cat:
             amounts[cat] += price
@@ -1609,42 +1611,83 @@ def load_rules(force: bool = False) -> List[Tuple[str, str]]:
 
     Phase 6.5 change:
     - The legacy/admin `rules_text` source is deprecated and ignored to avoid conflicts.
+
+    Robustness:
+    - Some sheets have both "Keywords" and "keyword" columns; one may be mostly empty.
+      We auto-pick the keyword column that actually has data (or merge if multiple have data).
     """
     df = cached_df('rules', force=force)
 
     rules: list[tuple[str, str]] = []
-    if not df.empty:
-        cols = list(df.columns)
-        lmap = {str(c).strip().lower(): c for c in cols}
+    if df is None or getattr(df, 'empty', True):
+        return rules
 
-        key_col = None
-        cat_col = None
-        for k in ['keywords', 'keyword', 'key', 'match', 'contains']:
-            if k in lmap:
-                key_col = lmap[k]
-                break
-        for k in ['category', 'cat']:
-            if k in lmap:
-                cat_col = lmap[k]
-                break
+    cols = list(df.columns)
+    # map normalized -> actual col
+    lmap = {str(c).strip().lower(): c for c in cols}
 
-        if key_col is None and len(cols) >= 1:
-            key_col = cols[0]
-        if cat_col is None and len(cols) >= 2:
-            cat_col = cols[1]
+    # Category column
+    cat_candidates = []
+    for c in cols:
+        cl = str(c).strip().lower()
+        if cl in ('category', 'cat') or 'category' in cl:
+            cat_candidates.append(c)
+    cat_col = cat_candidates[0] if cat_candidates else (cols[1] if len(cols) >= 2 else (cols[0] if cols else None))
 
-        for _, r in df.iterrows():
-            key = str(r.get(key_col, '')).strip()
-            cat = str(r.get(cat_col, '')).strip()
-            if not key or not cat:
+    # Keyword columns (could be more than one)
+    kw_candidates = []
+    for c in cols:
+        cl = str(c).strip().lower()
+        if cl in ('keyword', 'keywords', 'key', 'match', 'contains') or 'keyword' in cl:
+            kw_candidates.append(c)
+    if not kw_candidates and cols:
+        kw_candidates = [cols[0]]
+
+    # Pick keyword columns that actually have values
+    def _non_empty_count(colname: Any) -> int:
+        try:
+            s = df[colname]
+            return int(s.astype(str).str.strip().replace('nan', '').replace('None', '').ne('').sum())
+        except Exception:
+            return 0
+
+    kw_candidates = sorted(kw_candidates, key=_non_empty_count, reverse=True)
+    best_kw = kw_candidates[0] if kw_candidates else None
+    # Also include other keyword columns if they have meaningful content (e.g. >20% of best)
+    best_ct = _non_empty_count(best_kw) if best_kw is not None else 0
+    use_kw_cols = []
+    for c in kw_candidates:
+        ct = _non_empty_count(c)
+        if ct <= 0:
+            continue
+        if best_ct <= 0 or ct >= max(1, int(best_ct * 0.2)):
+            use_kw_cols.append(c)
+    if not use_kw_cols and best_kw is not None:
+        use_kw_cols = [best_kw]
+
+    for _, r in df.iterrows():
+        cat = str(r.get(cat_col, '')).strip() if cat_col is not None else ''
+        if not cat or cat.lower() == 'nan':
+            continue
+
+        # merge keywords from all selected keyword columns
+        merged = []
+        for kc in use_kw_cols:
+            v = str(r.get(kc, '')).strip()
+            if not v or v.lower() == 'nan':
                 continue
-            if key.lower() == 'nan' or cat.lower() == 'nan':
-                continue
-            parts = [p.strip() for p in re.split(r'[,;\n]+', key) if p.strip()]
-            for p in parts:
-                rules.append((p.lower(), cat))
+            merged.append(v)
+
+        if not merged:
+            continue
+
+        key = ','.join(merged)
+        parts = [p.strip() for p in re.split(r'[,;\n]+', key) if p.strip()]
+        for p in parts:
+            rules.append((p.lower(), cat))
 
     return rules
+
 
 
 
@@ -4141,12 +4184,55 @@ def add_page():
                                     return
                             ui.notify('Scanning…', type='info', timeout=1.2)
                             img_literal = json.dumps(str(scan_state.get('data_url', '')))
-                            js = f"""
+                            js = """
                                 // Client-side OCR (tesseract.js).
                                 // We downscale large images first to avoid timeouts on mobile Safari.
-                                const img = {img_literal};
+                                const img = __IMG__;
                                 if (!window.Tesseract) {{ return {{ ok: false, error: 'tesseract.js not loaded' }}; }}
-                                const downscale = async (dataUrl) => new Promise((resolve) => {{
+                                const preprocess = async (dataUrl) => new Promise((resolve) => {
+                                  const im = new Image();
+                                  im.onload = () => {
+                                    try {
+                                      // Auto-orient + downscale + light preprocessing to improve OCR on receipts.
+                                      const maxW = 1400;
+                                      const maxH = 2200;
+                                      let w = im.width, h = im.height;
+                                      const scale = Math.min(1, maxW / w, maxH / h);
+                                      w = Math.max(1, Math.floor(w * scale));
+                                      h = Math.max(1, Math.floor(h * scale));
+
+                                      const c = document.createElement('canvas');
+                                      c.width = w; c.height = h;
+                                      const ctx = c.getContext('2d', { willReadFrequently: true });
+
+                                      // Draw
+                                      ctx.drawImage(im, 0, 0, w, h);
+
+                                      // Simple grayscale + contrast stretch + binary-ish threshold.
+                                      const imgData = ctx.getImageData(0, 0, w, h);
+                                      const d = imgData.data;
+                                      // quick luminance + contrast
+                                      const contrast = 1.25; // mild
+                                      const intercept = -20; // darken background
+                                      for (let i = 0; i < d.length; i += 4) {
+                                        const r = d[i], g = d[i+1], b = d[i+2];
+                                        let y = 0.2126*r + 0.7152*g + 0.0722*b;
+                                        y = y * contrast + intercept;
+                                        y = Math.max(0, Math.min(255, y));
+                                        // threshold
+                                        const v = (y > 140) ? 255 : 0;
+                                        d[i] = d[i+1] = d[i+2] = v;
+                                      }
+                                      ctx.putImageData(imgData, 0, 0);
+
+                                      resolve(c.toDataURL('image/jpeg', 0.88));
+                                    } catch (e) {
+                                      resolve(dataUrl);
+                                    }
+                                  };
+                                  im.onerror = () => resolve(dataUrl);
+                                  im.src = dataUrl;
+                                });{
                                   const im = new Image();
                                   im.onload = () => {{
                                     try {{
@@ -4169,13 +4255,14 @@ def add_page():
                                   im.src = dataUrl;
                                 }});
                                 try {{
-                                  const small = await downscale(img);
+                                  const small = await preprocess(img);
                                   const res = await Tesseract.recognize(small, 'eng');
                                   return {{ ok: true, text: res.data.text || '' }};
                                 }} catch (e) {{
                                   return {{ ok: false, error: String(e) }};
                                 }}
                             """
+                            js = js.replace('__IMG__', img_literal)
                             try:
                                 # Mobile/browser OCR can easily take several seconds; 1s default is too low.
                                 result = await ui.run_javascript(js, timeout=60.0)
