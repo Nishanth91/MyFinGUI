@@ -68,6 +68,12 @@ def log(message: str) -> None:
 
 # Simple in-memory cache for worksheet->DataFrame
 _df_cache: dict[tuple[str, str], object] = {}
+# UI bootstrapping state (Render can import/execute in different orders)
+# These must exist before ensure_tabs() runs to avoid NameError during startup.
+_ws = None  # websocket handle used by NiceGUI bootstrap (set later)
+_tabs_ready: bool = False
+_tabs_ready_at: float = 0.0
+
 
 
 import os
