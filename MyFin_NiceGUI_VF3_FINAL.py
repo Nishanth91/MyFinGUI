@@ -4648,8 +4648,10 @@ def add_page():
 
                             text = str(result.get('text') or '')
                             raw_out.value = text
-
-                            parsed = parse_receipt_text(text)
+                            try:
+                                parsed = parse_receipt_text(text) or {}
+                            except Exception as _e:
+                                parsed = {'_parse_error': str(_e)}
                             parsed_state['parsed'] = parsed
                             # Phase 6.6: OCR line-item intelligence (rule-sheet driven)
                             try:
@@ -4692,7 +4694,7 @@ def add_page():
 
                             # Update preview UI
                             pv_merchant.value = merch
-                            pv_date.value = (rdate.isoformat() if rdate else '')
+                            pv_date.value = (rdate.isoformat() if hasattr(rdate, 'isoformat') else (str(rdate) if rdate else ''))
                             pv_amount.value = (f"{float(amt):.2f}" if amt is not None else '')
                             pv_last4.value = last4
                             pv_conf.text = f"Amount confidence: {conf:.1f}/10 (source: {src})" + (" — please double-check" if conf < 3.0 else "")
