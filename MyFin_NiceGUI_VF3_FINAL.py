@@ -4097,6 +4097,8 @@ def add_page():
 
                         preview = ui.image('').classes('w-full rounded').style('display:none')
 
+                        scan_spinner = ui.spinner(size='lg').classes('mx-auto').style('display:none')
+
                         # Parsed preview (filled after OCR)
                         with ui.card().classes('my-card p-3 w-full').style('display:none') as parsed_card:
                             ui.label('Detected fields (review before applying)').classes('text-sm font-bold')
@@ -4183,6 +4185,25 @@ def add_page():
                                     ui.notify('Please upload a receipt image first.', type='warning')
                                     return
                             ui.notify('Scanning…', type='info', timeout=1.2)
+                            # Show busy indicator (mobile Safari can take a while)
+                            try:
+                                scan_spinner.style('display:block')
+                            except Exception:
+                                pass
+                            try:
+                                run_btn.disable()
+                            except Exception:
+                                pass
+
+                            # Quick client-side dependency check (if CDN blocked, fail fast with clear message)
+                            try:
+                                dep = await ui.run_javascript("return {ok: !!window.Tesseract, ua: navigator.userAgent}", timeout=5.0)
+                                if not (isinstance(dep, dict) and dep.get('ok')):
+                                    ui.notify('OCR engine not loaded. Please refresh the page and try again (network/CDN blocked).', type='negative')
+                                    return
+                            except Exception:
+                                # If this check fails, continue and let main OCR report errors.
+                                pass
                             img_literal = json.dumps(str(scan_state.get('data_url', '')))
                             js = """
                                 // Client-side OCR (tesseract.js).
@@ -4264,14 +4285,24 @@ def add_page():
                             """
                             js = js.replace('__IMG__', img_literal)
                             try:
-                                # Mobile/browser OCR can easily take several seconds; 1s default is too low.
-                                result = await ui.run_javascript(js, timeout=60.0)
+                                # Mobile/browser OCR can easily take several seconds; give it more room on iOS.
+                                result = await ui.run_javascript(js, timeout=120.0)
                             except TimeoutError:
-                                ui.notify('OCR timed out (slow device/network). Try retaking closer or smaller image.', type='negative')
+                                ui.notify('OCR timed out (slow device). Try retaking closer/brighter or crop tighter.', type='negative')
                                 return
                             except Exception as ex:
                                 ui.notify(f'OCR failed: {ex}', type='negative')
                                 return
+                            finally:
+                                # Always clear busy state even if OCR failed
+                                try:
+                                    scan_spinner.style('display:none')
+                                except Exception:
+                                    pass
+                                try:
+                                    run_btn.enable()
+                                except Exception:
+                                    pass
 
                             if not result or not isinstance(result, dict) or not result.get('ok'):
                                 err = (result or {}).get('error', 'Unknown OCR error') if isinstance(result, dict) else 'Unknown OCR error'
@@ -4397,7 +4428,7 @@ def add_page():
 
                     # Sticky footer so buttons don't get pushed below the upload card on mobile
                     with ui.row().classes('w-full items-center gap-2 sticky bottom-0').style('background: rgba(8,12,20,0.92); backdrop-filter: blur(8px); padding: 10px; border-top: 1px solid var(--mf-border); position: sticky; bottom: 0; background: var(--mf-menu-bg, var(--mf-surface-2)); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); z-index: 20'):
-                        ui.button('Run scan', on_click=_run_ocr).props('unelevated').classes('flex-1')
+                        run_btn = ui.button('Run scan', on_click=_run_ocr).props('unelevated').classes('flex-1')
                         apply_btn = ui.button('Apply', on_click=_apply_to_form).props('unelevated')
                         apply_btn.classes('flex-1')
                         apply_btn.disable()
