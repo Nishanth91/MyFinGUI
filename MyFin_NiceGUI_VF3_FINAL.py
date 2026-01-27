@@ -73,6 +73,8 @@ _df_cache: dict[tuple[str, str], object] = {}
 _ws = None  # websocket handle used by NiceGUI bootstrap (set later)
 _tabs_ready: bool = False
 _tabs_ready_at: float = 0.0
+_gc = None  # gspread client cache
+_ss = None  # spreadsheet cache
 
 
 
