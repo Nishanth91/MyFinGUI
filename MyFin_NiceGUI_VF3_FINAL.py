@@ -680,9 +680,9 @@ def _extract_card_last4(text: str) -> str:
     """Try to find last-4 digits of card, if printed."""
     # common formats: **** 1234, XXXX1234, x1234
     patterns = [
-        r"\*{2,}\s*(\d{4})",
+        r"(?:\*{2,}\s*){2,}(\d{4})",
         r"X{2,}\s*(\d{4})",
-        r"(?:VISA|MASTERCARD|MASTER CARD|MC|DEBIT)\D{0,15}(\d{4})",
+        r"(?:VISA|MASTERCARD|MASTER CARD|MC|DEBIT)\D{0,60}(\d{4})",
     ]
     for pat in patterns:
         m = re.search(pat, text.upper())
@@ -972,7 +972,7 @@ SCOPE = [
 TABS = {
     "transactions": ["id", "date", "owner", "type", "amount", "method", "account", "category", "notes",
                      "is_recurring", "recurring_id", "created_at"],
-    "cards": ["card_name", "owner", "billing_day", "max_limit", "method_name"],
+    "cards": ["card_name", "owner", "billing_day", "max_limit", "method_name", "card_last4"],
     "recurring": ["recurring_id", "owner", "type", "amount", "method", "account", "category", "notes",
                   "day_of_month", "start_date", "active", "last_generated_month"],
     "rules": ["keyword", "category"],
@@ -984,7 +984,7 @@ TABS = {
 # Phase 6.5: OCR line-item intelligence
 # -----------------------------
 
-_PRICE_RE = re.compile(r"(?P<price>-?\d{1,6}\.\d{2})\s*$")
+_PRICE_RE = re.compile(r"(?P<price>-?\d{1,6}\.\d{2})(?:\s*[A-Z])?\s*$")
 
 def _is_noise_receipt_line(line: str) -> bool:
     l = (line or '').strip().lower()
