@@ -3961,16 +3961,22 @@ def add_page():
             is_invest = entry_type.lower() == 'investment'
             is_cc_repay = entry_type.lower() in ('cc repay', 'cc_repay', 'ccrepay', 'credit card repay', 'credit card repayment')
 
-            # Phase 6.4: OCR-triggered smart split (Walmart/Costco) state
-            split_state: Dict[str, Any] = {"enabled": False, "merchant": "", "pct": 70, "right_cat": "Household"}
-            _split_group: Dict[str, Any] = {"id": ""}
+            # Phase 6.5+: OCR-triggered multi-category split (Walmart/Costco/Superstore)
+            # Stores a plan of category->amount which will be written as multiple transaction rows on Save.
+            split_plan: Dict[str, Any] = {
+                "enabled": False,
+                "merchant": "",
+                "amounts": {},  # e.g., {"Groceries": 120.00, "Household": 30.00, "Shopping": 10.00, "Health": 5.00}
+                "detected_amounts": {},
+            }
 
             def _norm_merchant(s: str) -> str:
                 return re.sub(r'\s+', ' ', (s or '').strip().lower())
 
-            def _is_walmart_or_costco(s: str) -> bool:
+            def _is_split_merchant(s: str) -> bool:
+                """Merchants where we offer OCR-driven multi-category split."""
                 t = _norm_merchant(s)
-                return ('walmart' in t) or ('costco' in t)
+                return ('walmart' in t) or ('costco' in t) or ('superstore' in t)
             # Per 5.14 UX rules:
             # - Income: Method fixed to Bank (no method dropdown)
             # - Investment: Method fixed to Bank, Account disabled, Category default Investment
@@ -4274,35 +4280,25 @@ def add_page():
                             # Refresh category suggestion with updated notes
                             _refresh_suggestion_now()
 
-                            # Phase 6.4: If OCR merchant is Walmart/Costco, prompt for split slider (optional)
+                            # Phase 6.5: If OCR merchant is Walmart/Costco/Superstore, offer multi-category split (optional)
                             try:
-                                split_state["merchant"] = merch
-                                if entry_type.lower() == 'debit' and _is_walmart_or_costco(merch):
-                                                                        # Phase 6.5: pre-fill split slider using OCR line-item category breakdown when available.
-                                    suggested_pct = 70
-                                    suggested_right = "Household"
-                                    health_amt = 0.0
-                                    try:
-                                        cat_amounts = (parsed or {}).get('category_amounts') or {}
-                                        if isinstance(cat_amounts, dict) and cat_amounts:
-                                            g = float(cat_amounts.get('Groceries', 0.0))
-                                            h = float(cat_amounts.get('Household', 0.0))
-                                            s = float(cat_amounts.get('Shopping', 0.0))
-                                            health_amt = float(cat_amounts.get('Health', 0.0))
-                                            if s > h:
-                                                suggested_right = "Shopping"
-                                                right_amt = s
-                                            else:
-                                                suggested_right = "Household"
-                                                right_amt = h
-                                            denom = g + right_amt
-                                            if denom > 0.01:
-                                                suggested_pct = int(round(100.0 * (g / denom)))
-                                    except Exception:
-                                        pass
-                                    split_state["pct"] = max(0, min(100, int(suggested_pct)))
-                                    split_state["right_cat"] = suggested_right
-                                    split_state["health_amount"] = float(health_amt)
+                                split_plan['merchant'] = merch
+                                split_plan['enabled'] = False
+                                split_plan['amounts'] = {}
+                                # detected amounts from OCR line items (if available)
+                                det = {}
+                                try:
+                                    cat_amounts = (parsed or {}).get('category_amounts') or {}
+                                    if isinstance(cat_amounts, dict):
+                                        for k in ['Groceries', 'Household', 'Shopping', 'Health']:
+                                            v = float(cat_amounts.get(k, 0.0) or 0.0)
+                                            if v > 0.0001:
+                                                det[k] = round(v, 2)
+                                except Exception:
+                                    det = {}
+                                split_plan['detected_amounts'] = det
+
+                                if entry_type.lower() == 'debit' and _is_split_merchant(merch):
                                     _open_split_dialog()
                             except Exception:
                                 pass
@@ -4322,96 +4318,139 @@ def add_page():
 
                 ui.button('Scan receipt', on_click=scan_dlg.open).props('outline').classes('w-full')
 
-                # Phase 6.4: Split suggestion UI (premium slider) — shown only after OCR Apply for Walmart/Costco
+                # Phase 6.5: Multi-category split UI — shown only after OCR Apply for Walmart/Costco/Superstore
                 split_hint = ui.label("").classes("text-xs").style("color: var(--mf-muted)")
 
                 split_dlg = ui.dialog()
-                with split_dlg, ui.card().classes("my-card mf-split-card p-4 w-[560px] max-w-[95vw]").style("max-height: 78vh; overflow-y:auto;"):
+                with split_dlg, ui.card().classes("my-card mf-split-card p-4 w-[600px] max-w-[95vw]").style("max-height: 78vh; overflow-y:auto;"):
                     ui.label("Split this receipt").classes("text-lg font-bold")
-                    ui.label("Adjust the split, then tap Apply.").classes("text-xs").style("color: var(--mf-muted)")
+                    ui.label("We detected line items. Adjust amounts if needed, then Apply.").classes("text-xs").style("color: var(--mf-muted)")
 
-                    # Right-side category toggle (Household default, Shopping optional)
-                    right_choice = {"v": str(split_state.get("right_cat") or "Household")}
+                    # Four fixed buckets (your preferred setup)
+                    split_cats = ["Groceries", "Household", "Shopping", "Health"]
+                    amt_inputs: Dict[str, Any] = {}
+                    pct_labels: Dict[str, Any] = {}
+                    warn_lbl = ui.label("").classes("text-xs q-mt-sm").style("color: var(--mf-muted)")
 
-                    with ui.row().classes("w-full items-center justify-between q-mt-sm"):
-                        left_badge = ui.label("Groceries").classes("mf-split-pill text-sm font-medium")
-                        with ui.row().classes("items-center gap-2"):
-                            btn_house = ui.button("Household").props("flat").classes("mf-split-pill text-sm")
-                            btn_shop = ui.button("Shopping").props("flat").classes("mf-split-pill text-sm")
-
-                    # Slider (percentage for Groceries)
-                    pct_slider = ui.slider(min=0, max=100, value=int(split_state.get("pct") or 70)).props("label color=primary").classes("w-full q-mt-md")
-                    amounts_line = ui.label("").classes("text-sm q-mt-sm")
-                    health_line = ui.label("").classes("text-xs q-mt-xs").style("opacity:0.85;")
-
-                    def _update_toggle_styles() -> None:
+                    def _round2(x: float) -> float:
                         try:
-                            if right_choice["v"] == "Household":
-                                btn_house.props("unelevated")
-                                btn_shop.props("flat")
+                            return round(float(x), 2)
+                        except Exception:
+                            return 0.0
+
+                    def _sum_amounts() -> float:
+                        total = 0.0
+                        for c in split_cats:
+                            total += float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0))
+                        return _round2(total)
+
+                    def _refresh_pcts(_: Any = None) -> None:
+                        total_amt = _round2(float(to_float(d_amount.value)))
+                        cur_sum = _sum_amounts()
+                        # percent labels
+                        for c in split_cats:
+                            v = _round2(float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0)))
+                            pct = 0
+                            if total_amt > 0.0001:
+                                pct = int(round(100.0 * (v / total_amt)))
+                            try:
+                                pct_labels[c].text = f"{pct}%"
+                            except Exception:
+                                pass
+                        # warning / remainder
+                        diff = _round2(total_amt - cur_sum)
+                        if abs(diff) <= 0.02:
+                            warn_lbl.text = f"Total: ${total_amt:,.2f} • Split: ${cur_sum:,.2f}"
+                        else:
+                            # show remainder direction
+                            if diff > 0:
+                                warn_lbl.text = f"Total: ${total_amt:,.2f} • Split: ${cur_sum:,.2f} • Remaining: ${diff:,.2f}"
                             else:
-                                btn_shop.props("unelevated")
-                                btn_house.props("flat")
+                                warn_lbl.text = f"Total: ${total_amt:,.2f} • Split: ${cur_sum:,.2f} • Over by: ${abs(diff):,.2f}"
+
+                    # Grid-like rows
+                    for c in split_cats:
+                        with ui.row().classes("w-full items-center justify-between gap-2 q-mt-sm"):
+                            ui.label(c).classes("text-sm font-medium")
+                            pct_labels[c] = ui.label("0%").classes("text-xs").style("color: var(--mf-muted)")
+                            amt_inputs[c] = ui.number(value=0.0, format='%.2f', step=0.01).props('dense outlined prefix=$').classes('w-40')
+                            amt_inputs[c].on('update:model-value', _refresh_pcts)
+
+                    def _reset_to_detected() -> None:
+                        det = split_plan.get('detected_amounts') or {}
+                        total_amt = _round2(float(to_float(d_amount.value)))
+                        # start with detected
+                        for c in split_cats:
+                            try:
+                                amt_inputs[c].value = _round2(float(det.get(c, 0.0)))
+                            except Exception:
+                                amt_inputs[c].value = 0.0
+                        # ensure it sums to total by allocating remainder to Groceries
+                        cur_sum = _sum_amounts()
+                        diff = _round2(total_amt - cur_sum)
+                        if abs(diff) > 0.02:
+                            try:
+                                amt_inputs['Groceries'].value = _round2(float(to_float(amt_inputs['Groceries'].value)) + diff)
+                            except Exception:
+                                pass
+                        _refresh_pcts()
+
+                    def _all_to_groceries() -> None:
+                        total_amt = _round2(float(to_float(d_amount.value)))
+                        for c in split_cats:
+                            amt_inputs[c].value = 0.0
+                        amt_inputs['Groceries'].value = total_amt
+                        _refresh_pcts()
+
+                    with ui.row().classes('w-full justify-between items-center q-mt-md'):
+                        ui.button('Reset to detected', on_click=_reset_to_detected).props('flat')
+                        ui.button('All to Groceries', on_click=_all_to_groceries).props('flat')
+
+                    def _apply_multi_split() -> None:
+                        total_amt = _round2(float(to_float(d_amount.value)))
+                        cur_sum = _sum_amounts()
+                        diff = _round2(total_amt - cur_sum)
+                        # If slightly off, auto-fix by nudging Groceries
+                        if abs(diff) <= 0.05:
+                            try:
+                                amt_inputs['Groceries'].value = _round2(float(to_float(amt_inputs['Groceries'].value)) + diff)
+                            except Exception:
+                                pass
+                            cur_sum = _sum_amounts()
+                            diff = _round2(total_amt - cur_sum)
+                        if abs(diff) > 0.05:
+                            ui.notify('Split must match the receipt total (adjust amounts).', type='warning')
+                            return
+
+                        plan: Dict[str, float] = {}
+                        for c in split_cats:
+                            v = _round2(float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0)))
+                            if v > 0.009:
+                                plan[c] = v
+
+                        # Store plan; actual save happens on Save click
+                        split_plan['enabled'] = True
+                        split_plan['amounts'] = plan
+                        try:
+                            d_category.value = 'Groceries'
                         except Exception:
                             pass
 
-                    def _recalc_preview(_: Any = None) -> None:
-                        total = float(to_float(d_amount.value))
-                        p = int(round(float(pct_slider.value or 0)))
-                        p = max(0, min(100, p))
-                        left_amt = round(total * (p / 100.0), 2)
-                        right_amt = round(total - left_amt, 2)
-                        amounts_line.text = f"Groceries: ${left_amt:,.2f}   •   {right_choice['v']}: ${right_amt:,.2f}"
-                        try:
-                            ha = float(split_state.get('health_amount') or 0.0)
-                            if ha > 0.01:
-                                health_line.text = f"Pharmacy detected: ${ha:.2f} → Health"
-                            else:
-                                health_line.text = ''
-                        except Exception:
-                            health_line.text = ''
-
-                    def _choose_household() -> None:
-                        right_choice["v"] = "Household"
-                        _update_toggle_styles()
-                        _recalc_preview()
-
-                    def _choose_shopping() -> None:
-                        right_choice["v"] = "Shopping"
-                        _update_toggle_styles()
-                        _recalc_preview()
-
-                    btn_house.on('click', lambda e: _choose_household())
-                    btn_shop.on('click', lambda e: _choose_shopping())
-                    pct_slider.on('change', _recalc_preview)
-
-                    def _apply_split_plan() -> None:
-                        # Store the plan; actual save happens on Save click
-                        split_state["enabled"] = True
-                        split_state["pct"] = int(round(float(pct_slider.value or 70)))
-                        split_state["right_cat"] = right_choice["v"]
-                        # make category field reflect primary for clarity
-                        try:
-                            d_category.value = "Groceries"
-                        except Exception:
-                            pass
-                        split_hint.text = f"Split enabled: {split_state['pct']}% Groceries / {100-split_state['pct']}% {split_state['right_cat']}"
+                        # Hint summary
+                        parts = [f"{k}:{int(round(100* (v/total_amt))) if total_amt>0 else 0}%" for k, v in plan.items()]
+                        split_hint.text = "Split enabled: " + ", ".join(parts)
                         split_dlg.close()
 
                     with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
                         ui.button("Cancel", on_click=split_dlg.close).props("flat")
-                        ui.button("Apply", on_click=_apply_split_plan).props("unelevated")
+                        ui.button("Apply", on_click=_apply_multi_split).props("unelevated")
 
                 def _open_split_dialog() -> None:
-                    # default presets
-                    try:
-                        pct_slider.value = int(split_state.get("pct") or 70)
-                    except Exception:
-                        pct_slider.value = 70
-                    right_choice["v"] = str(split_state.get("right_cat") or "Household")
-                    _update_toggle_styles()
-                    _recalc_preview()
-                    split_dlg.open()            # --- Live category suggestion (Phase 6.2+): auto-categorize as you type Notes (debounced),
+                    # Initialize from detected amounts (or fallback)
+                    _reset_to_detected()
+                    split_dlg.open()
+
+            # --- Live category suggestion (Phase 6.2+): auto-categorize as you type Notes (debounced),
             #     show a small chip "Auto: <Category>", and never override a manual category choice ---
             category_touched = {"v": False}         # user manually changed category
             _setting_category = {"v": False}        # internal guard so programmatic changes don't mark touched
@@ -4536,43 +4575,43 @@ def add_page():
 
                 notes = str(d_notes.value or "").strip()
 
-                # Phase 6.4: If a split plan is enabled (Walmart/Costco OCR), save as two linked transactions
-                if entry_type.lower() == 'debit' and bool(split_state.get("enabled")):
+                # Phase 6.5+: If a multi-split plan is enabled, save as multiple linked transactions
+                if entry_type.lower() == 'debit' and bool(split_plan.get("enabled")) and isinstance(split_plan.get("amounts"), dict):
                     try:
                         total_amt = float(to_float(d_amount.value))
-                        pct = int(split_state.get("pct") or 70)
-                        pct = max(0, min(100, pct))
-                        right_cat = str(split_state.get("right_cat") or "Household").strip() or "Household"
-                        left_amt = round(total_amt * (pct / 100.0), 2)
-                        right_amt = round(total_amt - left_amt, 2)
+                        plan: Dict[str, float] = {k: float(v) for k, v in (split_plan.get('amounts') or {}).items()}
+                        # Validate plan sums to total (tolerate rounding)
+                        s = round(sum(plan.values()), 2)
+                        if abs(round(total_amt - s, 2)) > 0.05:
+                            ui.notify('Split total does not match receipt total. Please adjust and try again.', type='warning')
+                            return
+                        # Nudge rounding diff into Groceries if needed
+                        diff = round(total_amt - s, 2)
+                        if abs(diff) <= 0.05 and abs(diff) > 0.001:
+                            plan['Groceries'] = round(plan.get('Groceries', 0.0) + diff, 2)
+                        # Filter zero/negative
+                        plan = {k: round(v, 2) for k, v in plan.items() if v and v > 0.009}
+                        if not plan:
+                            ui.notify('Split plan is empty.', type='warning')
+                            return
 
                         group_id = sha16(f"SPLIT|{owner}|{dd.isoformat()}|{account}|{method}|{total_amt}|{notes}|{dt.datetime.now().isoformat()}")
-                        # Primary (Groceries)
-                        append_tx(
-                            tx_id=sha16(group_id + "|1"),
-                            date_=dd,
-                            owner=owner,
-                            type_=entry_type,
-                            amount=left_amt,
-                            method=method,
-                            account=account,
-                            category="Groceries",
-                            notes=(notes + f" | split:{group_id} 1/2").strip(),
-                            recurring_id="",
-                        )
-                        # Secondary (Household or Shopping)
-                        append_tx(
-                            tx_id=sha16(group_id + "|2"),
-                            date_=dd,
-                            owner=owner,
-                            type_=entry_type,
-                            amount=right_amt,
-                            method=method,
-                            account=account,
-                            category=right_cat,
-                            notes=(notes + f" | split:{group_id} 2/2").strip(),
-                            recurring_id="",
-                        )
+                        idx = 1
+                        n = len(plan)
+                        for cat, amt in plan.items():
+                            append_tx(
+                                tx_id=sha16(group_id + f"|{idx}"),
+                                date_=dd,
+                                owner=owner,
+                                type_=entry_type,
+                                amount=float(amt),
+                                method=method,
+                                account=account,
+                                category=str(cat),
+                                notes=(notes + f" | split:{group_id} {idx}/{n}").strip(),
+                                recurring_id="",
+                            )
+                            idx += 1
 
                         invalidate('transactions')
                         invalidate('recurring')
