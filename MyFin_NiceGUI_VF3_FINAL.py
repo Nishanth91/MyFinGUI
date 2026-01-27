@@ -1031,11 +1031,16 @@ def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
             continue
 
         raw_name = ln2[:m.start('price')].replace('$', '').strip(" -:·|")
+
+        # Clean up Walmart-style item lines which often contain long SKU/UPC codes.
+        # Example: "PHARMACY RX 062773566705" -> "PHARMACY RX".
+        raw_name = re.sub(r"\b\d{4,}\b", " ", raw_name)
+        raw_name = re.sub(r"\s+", " ", raw_name).strip()
         if len(raw_name) < 2:
             continue
 
         # Remove long numeric codes and common trailing markers (E/D/H etc.)
-        toks = [t for t in raw_name.split() if not re.fullmatch(r"\d{5,}", t)]
+        toks = [t for t in raw_name.split() if not re.fullmatch(r"\d{4,}", t)]
         # Drop orphan trailing tokens like 'E', 'D', 'H', '0D'
         while toks and re.fullmatch(r"[A-Z]", toks[-1], flags=re.I):
             toks.pop()
@@ -1087,65 +1092,118 @@ def _build_rules_index(rules: List[Tuple[str, str]]) -> Dict[str, List[str]]:
     return out
 
 def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, str]]) -> Dict[str, Any]:
-    """Classify receipt line items into Groceries/Household/Shopping/Health using the rules sheet."""
+    """Classify receipt line items into Groceries/Household/Shopping/Health using the rules sheet.
+
+    Notes:
+      - We intentionally IGNORE merchant/store keywords (e.g., walmart/costco/superstore) for line-item classification,
+        because they would otherwise force everything into Groceries.
+      - We add a small fallback keyword list for Walmart-style abbreviations & common non-food signals (clothing, toys, RX).
+    """
     idx = _build_rules_index(rules)
 
-    # Gather keywords (tolerate singular/plural)
-    kw_health = idx.get('health', []) + idx.get('medical', [])
-    kw_groc = idx.get('groceries', []) + idx.get('grocery', [])
-    kw_house = idx.get('household', [])
-    kw_shop = idx.get('shopping', [])
+    def _norm(s: str) -> str:
+        s = (s or "").lower()
+        # keep alnum and spaces; normalize whitespace
+        s = re.sub(r"[^a-z0-9]+", " ", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
 
-    # Minimal fallbacks for robustness (works even if Rules sheet is empty)
-    fb_health = ['pharm', 'pharmacy', 'rx', 'vitamin', 'advil', 'tylenol', 'benadryl', 'bandage', 'first aid']
-    fb_house = ['detergent', 'bleach', 'paper towel', 'toilet paper', 'tissue', 'garbage bag', 'trash bag', 'soap', 'wipes', 'clean', 'spray', 'dish', 'disinfect', 'laundry', 'softener', 'shampoo', 'conditioner']
-    fb_shop = ['shirt', 'sleep', 'jeans', 'pant', 'pants', 'wom', 'women', 'womens', 'men', 'mens', 'kids', 'toy', 'toys', 'dress', 'skirt', 'bra', 'brief', 'sock', 'socks', 'shoe', 'shoes', 'top', 'tank', 'apparel', 'woven']
-    fb_groc = ['milk', 'eggs', 'egg', 'bread', 'rice', 'banana', 'tomato', 'onion', 'yogurt', 'dal', 'atta', 'apple', 'avocado', 'carrot', 'cucumber', 'beans', 'fruit', 'veg', 'vegetable']
+    # Merchant/store words to ignore when classifying line items
+    IGNORE_ITEM_KEYWORDS = {
+        "walmart", "costco", "superstore", "no frills", "nofrills", "save on", "saveon", "freshco",
+        "safeway", "gills", "gill", "dinos", "dino", "bombayspices", "bombay spices",
+        "grocery", "groceries",
+    }
 
-    def _match(name_l: str, kws: List[str]) -> bool:
-        return any(k and k in name_l for k in kws)
+    def _filter_keywords(words: List[str]) -> List[str]:
+        out: List[str] = []
+        for w in words or []:
+            w2 = _norm(w)
+            if not w2:
+                continue
+            if w2 in IGNORE_ITEM_KEYWORDS:
+                continue
+            # avoid ultra-short noisy tokens
+            if len(w2) < 3:
+                continue
+            out.append(w2)
+        # unique preserving order
+        seen = set()
+        uniq: List[str] = []
+        for w2 in out:
+            if w2 not in seen:
+                seen.add(w2)
+                uniq.append(w2)
+        return uniq
 
-    amounts = {'Groceries': 0.0, 'Household': 0.0, 'Shopping': 0.0, 'Health': 0.0}
-    counts = {'Groceries': 0, 'Household': 0, 'Shopping': 0, 'Health': 0}
-    per_item: list[dict[str, Any]] = []
+    kw_groc = _filter_keywords(idx.get('groceries', []) + idx.get('grocery', []))
+    kw_house = _filter_keywords(idx.get('household', []) + idx.get('house hold', []))
+    kw_shop = _filter_keywords(idx.get('shopping', []) + idx.get('shop', []))
+    kw_health = _filter_keywords(idx.get('health', []) + idx.get('medical', []))
+
+    # Hard fallback signals (for receipts with abbreviated items)
+    fb_shop = _filter_keywords([
+        'shirt', 'jeans', 'pant', 'pants', 'dress', 'top', 'bra', 'brief', 'sock', 'socks', 'shoe', 'shoes',
+        'toy', 'toys', 'lego', 'doll', 'stroller', 'diaper', 'diapers', 'electronics', 'headphone', 'charger',
+        'game', 'switch', 'ps5', 'xbox', 'beauty', 'spray', 'lotion', 'makeup',
+    ])
+    fb_house = _filter_keywords([
+        'detergent', 'laundry', 'bleach', 'dish', 'soap', 'shampoo', 'toothpaste', 'paper', 'towel', 'towels',
+        'trash', 'garbage', 'bag', 'bags', 'cleaner', 'disinfect', 'floor', 'scrub', 'softener', 'spray',
+    ])
+    fb_health = _filter_keywords([
+        'pharmacy', 'rx', 'advil', 'tylenol', 'vitamin', 'vitamins', 'bandage', 'ointment',
+        'clinic', 'dental', 'dentist', 'doctor', 'hospital', 'chiro', 'chiropractor',
+    ])
+
+    def _has_any(text_s: str, keywords: List[str]) -> bool:
+        # substring match is fine after normalization (keywords are also normalized)
+        for k in keywords:
+            if k and k in text_s:
+                return True
+        return False
+
+    def infer_item_category(item_name: str) -> str:
+        t = _norm(item_name)
+        if not t:
+            return 'Groceries'
+        # priority: Health -> Shopping -> Household -> Groceries
+        if _has_any(t, kw_health) or _has_any(t, fb_health):
+            return 'Health'
+        if _has_any(t, kw_shop) or _has_any(t, fb_shop):
+            return 'Shopping'
+        if _has_any(t, kw_house) or _has_any(t, fb_house):
+            return 'Household'
+        if _has_any(t, kw_groc):
+            return 'Groceries'
+        return 'Groceries'
+
+    cat_amounts = {c: 0.0 for c in ['Groceries', 'Household', 'Shopping', 'Health']}
+    per_item = []
 
     for it in items or []:
-        name = str(it.get('name') or '').strip()
+        name = (it.get('name') or '').strip()
         price = float(it.get('price') or 0.0)
-        name_l = name.lower()
+        cat = infer_item_category(name)
+        cat_amounts[cat] = cat_amounts.get(cat, 0.0) + price
+        per_item.append({'name': name, 'price': price, 'cat': cat})
 
-        # Priority: Health > Household > Shopping > Groceries
-        cat = ''
-        if _match(name_l, kw_health) or _match(name_l, fb_health):
-            cat = 'Health'
-        elif _match(name_l, kw_house) or _match(name_l, fb_house):
-            cat = 'Household'
-        elif _match(name_l, kw_shop) or _match(name_l, fb_shop):
-            cat = 'Shopping'
-        elif _match(name_l, kw_groc) or _match(name_l, fb_groc):
-            cat = 'Groceries'
+    total = round(sum(cat_amounts.values()), 2)
+    # normalize tiny negative/positive noise
+    for k in list(cat_amounts.keys()):
+        if abs(cat_amounts[k]) < 0.005:
+            cat_amounts[k] = 0.0
+        cat_amounts[k] = round(cat_amounts[k], 2)
 
-        if not cat:
-            cat = 'Groceries'
-        per_item.append({'name': name, 'price': price, 'category': cat})
-        if cat:
-            amounts[cat] += price
-            counts[cat] += 1
+    # If nothing meaningful was classified (e.g., OCR didn't yield line items), leave everything unassigned
+    if total <= 0.0:
+        cat_amounts = {c: 0.0 for c in ['Groceries', 'Household', 'Shopping', 'Health']}
 
-    return {'amounts': amounts, 'counts': counts, 'per_item': per_item}
-
-
-_gc: Optional[gspread.Client] = None
-_ss = None
-_ws: Dict[str, gspread.Worksheet] = {}
-
-# Quota protection / memoization for Sheets metadata
-_tabs_ready: bool = False
-_tabs_ready_at: float = 0.0
-_header_cache: Dict[str, List[str]] = {}
-_migrated_tx_ids: bool = False
-
-
+    return {
+        'detected_amounts': cat_amounts,
+        'detected_total': total,
+        'items': per_item,
+    }
 def _col_to_letter(idx0: int) -> str:
     """0-based column index -> Google Sheets column letter."""
     n = idx0 + 1
@@ -4330,7 +4388,20 @@ def add_page():
                                 items = extract_receipt_line_items(text)
                                 classified = classify_receipt_items(items, rules)
                                 parsed['line_items'] = items
-                                parsed['category_amounts'] = classified.get('amounts', {})
+                                detected_amounts = classified.get('amounts', {})
+                                # The classifier sums line-item prices (usually subtotal). Users want the
+                                # paid amount (total). If total and subtotal differ (tax), scale detected
+                                # amounts so the split matches the receipt total.
+                                try:
+                                    total_amt = float(parsed.get('amount') or 0.0)
+                                    detected_sum = float(sum(float(v or 0.0) for v in detected_amounts.values()))
+                                    if total_amt > 0 and detected_sum > 0 and abs(total_amt - detected_sum) > 0.02:
+                                        scale = total_amt / detected_sum
+                                        detected_amounts = {k: round(float(v or 0.0) * scale, 2) for k, v in detected_amounts.items()}
+                                except Exception:
+                                    pass
+
+                                parsed['category_amounts'] = detected_amounts
                                 parsed['category_counts'] = classified.get('counts', {})
                                 parsed['classified_items'] = classified.get('per_item', [])
                             except Exception:
