@@ -76,6 +76,7 @@ _tabs_ready_at: float = 0.0
 _gc = None  # gspread client cache
 _ss = None  # spreadsheet cache
 _header_cache = {}  # sheet headers cache
+_migrated_tx_ids: bool = False  # migration guard for TxId->id backfill
 
 
 import os
@@ -6650,6 +6651,7 @@ def bootstrap() -> None:
     g.setdefault('_tabs_ready', False)
     g.setdefault('_tabs_ready_at', 0.0)
     g.setdefault('_header_cache', {})
+    g.setdefault('_migrated_tx_ids', False)
     ensure_tabs()
     # One-time migration: older rows often have the unique id stored in `TxId` while
     # the newer logic edits by `id`. Backfill `id` from `TxId` so Edit works.
