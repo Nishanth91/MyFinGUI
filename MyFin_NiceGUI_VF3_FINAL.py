@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '6.5'
+APP_VERSION = '6.6'
 
 
 def log(message: str) -> None:
@@ -4522,6 +4522,18 @@ def add_page():
                                 parsed_state['parsed'] = None
                                 parsed_card.style('display:none')
                                 apply_btn.disable()
+
+                        # Keep Apply button state in sync with parsed OCR result.
+                        # Some receipts may parse partially; once we have *any* parsed payload, enable Apply.
+                        def _sync_apply_btn():
+                            try:
+                                if parsed_state.get('parsed'):
+                                    apply_btn.enable()
+                                else:
+                                    apply_btn.disable()
+                            except Exception:
+                                pass
+                        ui.timer(0.4, _sync_apply_btn)
                             except Exception as ex:
                                 ui.notify(f'Upload failed: {ex}', type='negative')
 
@@ -6960,3 +6972,5 @@ ui.run(
 # RELEASE_VERSION: 6.5 HF15 (rules-sheet-only + OCR 4-way split + improved line-item regex + fallback categorization + perf/cold-start)
 
 # Release: FinTrackr Phase 6.6
+
+# Release: 6.6
