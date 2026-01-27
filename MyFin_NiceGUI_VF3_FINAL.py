@@ -4340,7 +4340,7 @@ def add_page():
             d_date = ui.input("Date", value=today().isoformat()).props("type=date").classes("w-full")
             d_amount = ui.number("Amount", value=0.0, format="%.2f").classes("w-full")
 
-            is_debit = entry_type.lower() == 'debit'
+            is_debit = entry_type.lower() in ('debit','expense')
             is_income = entry_type.lower() in ('credit', 'income')
             is_invest = entry_type.lower() == 'investment'
             is_cc_repay = entry_type.lower() in ('cc repay', 'cc_repay', 'ccrepay', 'credit card repay', 'credit card repayment')
@@ -4425,7 +4425,7 @@ def add_page():
             d_rec = ui.checkbox("Mark as recurring (creates template for future cycles only)")
 
             # Receipt scan (Expense only): opens camera on mobile, runs free OCR in the browser (tesseract.js)
-            if entry_type.lower() == 'debit':
+            if entry_type.lower() in ('debit', 'expense'):
                 scan_state: Dict[str, Any] = {"data_url": None}
 
                 scan_dlg = ui.dialog()
@@ -4784,7 +4784,7 @@ def add_page():
                                 except Exception:
                                     pass
 
-                                if entry_type.lower() == 'debit' and _is_split_merchant(merch):
+                                if entry_type.lower() in ('debit','expense') and _is_split_merchant(merch):
                                     _open_split_dialog()
                             except Exception:
                                 pass
@@ -5076,7 +5076,7 @@ def add_page():
 
                 # Remember last-used card/account for Expenses (Debit) so next time it's preselected.
                 try:
-                    if entry_type.lower() == 'debit':
+                    if entry_type.lower() in ('debit', 'expense'):
                         if method:
                             app.storage.user['last_debit_method'] = method
                         if account:
@@ -5089,7 +5089,7 @@ def add_page():
                 notes = str(d_notes.value or "").strip()
 
                 # Phase 6.6+: If a multi-split plan is enabled, save as multiple linked transactions
-                if entry_type.lower() == 'debit' and bool(split_plan.get("enabled")) and isinstance(split_plan.get("amounts"), dict):
+                if entry_type.lower() in ('debit','expense') and bool(split_plan.get("enabled")) and isinstance(split_plan.get("amounts"), dict):
                     try:
                         total_amt = float(to_float(d_amount.value))
                         plan: Dict[str, float] = {k: float(v) for k, v in (split_plan.get('amounts') or {}).items()}
