@@ -133,7 +133,7 @@ from google.oauth2.service_account import Credentials
 from nicegui import ui, app
 
 # ---------------------------
-# Minimal OCR API endpoint (Phase 6.5 HF5)
+# Minimal OCR API endpoint (Phase 6.6 HF5)
 # ---------------------------
 from fastapi import Body
 @app.post('/api/ocr_server')
@@ -589,6 +589,15 @@ def _extract_date_from_text(text: str) -> Optional[dt.date]:
     if best_score < 2.0:
         return None
 
+    # Phase 6.6 safety: avoid "future" dates caused by OCR year/month confusion
+    try:
+        import datetime as _dt
+        today = _dt.date.today()
+        if isinstance(best_date, _dt.date) and best_date > (today + _dt.timedelta(days=7)):
+            best_date = _dt.date(best_date.year - 1, best_date.month, best_date.day)
+    except Exception:
+        pass
+
     return best_date
 
 def _extract_total_amount(text: str) -> Tuple[Optional[float], float, str]:
@@ -754,7 +763,7 @@ def pick_account_from_last4(cards_df: pd.DataFrame, last4: str) -> str:
 
 
 # ---------------------------
-# Server-side OCR fallback (Phase 6.5 HF5)
+# Server-side OCR fallback (Phase 6.6 HF5)
 # ---------------------------
 def server_ocr_from_data_url(data_url: str) -> str:
     """Fallback OCR using local Tesseract via pytesseract.
@@ -990,7 +999,7 @@ TABS = {
 
 
 # -----------------------------
-# Phase 6.5: OCR line-item intelligence
+# Phase 6.6: OCR line-item intelligence
 # -----------------------------
 
 _PRICE_RE = re.compile(r"(?P<price>-?\d{1,6}\.\d{2})(?:\s*[A-Z])?\s*[^A-Za-z0-9]*$")
@@ -1016,7 +1025,7 @@ def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
     Returns list of dicts: {name:str, price:float, raw:str}
     Heuristic: lines that end with a price (e.g., 'BANANAS 2.97').
 
-    Phase 6.5 HF1 improvements:
+    Phase 6.6 HF1 improvements:
     - Strip long numeric item codes (e.g., 6290...) before matching.
     - Keep a 'raw' copy for debugging.
     - Less aggressive digit filtering (Walmart lines often include codes).
@@ -1213,6 +1222,224 @@ def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, s
         'detected_total': total,
         'items': per_item,
     }
+
+# -------------------------------
+# Phase 6.6: Weighted category engine for receipt splits (Groceries/Household/Shopping/Health)
+# -------------------------------
+
+RECEIPT_CATEGORIES_4 = ['Groceries', 'Household', 'Shopping', 'Health']
+
+_HARD_KEYWORDS = {
+    'Health': [
+        'pharmacy', 'rx', 'prescription', 'vitamin', 'medicine', 'med', 'tablet', 'capsule', 'ibuprofen',
+        'tylenol', 'advil', 'reactine', 'benadryl', 'bandage', 'antiseptic', 'first aid',
+        'body spray', 'deodorant', 'shampoo', 'conditioner', 'lotion', 'skincare',
+    ],
+    'Shopping': [
+        'shirt', 't-shirt', 'tee', 'tank', 'top', 'woven', 'jeans', 'pant', 'pants', 'legging', 'leggings',
+        'dress', 'skirt', 'hoodie', 'sweater', 'jacket', 'coat', 'shoe', 'shoes', 'sandal', 'sandals',
+        'toy', 'toys', 'doll', 'lego', 'game', 'games',
+    ],
+    'Household': [
+        'detergent', 'laundry', 'bleach', 'dish soap', 'dish', 'soap', 'cleaner', 'cleaning', 'disinfect',
+        'paper towel', 'paper towels', 'tissue', 'toilet paper', 'garbage bag', 'garbage bags',
+        'ziplock', 'foil', 'plastic wrap', 'broom', 'mop', 'sponge', 'sponges', 'air freshener',
+        'light bulb', 'batteries',
+    ],
+    'Groceries': [
+        # signals that commonly appear on produce/meat lines
+        'kg', '/kg', 'lb', '/lb',
+        # common grocery words (not exhaustive)
+        'banana', 'bananas', 'tomato', 'tomatoes', 'onion', 'onions', 'potato', 'potatoes', 'spinach',
+        'cilantro', 'tofu', 'milk', 'bread', 'rice', 'egg', 'eggs', 'yogurt', 'curd', 'fruit', 'vegetable',
+    ],
+}
+
+def _normalize_receipt_text(s: str) -> str:
+    s = (s or '').lower()
+    s = re.sub(r'[\t\r]+', ' ', s)
+    s = re.sub(r'[^a-z0-9\s/\-\.]+', ' ', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+def _normalize_item_name(s: str) -> str:
+    s = _normalize_receipt_text(s)
+    # Remove long numeric blocks (UPC/SKU)
+    s = re.sub(r'\b\d{6,}\b', ' ', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+def _build_keyword_map_from_rules(rules: List[Tuple[str, str]]) -> Dict[str, List[str]]:
+    kw: Dict[str, List[str]] = {c: [] for c in RECEIPT_CATEGORIES_4}
+    for k, cat in (rules or []):
+        try:
+            kk = _normalize_receipt_text(str(k))
+            cc = str(cat).strip()
+            if not kk or cc not in kw:
+                continue
+            kw[cc].append(kk)
+        except Exception:
+            continue
+    # Merge hard keywords (dedup)
+    for c in RECEIPT_CATEGORIES_4:
+        merged = list(dict.fromkeys((kw.get(c) or []) + [_normalize_receipt_text(x) for x in _HARD_KEYWORDS.get(c, [])]))
+        kw[c] = merged
+    return kw
+
+def score_and_split_receipt(text: str,
+                            items: List[Dict[str, Any]],
+                            rules: List[Tuple[str, str]],
+                            total_amount: float,
+                            merchant: str = '') -> Dict[str, Any]:
+    """Return a deterministic split across the 4 receipt categories using weighted signals.
+
+    Output keys (important for UI/debug):
+      - detected_amounts: {Category: amount} (scaled to total_amount if needed)
+      - percents: {Category: int percent}
+      - scores: {Category: float}
+      - reasons: {Category: [str,...]}  (why signals fired)
+      - per_item: [{name, price, category, why}]
+      - confidence: 0..10
+    """
+    merchant_n = _normalize_receipt_text(merchant)
+    text_n = _normalize_receipt_text(text)
+    kw_map = _build_keyword_map_from_rules(rules)
+
+    # Base scores
+    scores: Dict[str, float] = {c: 0.0 for c in RECEIPT_CATEGORIES_4}
+    reasons: Dict[str, List[str]] = {c: [] for c in RECEIPT_CATEGORIES_4}
+
+    # Text-level strong signals
+    def _hit(cat: str, w: float, why: str) -> None:
+        scores[cat] += w
+        if why and (why not in reasons[cat]):
+            reasons[cat].append(why)
+
+    if 'pharmacy' in text_n or re.search(r'\brx\b', text_n):
+        _hit('Health', 10.0, "Text contains PHARMACY/RX")
+    if any(k in text_n for k in ['sleep shirt', 'jeans', 'woven top', 'shirt', 'pant', 'pants', 'dress', 'tank']):
+        _hit('Shopping', 6.0, "Text contains clothing keywords")
+    if any(k in text_n for k in ['detergent', 'paper towel', 'toilet paper', 'garbage bag', 'cleaner', 'bleach']):
+        _hit('Household', 6.0, "Text contains household keywords")
+    if ('/kg' in text_n) or (' kg ' in f' {text_n} ') or any(k in text_n for k in ['banana', 'bananas', 'spinach', 'tofu', 'milk']):
+        _hit('Groceries', 4.0, "Text contains grocery/produce signals")
+    if 'costco' in merchant_n:
+        _hit('Groceries', 1.5, "Merchant Costco bias (mostly groceries)")
+    if 'superstore' in merchant_n:
+        _hit('Groceries', 1.0, "Merchant Superstore bias (mostly groceries)")
+
+    # Per-item classification
+    per_item: List[Dict[str, Any]] = []
+    subtotals: Dict[str, float] = {c: 0.0 for c in RECEIPT_CATEGORIES_4}
+    signal_hits = 0
+
+    for it in (items or []):
+        name_raw = str(it.get('name') or it.get('raw') or '')
+        price = float(to_float(it.get('price') or 0.0) or 0.0)
+        name = _normalize_item_name(name_raw)
+
+        local: Dict[str, float] = {c: 0.0 for c in RECEIPT_CATEGORIES_4}
+        why: List[str] = []
+
+        # Rule/hard keyword matches
+        for c in RECEIPT_CATEGORIES_4:
+            for kw in kw_map.get(c, []):
+                if kw and kw in name:
+                    w = 4.0 if c in ['Health', 'Shopping', 'Household'] else 2.0
+                    local[c] += w
+                    if len(why) < 3:
+                        why.append(f"{c}: '{kw}'")
+                    signal_hits += 1
+                    break
+
+        # Heuristic boosts
+        if re.search(r'\bpharmacy\b', name) or re.search(r'\brx\b', name):
+            local['Health'] += 8.0
+            if len(why) < 3: why.append("Health: PHARMACY/RX")
+            signal_hits += 2
+        if any(k in name for k in ['jeans', 'shirt', 'top', 'tank', 'dress', 'pant', 'pants', 'woven']):
+            local['Shopping'] += 6.0
+            if len(why) < 3: why.append("Shopping: clothing term")
+            signal_hits += 1
+        if any(k in name for k in ['detergent', 'bleach', 'tissue', 'paper towel', 'toilet paper', 'cleaner', 'dish', 'soap', 'garbage bag']):
+            local['Household'] += 5.0
+            if len(why) < 3: why.append("Household: home/cleaning term")
+            signal_hits += 1
+        if ('/kg' in name) or re.search(r'\b\d+\.\d+\s*kg\b', name) or any(k in name for k in ['banana', 'tofu', 'spinach', 'milk', 'bread']):
+            local['Groceries'] += 3.0
+            if len(why) < 3: why.append("Groceries: food/produce signal")
+            signal_hits += 1
+
+        # Decide category
+        cat = max(local, key=lambda c: local[c])
+        if local[cat] <= 0.0:
+            # fallback using global text-level scores
+            cat = max(scores, key=lambda c: scores[c]) if max(scores.values()) > 0 else 'Groceries'
+            why.append("Fallback: global score")
+        # Promote local signals into global scores mildly (so mixed receipts stabilize)
+        scores[cat] += max(0.5, local.get(cat, 0.0) * 0.2)
+
+        subtotals[cat] += max(0.0, price)
+        per_item.append({'name': name_raw, 'price': round(price, 2), 'category': cat, 'why': ', '.join(why[:3])})
+
+    # Compute split amounts
+    subtotal_sum = float(sum(subtotals.values()))
+    detected_amounts: Dict[str, float] = {}
+    if subtotal_sum > 0.01:
+        detected_amounts = {c: round(subtotals[c], 2) for c in RECEIPT_CATEGORIES_4 if subtotals[c] > 0.005}
+    else:
+        # score-only split (rare: no items parsed)
+        score_sum = sum(max(0.0, v) for v in scores.values())
+        if score_sum <= 0.0:
+            detected_amounts = {'Groceries': round(float(total_amount or 0.0), 2)}
+            reasons['Groceries'].append('Fallback: no line items parsed and no signals')
+        else:
+            detected_amounts = {c: round(float(total_amount or 0.0) * (max(0.0, scores[c]) / score_sum), 2) for c in RECEIPT_CATEGORIES_4 if scores[c] > 0.0001}
+
+    # Scale subtotal split to match total (tax-inclusive)
+    try:
+        total_amt = float(total_amount or 0.0)
+        dsum = float(sum(float(v or 0.0) for v in detected_amounts.values()))
+        if total_amt > 0.01 and dsum > 0.01 and abs(total_amt - dsum) > 0.02:
+            scale = total_amt / dsum
+            detected_amounts = {k: round(float(v or 0.0) * scale, 2) for k, v in detected_amounts.items()}
+    except Exception:
+        pass
+
+    # percents
+    percents: Dict[str, int] = {c: 0 for c in RECEIPT_CATEGORIES_4}
+    try:
+        tot = float(total_amount or 0.0)
+        if tot > 0.001:
+            for c in RECEIPT_CATEGORIES_4:
+                percents[c] = int(round(100.0 * (float(detected_amounts.get(c, 0.0) or 0.0) / tot)))
+    except Exception:
+        pass
+
+    # Confidence: more signals + items => higher
+    n_items = len(items or [])
+    conf = 2.0
+    conf += min(5.0, n_items / 6.0 * 4.0)      # up to +4
+    conf += min(3.0, signal_hits / 6.0 * 3.0)  # up to +3
+    conf = max(0.0, min(10.0, conf))
+
+    # Top reasons summary
+    top_cat = max(percents, key=lambda c: percents[c])
+    if not reasons[top_cat]:
+        reasons[top_cat].append(f"Top split by amount: {percents[top_cat]}%")
+
+    return {
+        'detected_amounts': detected_amounts,
+        'percents': percents,
+        'scores': scores,
+        'reasons': reasons,
+        'per_item': per_item,
+        'subtotals': subtotals,
+        'confidence': conf,
+        'winner': top_cat,
+    }
+
+
 def _col_to_letter(idx0: int) -> str:
     """0-based column index -> Google Sheets column letter."""
     n = idx0 + 1
@@ -1723,7 +1950,7 @@ def invalidate(*tabs: str) -> None:
 def load_rules(force: bool = False) -> List[Tuple[str, str]]:
     """Load category rules from the **rules** sheet only.
 
-    Phase 6.5 change:
+    Phase 6.6 change:
     - The legacy/admin `rules_text` source is deprecated and ignored to avoid conflicts.
 
     Robustness:
@@ -2801,7 +3028,7 @@ html.mf-light .q-btn__content {
 
 
 /* ================================
-   Phase 6.5 Shell Layout (bank-style)
+   Phase 6.6 Shell Layout (bank-style)
    ================================ */
 .mf-shell { display: flex; min-height: 100vh; width: 100%; }
 .mf-rail {
@@ -3457,7 +3684,7 @@ def nav_button(label: str, icon: str, path: str):
     ui.button(label, on_click=lambda: nav_to(path)).props(f"flat icon={icon}").classes("w-full")
 
 def shell(content_fn, *, active_path: str = ""):
-    """Phase 6.5 shell: bank-style rail + header + canvas.
+    """Phase 6.6 shell: bank-style rail + header + canvas.
     Keeps Phase 4 logic intact and only wraps presentation.
     """
     # NOTE: do NOT use ui.open(); some NiceGUI versions on Render don't have it.
@@ -3500,7 +3727,7 @@ def shell(content_fn, *, active_path: str = ""):
                 nav_btn("Admin", "settings", "/admin")
 
                 ui.separator().props("dark").classes("opacity-20 my-1")
-                ui.label("Phase 6.5").classes("text-xs").style("color: var(--mf-muted); text-align:center;")
+                ui.label("Phase 6.6").classes("text-xs").style("color: var(--mf-muted); text-align:center;")
 
         # Main
         with ui.element("main").classes("mf-main"):
@@ -4118,7 +4345,7 @@ def add_page():
             is_invest = entry_type.lower() == 'investment'
             is_cc_repay = entry_type.lower() in ('cc repay', 'cc_repay', 'ccrepay', 'credit card repay', 'credit card repayment')
 
-            # Phase 6.5+: OCR-triggered multi-category split (Walmart/Costco/Superstore)
+            # Phase 6.6+: OCR-triggered multi-category split (Walmart/Costco/Superstore)
             # Stores a plan of category->amount which will be written as multiple transaction rows on Save.
             split_plan: Dict[str, Any] = {
                 "enabled": False,
@@ -4410,7 +4637,7 @@ def add_page():
 
                             parsed = parse_receipt_text(text)
                             parsed_state['parsed'] = parsed
-                            # Phase 6.5: OCR line-item intelligence (rule-sheet driven)
+                            # Phase 6.6: OCR line-item intelligence (rule-sheet driven)
                             try:
                                 rules = load_rules(force=False)
                                 items = extract_receipt_line_items(text)
@@ -4426,24 +4653,19 @@ def add_page():
                                             items = [{'name': 'HOUSEHOLD', 'price': total_fallback, 'raw': 'fallback'}]
                                         elif any(k in lowtxt for k in ['shirt', 'jeans', 'pant', 'pants', 'dress', 'toy', 'toys']):
                                             items = [{'name': 'SHOPPING', 'price': total_fallback, 'raw': 'fallback'}]
-                                classified = classify_receipt_items(items, rules)
+                                
+                                # Phase 6.6: Weighted category engine (4 buckets) + score-based split
+                                total_amt = float(parsed.get('amount') or 0.0)
+                                split = score_and_split_receipt(text=text, items=items, rules=rules, total_amount=total_amt, merchant=str(parsed.get('merchant') or ''))
+                                detected_amounts = split.get('detected_amounts', {}) or {}
                                 parsed['line_items'] = items
-                                detected_amounts = classified.get('detected_amounts', {})
-                                # The classifier sums line-item prices (usually subtotal). Users want the
-                                # paid amount (total). If total and subtotal differ (tax), scale detected
-                                # amounts so the split matches the receipt total.
-                                try:
-                                    total_amt = float(parsed.get('amount') or 0.0)
-                                    detected_sum = float(sum(float(v or 0.0) for v in detected_amounts.values()))
-                                    if total_amt > 0 and detected_sum > 0 and abs(total_amt - detected_sum) > 0.02:
-                                        scale = total_amt / detected_sum
-                                        detected_amounts = {k: round(float(v or 0.0) * scale, 2) for k, v in detected_amounts.items()}
-                                except Exception:
-                                    pass
-
                                 parsed['category_amounts'] = detected_amounts
-                                parsed['category_counts'] = classified.get('counts', {})
-                                parsed['classified_items'] = classified.get('per_item', [])
+                                parsed['category_percents'] = split.get('percents', {}) or {}
+                                parsed['category_scores'] = split.get('scores', {}) or {}
+                                parsed['category_reasons'] = split.get('reasons', {}) or {}
+                                parsed['classified_items'] = split.get('per_item', []) or []
+                                parsed['split_confidence'] = float(split.get('confidence') or 0.0)
+
                             except Exception:
                                 pass
 
@@ -4519,7 +4741,7 @@ def add_page():
                             # Refresh category suggestion with updated notes
                             _refresh_suggestion_now()
 
-                            # Phase 6.5: If OCR merchant is Walmart/Costco/Superstore, offer multi-category split (optional)
+                            # Phase 6.6: If OCR merchant is Walmart/Costco/Superstore, offer multi-category split (optional)
                             try:
                                 split_plan['merchant'] = merch
                                 split_plan['enabled'] = False
@@ -4536,6 +4758,15 @@ def add_page():
                                 except Exception:
                                     det = {}
                                 split_plan['detected_amounts'] = det
+
+                                # Phase 6.6 debug: carry category scores/percents/reasons into split dialog
+                                try:
+                                    split_plan['scores'] = (parsed or {}).get('category_scores') or {}
+                                    split_plan['percents'] = (parsed or {}).get('category_percents') or {}
+                                    split_plan['reasons'] = (parsed or {}).get('category_reasons') or {}
+                                    split_plan['split_confidence'] = float((parsed or {}).get('split_confidence') or 0.0)
+                                except Exception:
+                                    pass
 
                                 if entry_type.lower() == 'debit' and _is_split_merchant(merch):
                                     _open_split_dialog()
@@ -4557,7 +4788,7 @@ def add_page():
 
                 ui.button('Scan receipt', on_click=scan_dlg.open).props('outline').classes('w-full')
 
-                # Phase 6.5: Multi-category split UI — shown only after OCR Apply for Walmart/Costco/Superstore
+                # Phase 6.6: Multi-category split UI — shown only after OCR Apply for Walmart/Costco/Superstore
                 split_hint = ui.label("").classes("text-xs").style("color: var(--mf-muted)")
 
                 split_dlg = ui.dialog()
@@ -4570,6 +4801,11 @@ def add_page():
                     amt_inputs: Dict[str, Any] = {}
                     pct_labels: Dict[str, Any] = {}
                     warn_lbl = ui.label("").classes("text-xs q-mt-sm").style("color: var(--mf-muted)")
+
+                    # Phase 6.6: show what we detected (scores + reasons)
+                    split_conf_lbl = ui.label("").classes("text-xs q-mt-xs").style("color: var(--mf-muted)")
+                    with ui.expansion("Split debug (why categories were chosen)").classes("w-full q-mt-sm"):
+                        dbg_md = ui.markdown("").classes("text-xs")
 
                     def _round2(x: float) -> float:
                         try:
@@ -4617,6 +4853,28 @@ def add_page():
 
                     def _reset_to_detected() -> None:
                         det = split_plan.get('detected_amounts') or {}
+
+                        # update debug panel
+                        try:
+                            confv = float(split_plan.get('split_confidence') or 0.0)
+                            split_conf_lbl.text = f"Split confidence: {confv:.1f}/10"
+                        except Exception:
+                            pass
+                        try:
+                            scores = split_plan.get('scores') or {}
+                            perc = split_plan.get('percents') or {}
+                            reasons = split_plan.get('reasons') or {}
+                            lines = []
+                            for c in split_cats:
+                                sc = float(scores.get(c, 0.0) or 0.0)
+                                pc = int(perc.get(c, 0) or 0)
+                                rs = reasons.get(c) or []
+                                r1 = (rs[0] if rs else '')
+                                lines.append(f"**{c}** — score: {sc:.1f}, pct: {pc}%  \\n- {r1}")
+                            winner = max(perc, key=lambda k: int(perc.get(k, 0) or 0)) if isinstance(perc, dict) and perc else ''
+                            dbg_md.content = "\\n\\n".join(lines) + (f"\\n\\n**Winner:** {winner}" if winner else "")
+                        except Exception:
+                            pass
                         total_amt = _round2(float(to_float(d_amount.value)))
                         # start with detected
                         for c in split_cats:
@@ -4814,7 +5072,7 @@ def add_page():
 
                 notes = str(d_notes.value or "").strip()
 
-                # Phase 6.5+: If a multi-split plan is enabled, save as multiple linked transactions
+                # Phase 6.6+: If a multi-split plan is enabled, save as multiple linked transactions
                 if entry_type.lower() == 'debit' and bool(split_plan.get("enabled")) and isinstance(split_plan.get("amounts"), dict):
                     try:
                         total_amt = float(to_float(d_amount.value))
@@ -6697,6 +6955,8 @@ ui.run(
     title=APP_TITLE,
 )
 
-# Release: FinTrackr Phase 6.5 (OCR line-item intelligence + rules sheet enabled)
+# Release: FinTrackr Phase 6.6 (OCR line-item intelligence + rules sheet enabled)
 
 # RELEASE_VERSION: 6.5 HF15 (rules-sheet-only + OCR 4-way split + improved line-item regex + fallback categorization + perf/cold-start)
+
+# Release: FinTrackr Phase 6.6
