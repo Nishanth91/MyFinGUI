@@ -4532,7 +4532,7 @@ def add_page():
                         # Some receipts may parse partially; once we have *any* parsed payload, enable Apply.
                         def _sync_apply_btn():
                             try:
-                                if parsed_state.get('parsed'):
+                                if parsed_state.get('parsed') is not None:
                                     apply_btn.enable()
                                 else:
                                     apply_btn.disable()
