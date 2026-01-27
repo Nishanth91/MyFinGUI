@@ -993,7 +993,7 @@ TABS = {
 # Phase 6.5: OCR line-item intelligence
 # -----------------------------
 
-_PRICE_RE = re.compile(r"(?P<price>-?\d{1,6}\.\d{2})(?:\s*[A-Z])?\s*$")
+_PRICE_RE = re.compile(r"(?P<price>-?\d{1,6}\.\d{2})(?:\s*[A-Z])?\s*[^A-Za-z0-9]*$")
 
 def _is_noise_receipt_line(line: str) -> bool:
     l = (line or '').strip().lower()
@@ -4268,9 +4268,29 @@ def add_page():
                                     raise ValueError('no file bytes received')
 
                                 mime = getattr(e, 'type', None) or getattr(e, 'mime_type', None) or 'image/jpeg'
-                                scan_state['data_url'] = f"data:{mime};base64,{base64.b64encode(data).decode('utf-8')}"
-                                preview.set_source(scan_state['data_url'])
-                                preview.style('display:block')
+                                # Keep original bytes for server-side OCR (faster + no huge base64 on mobile)
+                                scan_state['img_bytes'] = data
+
+                                # Generate a lightweight preview (downscaled) to avoid iOS lag when selecting images
+                                try:
+                                    from PIL import Image
+                                    im = Image.open(io.BytesIO(data))
+                                    im = im.convert('RGB')
+                                    im.thumbnail((900, 900))
+                                    buf = io.BytesIO()
+                                    im.save(buf, format='JPEG', quality=70, optimize=True)
+                                    preview_bytes = buf.getvalue()
+                                    scan_state['data_url'] = f"data:image/jpeg;base64,{base64.b64encode(preview_bytes).decode('utf-8')}"
+                                except Exception:
+                                    # fallback: still allow previewless scanning
+                                    scan_state['data_url'] = ''
+
+                                if scan_state.get('data_url'):
+                                    preview.set_source(scan_state['data_url'])
+                                    preview.style('display:block')
+                                else:
+                                    preview.style('display:none')
+
                                 raw_out.value = ''
                                 parsed_state['parsed'] = None
                                 parsed_card.style('display:none')
@@ -4395,9 +4415,21 @@ def add_page():
                             try:
                                 rules = load_rules(force=False)
                                 items = extract_receipt_line_items(text)
+                                # If OCR line-item extraction yields nothing (common on short pharmacy receipts),
+                                # fall back to a text-level signal so we can still split correctly.
+                                if (not items) and isinstance(text, str):
+                                    lowtxt = text.lower()
+                                    total_fallback = float(parsed.get('amount') or 0.0)
+                                    if total_fallback > 0:
+                                        if ('pharmacy' in lowtxt) or re.search(r'\brx\b', lowtxt):
+                                            items = [{'name': 'PHARMACY', 'price': total_fallback, 'raw': 'fallback'}]
+                                        elif any(k in lowtxt for k in ['detergent', 'laundry', 'paper towel', 'paper towels', 'garbage bag', 'garbage bags', 'bleach', 'dish soap']):
+                                            items = [{'name': 'HOUSEHOLD', 'price': total_fallback, 'raw': 'fallback'}]
+                                        elif any(k in lowtxt for k in ['shirt', 'jeans', 'pant', 'pants', 'dress', 'toy', 'toys']):
+                                            items = [{'name': 'SHOPPING', 'price': total_fallback, 'raw': 'fallback'}]
                                 classified = classify_receipt_items(items, rules)
                                 parsed['line_items'] = items
-                                detected_amounts = classified.get('amounts', {})
+                                detected_amounts = classified.get('detected_amounts', {})
                                 # The classifier sums line-item prices (usually subtotal). Users want the
                                 # paid amount (total). If total and subtotal differ (tax), scale detected
                                 # amounts so the split matches the receipt total.
@@ -6667,3 +6699,5 @@ ui.run(
 )
 
 # Release: FinTrackr Phase 6.5 (OCR line-item intelligence + rules sheet enabled)
+
+# RELEASE_VERSION: 6.5 HF15 (rules-sheet-only + OCR 4-way split + improved line-item regex + fallback categorization + perf/cold-start)
