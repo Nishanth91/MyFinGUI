@@ -4283,7 +4283,7 @@ def add_page():
                                     scan_state['data_url'] = f"data:image/jpeg;base64,{base64.b64encode(preview_bytes).decode('utf-8')}"
                                 except Exception:
                                     # fallback: still allow previewless scanning
-                                    scan_state['data_url'] = ''
+                                    scan_state['data_url'] = f"data:{mime};base64,{base64.b64encode(data).decode('utf-8')}"
 
                                 if scan_state.get('data_url'):
                                     preview.set_source(scan_state['data_url'])
@@ -4305,17 +4305,16 @@ def add_page():
                             upload_receipt.on('upload', _on_upload)
 
                         async def _run_ocr() -> None:
-                            if not scan_state.get('data_url'):
-                                # 5.2.6 HF: some mobile browsers show upload as complete but the server event may not fire.
+                            if not scan_state.get('data_url') and not scan_state.get('img_bytes'):
+                                # Some mobile browsers show upload as complete but the server event may not fire.
                                 # Try to recover from the upload component's value before warning the user.
                                 try:
                                     maybe_files = getattr(upload_receipt, 'value', None)
                                     if maybe_files:
-                                        # Try to feed the first file-like object into the same handler.
                                         await _on_upload(maybe_files[0])
                                 except Exception:
                                     pass
-                                if not scan_state.get('data_url'):
+                                if not scan_state.get('data_url') and not scan_state.get('img_bytes'):
                                     ui.notify('Please upload a receipt image first.', type='warning')
                                     return
                             ui.notify('Scanning…', type='info', timeout=1.2)
