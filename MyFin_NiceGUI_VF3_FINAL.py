@@ -122,6 +122,20 @@ def gs_retry(fn, *, retries: int = 6, base_sleep: float = 0.8):
 from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 from nicegui import ui, app
+
+# ---------------------------
+# Minimal OCR API endpoint (Phase 6.5 HF5)
+# ---------------------------
+from fastapi import Body
+@app.post('/api/ocr_server')
+async def _api_ocr_server(payload: dict = Body(...)):
+    try:
+        data_url = str(payload.get('data_url') or '')
+        text = server_ocr_from_data_url(data_url)
+        return {'ok': True, 'text': text}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
 # --- NiceGUI Html sanitize compatibility (prevents TypeError on some NiceGUI versions)
 try:
     from nicegui.elements.html import Html as _NiceHtml
@@ -728,6 +742,39 @@ def pick_account_from_last4(cards_df: pd.DataFrame, last4: str) -> str:
     except Exception:
         return ''
 
+
+
+# ---------------------------
+# Server-side OCR fallback (Phase 6.5 HF5)
+# ---------------------------
+def server_ocr_from_data_url(data_url: str) -> str:
+    """Fallback OCR using local Tesseract via pytesseract.
+    Accepts a data URL (data:image/..;base64,...) and returns extracted text.
+    """
+    try:
+        import base64
+        from io import BytesIO
+        from PIL import Image, ImageOps
+        import pytesseract
+
+        if not data_url or 'base64,' not in data_url:
+            return ''
+        b64 = data_url.split('base64,', 1)[1]
+        raw = base64.b64decode(b64)
+        im = Image.open(BytesIO(raw))
+        # Normalize for OCR: grayscale + autocontrast + slightly sharpen
+        im = ImageOps.exif_transpose(im)
+        im = im.convert('L')
+        im = ImageOps.autocontrast(im)
+        # Upscale small images a bit (helps receipts)
+        w, h = im.size
+        if max(w, h) < 1200:
+            scale = 1200 / max(w, h)
+            im = im.resize((int(w*scale), int(h*scale)))
+        config = '--oem 1 --psm 6'
+        return pytesseract.image_to_string(im, lang='eng', config=config) or ''
+    except Exception:
+        return ''
 
 def parse_receipt_text(text: str) -> Dict[str, Any]:
     """Return best-effort parsed fields from OCR text.
@@ -4204,106 +4251,69 @@ def add_page():
                             except Exception:
                                 # If this check fails, continue and let main OCR report errors.
                                 pass
+                            
                             img_literal = json.dumps(str(scan_state.get('data_url', '')))
-                            js = """
-                                // Client-side OCR (tesseract.js).
-                                // We downscale large images first to avoid timeouts on mobile Safari.
-                                const img = __IMG__;
-                                if (!window.Tesseract) {{ return {{ ok: false, error: 'tesseract.js not loaded' }}; }}
-                                const preprocess = async (dataUrl) => new Promise((resolve) => {
-                                  const im = new Image();
-                                  im.onload = () => {
-                                    try {
-                                      // Auto-orient + downscale + light preprocessing to improve OCR on receipts.
-                                      const maxW = 1400;
-                                      const maxH = 2200;
-                                      let w = im.width, h = im.height;
-                                      const scale = Math.min(1, maxW / w, maxH / h);
-                                      w = Math.max(1, Math.floor(w * scale));
-                                      h = Math.max(1, Math.floor(h * scale));
-
-                                      const c = document.createElement('canvas');
-                                      c.width = w; c.height = h;
-                                      const ctx = c.getContext('2d', { willReadFrequently: true });
-
-                                      // Draw
-                                      ctx.drawImage(im, 0, 0, w, h);
-
-                                      // Simple grayscale + contrast stretch + binary-ish threshold.
-                                      const imgData = ctx.getImageData(0, 0, w, h);
-                                      const d = imgData.data;
-                                      // quick luminance + contrast
-                                      const contrast = 1.25; // mild
-                                      const intercept = -20; // darken background
-                                      for (let i = 0; i < d.length; i += 4) {
-                                        const r = d[i], g = d[i+1], b = d[i+2];
-                                        let y = 0.2126*r + 0.7152*g + 0.0722*b;
-                                        y = y * contrast + intercept;
-                                        y = Math.max(0, Math.min(255, y));
-                                        // threshold
-                                        const v = (y > 140) ? 255 : 0;
-                                        d[i] = d[i+1] = d[i+2] = v;
-                                      }
-                                      ctx.putImageData(imgData, 0, 0);
-
-                                      resolve(c.toDataURL('image/jpeg', 0.88));
-                                    } catch (e) {
-                                      resolve(dataUrl);
-                                    }
-                                  };
-                                  im.onerror = () => resolve(dataUrl);
-                                  im.src = dataUrl;
-                                });{
-                                  const im = new Image();
-                                  im.onload = () => {{
-                                    try {{
-                                      const maxW = 1200;
-                                      const maxH = 1600;
-                                      let w = im.width, h = im.height;
-                                      const scale = Math.min(1, maxW / w, maxH / h);
-                                      w = Math.max(1, Math.floor(w * scale));
-                                      h = Math.max(1, Math.floor(h * scale));
-                                      const c = document.createElement('canvas');
-                                      c.width = w; c.height = h;
-                                      const ctx = c.getContext('2d');
-                                      ctx.drawImage(im, 0, 0, w, h);
-                                      resolve(c.toDataURL('image/jpeg', 0.85));
-                                    }} catch (e) {{
-                                      resolve(dataUrl);
-                                    }}
-                                  }};
-                                  im.onerror = () => resolve(dataUrl);
-                                  im.src = dataUrl;
-                                }});
-                                try {{
-                                  const small = await preprocess(img);
-                                  const res = await Tesseract.recognize(small, 'eng');
-                                  return {{ ok: true, text: res.data.text || '' }};
-                                }} catch (e) {{
-                                  return {{ ok: false, error: String(e) }};
-                                }}
-                            """
-                            js = js.replace('__IMG__', img_literal)
+                            # Clean, robust JS OCR (client-side). If it fails or returns empty, fall back to server OCR.
+                            js = f"""
+(async () => {{
+  try {{
+    const img = {img_literal};
+    if (!img) return {{ ok:false, error:'no image' }};
+    if (window.Tesseract && typeof Tesseract.recognize === 'function') {{
+      const preprocess = async (dataUrl) => new Promise((resolve) => {{
+        const im = new Image();
+        im.onload = () => {{
+          try {{
+            const maxW = 1400;
+            const maxH = 2400;
+            let w = im.width, h = im.height;
+            const scale = Math.min(1, maxW / w, maxH / h);
+            w = Math.max(1, Math.floor(w * scale));
+            h = Math.max(1, Math.floor(h * scale));
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            const ctx = c.getContext('2d', {{ willReadFrequently: true }});
+            ctx.drawImage(im, 0, 0, w, h);
+            const imgData = ctx.getImageData(0, 0, w, h);
+            const d = imgData.data;
+            const contrast = 1.2;
+            const intercept = -18;
+            for (let i = 0; i < d.length; i += 4) {{
+              const r = d[i], g = d[i+1], b = d[i+2];
+              let y = 0.2126*r + 0.7152*g + 0.0722*b;
+              y = y * contrast + intercept;
+              y = Math.max(0, Math.min(255, y));
+              const v = (y > 150) ? 255 : 0;
+              d[i] = d[i+1] = d[i+2] = v;
+            }}
+            ctx.putImageData(imgData, 0, 0);
+            resolve(c.toDataURL('image/jpeg', 0.9));
+          }} catch (e) {{ resolve(dataUrl); }}
+        }};
+        im.onerror = () => resolve(dataUrl);
+        im.src = dataUrl;
+      }});
+      const small = await preprocess(img);
+      const res = await Tesseract.recognize(small, 'eng');
+      return {{ ok:true, text:(res?.data?.text || '') }};
+    }}
+    return {{ ok:false, error:'tesseract.js not loaded' }};
+  }} catch (e) {{
+    return {{ ok:false, error:String(e) }};
+  }}
+}})()
+"""
                             try:
-                                # Mobile/browser OCR can easily take several seconds; give it more room on iOS.
                                 result = await ui.run_javascript(js, timeout=120.0)
                             except TimeoutError:
-                                ui.notify('OCR timed out (slow device). Try retaking closer/brighter or crop tighter.', type='negative')
-                                return
-                            except Exception as ex:
-                                ui.notify(f'OCR failed: {ex}', type='negative')
-                                return
-                            finally:
-                                # Always clear busy state even if OCR failed
-                                try:
-                                    scan_spinner.style('display:none')
-                                except Exception:
-                                    pass
-                                try:
-                                    run_btn.enable()
-                                except Exception:
-                                    pass
-
+                                result = None
+                            except Exception:
+                                result = None
+                            # If client OCR failed (or returned empty), fall back to server OCR
+                            if (not result) or (not isinstance(result, dict)) or (not result.get('ok')) or (not str((result or {}).get('text') or '').strip()):
+                                fallback_text = server_ocr_from_data_url(str(scan_state.get('data_url') or ''))
+                                if str(fallback_text).strip():
+                                    result = {'ok': True, 'text': str(fallback_text)}
                             if not result or not isinstance(result, dict) or not result.get('ok'):
                                 err = (result or {}).get('error', 'Unknown OCR error') if isinstance(result, dict) else 'Unknown OCR error'
                                 ui.notify(f'OCR failed: {err}', type='negative')
