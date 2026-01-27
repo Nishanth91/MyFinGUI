@@ -4522,7 +4522,12 @@ def add_page():
                                 parsed_state['parsed'] = None
                                 parsed_card.style('display:none')
                                 apply_btn.disable()
-
+                            except Exception as ex:
+                                pv_conf.text = f'Upload failed: {ex}'
+                                ui.notify(f'Upload failed: {ex}', color='negative')
+                                apply_btn.disable()
+                            finally:
+                                pass
                         # Keep Apply button state in sync with parsed OCR result.
                         # Some receipts may parse partially; once we have *any* parsed payload, enable Apply.
                         def _sync_apply_btn():
@@ -4534,9 +4539,6 @@ def add_page():
                             except Exception:
                                 pass
                         ui.timer(0.4, _sync_apply_btn)
-                            except Exception as ex:
-                                ui.notify(f'Upload failed: {ex}', type='negative')
-
                         upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt').props("accept='image/*'").classes('w-full')
                         try:
                             upload_receipt.on_upload(_on_upload)
