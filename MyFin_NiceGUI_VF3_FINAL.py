@@ -75,7 +75,7 @@ _tabs_ready: bool = False
 _tabs_ready_at: float = 0.0
 _gc = None  # gspread client cache
 _ss = None  # spreadsheet cache
-
+_header_cache = {}  # sheet headers cache
 
 
 import os
@@ -2800,7 +2800,7 @@ html.mf-light .q-btn__content {
 
 
 /* ================================
-   Phase 5.2 Shell Layout (bank-style)
+   Phase 6.5 Shell Layout (bank-style)
    ================================ */
 .mf-shell { display: flex; min-height: 100vh; width: 100%; }
 .mf-rail {
@@ -3456,7 +3456,7 @@ def nav_button(label: str, icon: str, path: str):
     ui.button(label, on_click=lambda: nav_to(path)).props(f"flat icon={icon}").classes("w-full")
 
 def shell(content_fn, *, active_path: str = ""):
-    """Phase 5.2 shell: bank-style rail + header + canvas.
+    """Phase 6.5 shell: bank-style rail + header + canvas.
     Keeps Phase 4 logic intact and only wraps presentation.
     """
     # NOTE: do NOT use ui.open(); some NiceGUI versions on Render don't have it.
@@ -3499,7 +3499,7 @@ def shell(content_fn, *, active_path: str = ""):
                 nav_btn("Admin", "settings", "/admin")
 
                 ui.separator().props("dark").classes("opacity-20 my-1")
-                ui.label("Phase 5.2").classes("text-xs").style("color: var(--mf-muted); text-align:center;")
+                ui.label("Phase 6.5").classes("text-xs").style("color: var(--mf-muted); text-align:center;")
 
         # Main
         with ui.element("main").classes("mf-main"):
@@ -6641,6 +6641,15 @@ def data_tools_page() -> None:
 # Boot
 # -----------------------------
 def bootstrap() -> None:
+    # Safety: Render cold-starts may call ensure_tabs()/get_spreadsheet() before some caches exist.
+    # Keep all bootstrap globals initialized so deploys don't crash on NameError.
+    g = globals()
+    g.setdefault('_ws', None)
+    g.setdefault('_gc', None)
+    g.setdefault('_ss', None)
+    g.setdefault('_tabs_ready', False)
+    g.setdefault('_tabs_ready_at', 0.0)
+    g.setdefault('_header_cache', {})
     ensure_tabs()
     # One-time migration: older rows often have the unique id stored in `TxId` while
     # the newer logic edits by `id`. Backfill `id` from `TxId` so Edit works.
@@ -6654,3 +6663,5 @@ ui.run(
     storage_secret=STORAGE_SECRET or "PLEASE_SET_NICEGUI_STORAGE_SECRET",
     title=APP_TITLE,
 )
+
+# Release: FinTrackr Phase 6.5 (OCR line-item intelligence + rules sheet enabled)
