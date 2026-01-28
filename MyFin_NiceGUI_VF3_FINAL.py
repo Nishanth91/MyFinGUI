@@ -4686,6 +4686,24 @@ def add_page():
                                 pass
 
                             merch = str(parsed.get('merchant') or '').strip()
+                            # Fallback merchant detection (when OCR text contains the store but merchant extractor fails)
+                            if not merch:
+                                _ocr_blob = (parsed.get('ocr_text') or parsed.get('raw_ocr_text') or '').lower()
+                                if 'walmart' in _ocr_blob:
+                                    merch = 'Walmart'
+                                elif 'costco' in _ocr_blob:
+                                    merch = 'Costco'
+                                elif 'superstore' in _ocr_blob:
+                                    merch = 'Superstore'
+                                elif 'loblaws' in _ocr_blob:
+                                    merch = 'Loblaws'
+                                elif 'shoppers' in _ocr_blob or 'pharmaprix' in _ocr_blob:
+                                    merch = 'Shoppers'
+                                elif 'amazon' in _ocr_blob:
+                                    merch = 'Amazon'
+                            # Persist back so downstream (split engine) sees it
+                            if merch and not parsed.get('merchant'):
+                                parsed['merchant'] = merch
                             last4 = str(parsed.get('card_last4') or '').strip()
                             rdate = parsed.get('date')
                             amt = parsed.get('amount')
