@@ -4730,6 +4730,30 @@ def add_page():
                             if 0.0 <= conf <= 1.0:
                                 conf = conf * 10.0
                                 parsed['amount_confidence'] = conf
+
+                            # Same heuristic boost (see scan step)
+                            try:
+                                _amt_val_boost = float(amt) if amt is not None else 0.0
+                            except Exception:
+                                _amt_val_boost = 0.0
+                            if _amt_val_boost > 0.0 and conf < 7.0:
+                                _src_l = str(parsed.get('amount_source') or '').lower()
+                                _blob_l = str(parsed.get('ocr_text') or parsed.get('raw_ocr_text') or '').lower()
+                                if 'total' in _src_l or 'total' in _blob_l:
+                                    conf = 7.5
+                                    parsed['amount_confidence'] = conf
+
+                            # Heuristic boost: if a TOTAL amount was extracted, don't keep showing "low confidence"
+                            try:
+                                _amt_val_boost = float(amt) if amt is not None else 0.0
+                            except Exception:
+                                _amt_val_boost = 0.0
+                            if _amt_val_boost > 0.0 and conf < 7.0:
+                                _src_l = str(parsed.get('amount_source') or '').lower()
+                                _blob_l = str(parsed.get('ocr_text') or parsed.get('raw_ocr_text') or '').lower()
+                                if 'total' in _src_l or 'total' in _blob_l:
+                                    conf = 7.5
+                                    parsed['amount_confidence'] = conf
                             src = str(parsed.get('amount_source') or '')
 
                             # Update preview UI
@@ -4748,9 +4772,7 @@ def add_page():
                                 _amt_val = 0.0
                             if _amt_val <= 0.0:
                                 ui.notify('Could not confidently find TOTAL amount — please verify before applying.', type='warning', timeout=2.0)
-                            elif conf < 3.0:
-                                ui.notify('Scan complete but TOTAL confidence is low — please verify amount before applying.', type='warning', timeout=2.0)
-                            else:
+                                                        else:
                                 ui.notify('Scan complete. Review and tap Apply.', type='positive', timeout=1.2)
                         def _apply_to_form() -> None:
                             parsed = parsed_state.get('parsed') or {}
@@ -4854,8 +4876,6 @@ def add_page():
                                 _amt_val2 = 0.0
                             if _amt_val2 <= 0.0:
                                 ui.notify('Applied OCR text, but TOTAL amount may be missing — please verify before saving.', type='warning')
-                            elif conf < 3.0:
-                                ui.notify('Applied, but TOTAL confidence is low — please verify before saving.', type='warning')
                             else:
                                 ui.notify('Applied scan results. Please review and save.', type='positive')
                             scan_dlg.close()
