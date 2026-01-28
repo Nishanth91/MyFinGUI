@@ -4726,6 +4726,10 @@ def add_page():
                             rdate = parsed.get('date')
                             amt = parsed.get('amount')
                             conf = float(parsed.get('amount_confidence') or 0.0)
+                            # Normalize confidence: some parsers return 0-1 instead of 0-10
+                            if 0.0 <= conf <= 1.0:
+                                conf = conf * 10.0
+                                parsed['amount_confidence'] = conf
                             src = str(parsed.get('amount_source') or '')
 
                             # Update preview UI
@@ -4744,7 +4748,7 @@ def add_page():
                                 _amt_val = 0.0
                             if _amt_val <= 0.0:
                                 ui.notify('Could not confidently find TOTAL amount — please verify before applying.', type='warning', timeout=2.0)
-                            elif conf < 1.5:
+                            elif conf < 3.0:
                                 ui.notify('Scan complete but TOTAL confidence is low — please verify amount before applying.', type='warning', timeout=2.0)
                             else:
                                 ui.notify('Scan complete. Review and tap Apply.', type='positive', timeout=1.2)
@@ -4759,6 +4763,10 @@ def add_page():
                             rdate = parsed.get('date')
                             amt = parsed.get('amount')
                             conf = float(parsed.get('amount_confidence') or 0.0)
+                            # Normalize confidence: some parsers return 0-1 instead of 0-10
+                            if 0.0 <= conf <= 1.0:
+                                conf = conf * 10.0
+                                parsed['amount_confidence'] = conf
 
                             if rdate:
                                 d_date.value = rdate.isoformat()
@@ -4846,7 +4854,7 @@ def add_page():
                                 _amt_val2 = 0.0
                             if _amt_val2 <= 0.0:
                                 ui.notify('Applied OCR text, but TOTAL amount may be missing — please verify before saving.', type='warning')
-                            elif conf < 1.5:
+                            elif conf < 3.0:
                                 ui.notify('Applied, but TOTAL confidence is low — please verify before saving.', type='warning')
                             else:
                                 ui.notify('Applied scan results. Please review and save.', type='positive')
