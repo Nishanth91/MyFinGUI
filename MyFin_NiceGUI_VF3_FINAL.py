@@ -4686,6 +4686,24 @@ def add_page():
                                 pass
 
                             merch = str(parsed.get('merchant') or '').strip()
+                            # Fallback merchant detection from OCR blob (helps split logic when merchant extraction is blank)
+                            if not merch:
+                                try:
+                                    blob = (_ocr_blob or '').lower()
+                                except Exception:
+                                    blob = ''
+                                if 'walmart' in blob:
+                                    merch = 'Walmart'
+                                elif 'superstore' in blob or 'loblaw' in blob:
+                                    merch = 'Superstore'
+                                elif 'costco' in blob:
+                                    merch = 'Costco'
+                                elif 'shoppers' in blob or 'pharmaprix' in blob:
+                                    merch = 'Shoppers'
+                                elif 'amazon' in blob:
+                                    merch = 'Amazon'
+                                if merch and not parsed.get('merchant'):
+                                    parsed['merchant'] = merch
                             # Fallback merchant detection (when OCR text contains the store but merchant extractor fails)
                             if not merch:
                                 _ocr_blob = (parsed.get('ocr_text') or parsed.get('raw_ocr_text') or '').lower()
@@ -4719,11 +4737,17 @@ def add_page():
                             parsed_card.style('display:block')
                             apply_btn.enable()
 
-                            if conf < 3.0:
-                                ui.notify('Low confidence TOTAL detected — verify amount before applying.', type='warning', timeout=2.0)
+                            # Confidence is 0-10 scale from parser; avoid warning spam.
+                            try:
+                                _amt_val = float(amt) if amt is not None else 0.0
+                            except Exception:
+                                _amt_val = 0.0
+                            if _amt_val <= 0.0:
+                                ui.notify('Could not confidently find TOTAL amount — please verify before applying.', type='warning', timeout=2.0)
+                            elif conf < 1.5:
+                                ui.notify('Scan complete but TOTAL confidence is low — please verify amount before applying.', type='warning', timeout=2.0)
                             else:
                                 ui.notify('Scan complete. Review and tap Apply.', type='positive', timeout=1.2)
-
                         def _apply_to_form() -> None:
                             parsed = parsed_state.get('parsed') or {}
                             if not parsed:
@@ -4802,12 +4826,28 @@ def add_page():
                                 except Exception:
                                     pass
 
-                                if entry_type.lower() in ('debit','expense') and _is_split_merchant(merch):
-                                    _open_split_dialog()
+                                # Open split dialog based on detected split evidence (not strict merchant matching)
+                                try:
+                                    det_amts = split_plan.get('detected_amounts') or {}
+                                    perc = split_plan.get('percents') or {}
+                                    nonzero = [k for k,v in det_amts.items() if float(v or 0.0) > 0.01]
+                                    has_non_grocery = any(k in ('Household','Shopping','Health') and float(det_amts.get(k,0.0) or 0.0) > 0.01 for k in det_amts.keys())
+                                    has_non_grocery = has_non_grocery or any(float(perc.get(k,0.0) or 0.0) > 0.01 for k in ('Household','Shopping','Health'))
+                                    if entry_type.lower() in ('debit','expense') and (_is_split_merchant(merch) or has_non_grocery or len(nonzero) >= 2):
+                                        _open_split_dialog()
+                                except Exception:
+                                    pass
                             except Exception:
                                 pass
-                            if conf < 3.0:
-                                ui.notify('Applied, but amount confidence was low — please verify before saving.', type='warning')
+                            # Avoid warning spam: only warn when TOTAL is missing or very low confidence
+                            try:
+                                _amt_val2 = float(amt) if amt is not None else 0.0
+                            except Exception:
+                                _amt_val2 = 0.0
+                            if _amt_val2 <= 0.0:
+                                ui.notify('Applied OCR text, but TOTAL amount may be missing — please verify before saving.', type='warning')
+                            elif conf < 1.5:
+                                ui.notify('Applied, but TOTAL confidence is low — please verify before saving.', type='warning')
                             else:
                                 ui.notify('Applied scan results. Please review and save.', type='positive')
                             scan_dlg.close()
