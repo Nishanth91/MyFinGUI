@@ -4772,7 +4772,7 @@ def add_page():
                                 _amt_val = 0.0
                             if _amt_val <= 0.0:
                                 ui.notify('Could not confidently find TOTAL amount — please verify before applying.', type='warning', timeout=2.0)
-                                                        else:
+                            else:
                                 ui.notify('Scan complete. Review and tap Apply.', type='positive', timeout=1.2)
                         def _apply_to_form() -> None:
                             parsed = parsed_state.get('parsed') or {}
