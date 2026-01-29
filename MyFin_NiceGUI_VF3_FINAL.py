@@ -1,4 +1,3 @@
-                            scan_spinner.style('display:flex')
 # ======================================
 # FinTrackr App – Phase 4.6A (REAL FIX BUILD)
 # Changes vs P4.5: Dashboard hero, Rules selection, OCR toast timeout, richer palette
@@ -4417,6 +4416,9 @@ def add_page():
                         raw_out = ui.textarea('OCR text (debug)', value='').props('readonly').classes('w-full')
                         raw_out.style('max-height: 160px')
 
+                        cat_sig_out = ui.textarea('Category signals (debug)', value='').props('readonly').classes('w-full')
+                        cat_sig_out.style('max-height: 120px')
+
                         async def _on_upload(e: Any) -> None:
                             """Store uploaded image as a data URL for client-side OCR (tesseract.js).
 
@@ -4504,6 +4506,10 @@ def add_page():
                             scan_state['ocr_text'] = ''
                             scan_state['parsed'] = None
                             raw_out.value = ''
+                            try:
+                                cat_sig_out.value = ''
+                            except Exception:
+                                pass
                             _sync_apply_btn()
                             _sync_run_btn()
                             _mount_upload()
@@ -4524,6 +4530,12 @@ def add_page():
                                     ui.notify('Please upload a receipt image first.', type='warning')
                                     return
                             ui.notify('Scanning…', type='info', timeout=8.0)
+                            # Let UI render the toast/spinner before heavy OCR work
+                            try:
+                                import asyncio
+                                await asyncio.sleep(0)
+                            except Exception:
+                                pass
                             # Show busy indicator (mobile Safari can take a while)
                             try:
                                 scan_spinner.style('display:block')
@@ -4665,6 +4677,19 @@ def add_page():
                             except Exception:
                                 pass
 
+                            # Update category signal debug (counts + amounts)
+                            try:
+                                ca = (parsed or {}).get('category_amounts') or {}
+                                cc = (parsed or {}).get('category_counts') or {}
+                                lines_dbg = []
+                                for c in ['Groceries','Household','Shopping','Health']:
+                                    a = float(ca.get(c, 0.0) or 0.0)
+                                    n = int(cc.get(c, 0) or 0)
+                                    lines_dbg.append(f"{c}: {n} items | ${a:.2f}")
+                                cat_sig_out.value = "\n".join(lines_dbg)
+                            except Exception:
+                                pass
+
                             merch = str(parsed.get('merchant') or '').strip()
                             last4 = str(parsed.get('card_last4') or '').strip()
                             rdate = parsed.get('date')
@@ -4691,6 +4716,19 @@ def add_page():
                             if not parsed:
                                 ui.notify('Nothing to apply yet.', type='warning')
                                 return
+
+                            # Update category signal debug (counts + amounts)
+                            try:
+                                ca = (parsed or {}).get('category_amounts') or {}
+                                cc = (parsed or {}).get('category_counts') or {}
+                                lines_dbg = []
+                                for c in ['Groceries','Household','Shopping','Health']:
+                                    a = float(ca.get(c, 0.0) or 0.0)
+                                    n = int(cc.get(c, 0) or 0)
+                                    lines_dbg.append(f"{c}: {n} items | ${a:.2f}")
+                                cat_sig_out.value = "\n".join(lines_dbg)
+                            except Exception:
+                                pass
 
                             merch = str(parsed.get('merchant') or '').strip()
                             last4 = str(parsed.get('card_last4') or '').strip()
@@ -4774,7 +4812,15 @@ def add_page():
                         apply_btn.disable()
                         ui.button('Close', on_click=scan_dlg.close).props('outline')
 
-                ui.button('Scan receipt', on_click=scan_dlg.open).props('outline').classes('w-full')
+                def _open_scan_dialog():
+                    # Always start fresh so user can scan multiple receipts back-to-back
+                    try:
+                        _reset_scan_ui()
+                    except Exception:
+                        pass
+                    scan_dlg.open()
+
+                ui.button('Scan receipt', on_click=_open_scan_dialog).props('outline').classes('w-full')
 
                 # Phase 6.5: Multi-category split UI — shown only after OCR Apply for Walmart/Costco/Superstore
                 split_hint = ui.label("").classes("text-xs").style("color: var(--mf-muted)")
@@ -6918,6 +6964,5 @@ ui.run(
 
 # Release: FinTrackr Phase 6.7.1 (Google Vision OCR optional + stable 6.5 logic)
 
-# RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR)
-# RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR                            scan_spinner.style('display:none')
-)
+
+# RELEASE_VERSION: 6.7.2 HF3 (scan UX: immediate toast/spinner, reset scan state, debug signals)
