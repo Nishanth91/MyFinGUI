@@ -1202,77 +1202,81 @@ def _is_noise_receipt_line(line: str) -> bool:
     return False
 
 def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
-    """Extract a list of {'name': str, 'price': float} from OCR text.
+    """Extract best-effort line items from OCR text.
 
-    More resilient to receipt formats such as:
-      'ITEM NAME 123456789012 $12.00 E'
-      'ITEM NAME $12.00E'
-      'ITEM NAME 12.00 D'
+    Returns list of dicts: {name:str, price:float}
+
+    Supports two patterns seen in receipts / OCR:
+    1) "ITEM NAME ... $12.34" on the SAME line
+    2) "ITEM NAME ..." on one line and the price on the NEXT line
+       (common with Google Vision line breaks)
+
+    We intentionally keep this lightweight and deterministic: no ML here.
     """
-    items: List[Dict[str, Any]] = []
+    items: list[dict[str, Any]] = []
     if not text:
         return items
 
-    ignore_tokens = {
-        'subtotal', 'sub total', 'visa', 'mastercard', 'mcard', 'change', 'tend', 'tender',
-        'gst', 'pst', 'hst', 'tax', 'approval', 'rrn', 'aid', 'terminal', 'items sold',
-        'store', 'op#', 'tr#', 'te#', 'cash', 'debit', 'no signature', 'survey', 'gift card',
-    }
+    lines = [ln.strip() for ln in str(text).splitlines() if ln and ln.strip()]
+    prev_candidate: str | None = None
 
-    for ln in str(text).splitlines():
-        t = re.sub(r'\s+', ' ', ln).strip()
-        if not t or len(t) < 4:
+    def _clean_name(s: str) -> str:
+        s = s.replace('CAD', '').replace('$', '').strip(" -:·|")
+        # Remove long numeric codes (SKU/UPC) but keep short quantities (e.g., 2 AT 1 FOR)
+        s = re.sub(r"\b\d{6,}\b", " ", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        # Remove common trailing one-letter tax markers (E/D/H/C etc.)
+        s = re.sub(r"\s+[A-Z]\b", "", s).strip()
+        return s
+
+    def _looks_like_price_only(ln: str) -> bool:
+        ln2 = ln.replace('CAD', '').replace('$', '').strip()
+        # A price-only line is typically short and mostly numeric punctuation.
+        return bool(_PRICE_RE.fullmatch(ln2)) or (bool(_PRICE_RE.search(ln2)) and sum(ch.isalpha() for ch in ln2) == 0 and len(ln2) <= 12)
+
+    for ln in lines:
+        if _is_noise_receipt_line(ln):
             continue
 
-        t_low = t.lower()
-        if any(tok in t_low for tok in ignore_tokens):
-            continue
+        ln2 = ln.replace('CAD', '').strip()
+        m = _PRICE_RE.search(ln2.replace('$', ''))
+        if m:
+            try:
+                price = float(m.group('price'))
+            except Exception:
+                price = None
 
-        # normalize currency symbols and spacing
-        t_norm = t.replace('$', '').replace('€', '').replace('£', '')
-        t_norm = re.sub(r'(\d\.\d\d)([A-Za-z])\b', r'\1 \2', t_norm)  # 12.00E -> 12.00 E
+            if price is not None:
+                raw_name_part = ln2[:m.start('price')]
+                raw_name = _clean_name(raw_name_part)
+                # If the line is basically just a price, attach to previous candidate if possible
+                if (not raw_name or _looks_like_price_only(ln2)) and prev_candidate:
+                    name = _clean_name(prev_candidate)
+                else:
+                    name = raw_name
 
-        m = _PRICE_RE.search(t_norm)
-        if not m:
-            continue
+                # Filter out obviously non-item lines
+                if not name or len(name) < 2:
+                    prev_candidate = None
+                    continue
+                if _is_noise_receipt_line(name):
+                    prev_candidate = None
+                    continue
+                if sum(ch.isdigit() for ch in name) > max(8, int(0.7 * len(name))):
+                    prev_candidate = None
+                    continue
 
-        price = safe_float(m.group('price'))
-        if price is None:
-            continue
-        price = float(price)
+                items.append({'name': name, 'price': price})
+                prev_candidate = None
+                continue
 
-        left = t_norm[:m.start()].strip()
-        if not re.search(r'[A-Za-z]{2,}', left):
-            continue
-
-        # Remove long numeric codes and stray separators
-        item_name = re.sub(r'\b\d{4,}\b', '', left)
-        item_name = re.sub(r'\s{2,}', ' ', item_name).strip(' -#:;')
-        item_name = re.sub(r'\s{2,}', ' ', item_name).strip()
-        if len(item_name) < 2:
-            continue
-
-        # Avoid lines that are *just* weights, e.g. "0.310 kg @ 7.22 /kg"
-        low = item_name.lower()
-        if (('kg' in low or 'lb' in low or '/kg' in low or '/lb' in low or '@' in low) and not re.search(r'[A-Za-z]{4,}', item_name)):
-            continue
-
-        items.append({'name': item_name.title(), 'price': price})
-
-        if len(items) >= 60:
-            break
+        # Not a priced line: keep as candidate for "next-line price" pairing
+        # But ignore headers/totals/etc.
+        cand = _clean_name(ln2)
+        if cand and not _is_noise_receipt_line(cand):
+            prev_candidate = cand
 
     return items
-
-def _build_rules_index(rules: List[Tuple[str, str]]) -> Dict[str, List[str]]:
-    out: dict[str, list[str]] = {}
-    for kw, cat in (rules or []):
-        c = str(cat or '').strip()
-        k = str(kw or '').strip().lower()
-        if not c or not k:
-            continue
-        out.setdefault(c.lower(), []).append(k)
-    return out
 
 def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, str]]) -> Dict[str, Any]:
     """Classify receipt line items into Groceries/Household/Shopping/Health using the rules sheet.
@@ -4376,6 +4380,10 @@ def add_page():
                 scan_state: Dict[str, Any] = {"data_url": None}
 
                 scan_dlg = ui.dialog()
+                scan_progress_dlg = ui.dialog()
+                with scan_progress_dlg, ui.card().classes('p-4').style('min-width:260px'):
+                    ui.spinner(size='lg')
+                    ui.label('Scanning...').classes('text-subtitle1')
                 parsed_state: Dict[str, Any] = {"parsed": None}
                 with scan_dlg, ui.card().classes('my-card p-0 w-[720px] max-w-[95vw]').style('max-height: min(88vh, 80dvh); height: min(88vh, 80dvh); display:flex; flex-direction:column; overflow:hidden;'):
                     # Keep action buttons visible on mobile by making the content area scrollable.
@@ -4520,11 +4528,15 @@ def add_page():
                             result = None
                             if use_gcv:
                                 # Prefer server-side OCR (Google Vision) to reduce mobile lag and improve accuracy
-                                gcv_text, gcv_dbg = server_ocr_from_data_url(str(scan_state.get('data_url') or ''), return_debug=True)
+                                gcv_text, gcv_dbg = await run.io_bound(lambda: server_ocr_from_data_url(str(scan_state.get('data_url') or ''), return_debug=True))
                                 if str(gcv_text).strip():
                                     result = {'ok': True, 'text': str(gcv_text), 'debug': str(gcv_dbg or '')}
                                 else:
                                     raw_out.value = (gcv_dbg or 'OCR returned empty text.')
+                                    try:
+                                        scan_progress_dlg.close()
+                                    except Exception:
+                                        pass
                                     ui.notify('OCR failed. Details shown in OCR debug box.', type='negative')
                                     return
                             else:
@@ -4756,7 +4768,11 @@ def add_page():
                         apply_btn.disable()
                         ui.button('Close', on_click=scan_dlg.close).props('outline')
 
-                ui.button('Scan receipt', on_click=scan_dlg.open).props('outline').classes('w-full')
+                def _open_scan_dialog() -> None:
+                    _reset_scan_ui()
+                    scan_dlg.open()
+
+                ui.button('Scan receipt', on_click=_open_scan_dialog).props('outline').classes('w-full')
 
                 # Phase 6.5: Multi-category split UI — shown only after OCR Apply for Walmart/Costco/Superstore
                 split_hint = ui.label("").classes("text-xs").style("color: var(--mf-muted)")
