@@ -856,6 +856,56 @@ def _google_vision_rest_ocr(image_bytes: bytes) -> Tuple[str, str]:
     except Exception as e:
         return "", f"{type(e).__name__}: {e}"
 
+def _decode_data_url_to_bytes(data_url: str) -> bytes:
+    """Decode a browser data URL (data:<mime>;base64,....) into raw bytes.
+
+    Accepts:
+      - data URLs (base64 or urlencoded)
+      - plain base64 strings (best-effort)
+    """
+    import base64
+    import binascii
+    from urllib.parse import unquote_to_bytes
+
+    if not data_url:
+        return b""
+
+    s = data_url.strip()
+
+    # Typical: data:image/jpeg;base64,/9j/4AAQSk...
+    if s.startswith("data:"):
+        try:
+            header, payload = s.split(",", 1)
+        except ValueError:
+            return b""
+
+        is_b64 = ";base64" in header.lower()
+        if is_b64:
+            # tolerate whitespace/newlines in base64
+            payload = "".join(payload.split())
+            try:
+                return base64.b64decode(payload, validate=False)
+            except (binascii.Error, ValueError):
+                # last resort without validation
+                try:
+                    return base64.b64decode(payload)
+                except Exception:
+                    return b""
+        else:
+            # Non-base64 data URL payload is URL-encoded
+            try:
+                return unquote_to_bytes(payload)
+            except Exception:
+                return payload.encode("utf-8", errors="ignore")
+
+    # If it's not a data URL, attempt base64 decode best-effort.
+    # This covers cases where the UI gives only the base64 payload.
+    try:
+        s2 = "".join(s.split())
+        return base64.b64decode(s2, validate=False)
+    except Exception:
+        return s.encode("utf-8", errors="ignore")
+
 def server_ocr_from_data_url(data_url: str, *, return_debug: bool = False):
     """Server-side OCR entrypoint.
 
