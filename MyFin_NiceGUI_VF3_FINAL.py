@@ -805,6 +805,48 @@ def _get_gcp_vision_sa_info() -> Optional[dict]:
             return None
 
 
+def _load_json_from_env(*keys: str):
+    """Load a JSON object from the first non-empty env var in *keys*.
+
+    Accepts:
+      - raw JSON (starts with '{')
+      - base64-encoded JSON
+      - a filesystem path to a JSON file (last resort)
+
+    Returns dict on success, or None.
+    """
+    import os, json, base64
+
+    for k in keys:
+        if not k:
+            continue
+        v = os.getenv(k, "")
+        if not v:
+            continue
+        v = v.strip()
+        # Raw JSON
+        if v.startswith("{") and v.endswith("}"):
+            try:
+                return json.loads(v)
+            except Exception:
+                pass
+        # Base64 JSON
+        try:
+            decoded = base64.b64decode(v, validate=True).decode("utf-8", "ignore").strip()
+            if decoded.startswith("{") and decoded.endswith("}"):
+                return json.loads(decoded)
+        except Exception:
+            pass
+        # File path
+        try:
+            if os.path.exists(v) and os.path.isfile(v) and v.lower().endswith(".json"):
+                with open(v, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception:
+            pass
+    return None
+
+
 def _google_vision_rest_ocr(image_bytes: bytes) -> Tuple[str, str]:
     """Google Cloud Vision OCR via REST.
 
