@@ -1,3 +1,4 @@
+                            scan_spinner.style('display:flex')
 # ======================================
 # FinTrackr App – Phase 4.6A (REAL FIX BUILD)
 # Changes vs P4.5: Dashboard hero, Rules selection, OCR toast timeout, richer palette
@@ -4489,11 +4490,25 @@ def add_page():
                             except Exception as ex:
                                 ui.notify(f'Upload failed: {ex}', type='negative')
 
-                        upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt').props("accept='image/*'").classes('w-full')
-                        try:
-                            upload_receipt.on_upload(_on_upload)
-                        except Exception:
-                            upload_receipt.on('upload', _on_upload)
+                        upload_holder = ui.column().classes('w-full')
+                        upload_receipt = None
+
+                        def _mount_upload():
+                            nonlocal upload_receipt
+                            upload_holder.clear()
+                            upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt')                                .props("accept='image/*'")                                .classes('w-full')                                .on_upload(_on_upload)
+
+                        def _reset_scan_ui():
+                            scan_state['data_url'] = None
+                            scan_state['img_bytes'] = None
+                            scan_state['ocr_text'] = ''
+                            scan_state['parsed'] = None
+                            raw_out.value = ''
+                            _sync_apply_btn()
+                            _sync_run_btn()
+                            _mount_upload()
+
+                        _mount_upload()
 
                         async def _run_ocr() -> None:
                             if not scan_state.get('data_url') and not scan_state.get('img_bytes'):
@@ -4508,7 +4523,7 @@ def add_page():
                                 if not scan_state.get('data_url') and not scan_state.get('img_bytes'):
                                     ui.notify('Please upload a receipt image first.', type='warning')
                                     return
-                            ui.notify('Scanning…', type='info', timeout=1.2)
+                            ui.notify('Scanning…', type='info', timeout=8.0)
                             # Show busy indicator (mobile Safari can take a while)
                             try:
                                 scan_spinner.style('display:block')
@@ -4748,6 +4763,7 @@ def add_page():
                                 ui.notify('Applied, but amount confidence was low — please verify before saving.', type='warning')
                             else:
                                 ui.notify('Applied scan results. Please review and save.', type='positive')
+                            _reset_scan_ui()
                             scan_dlg.close()
 
                     # Sticky footer so buttons don't get pushed below the upload card on mobile
@@ -6903,4 +6919,5 @@ ui.run(
 # Release: FinTrackr Phase 6.7.1 (Google Vision OCR optional + stable 6.5 logic)
 
 # RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR)
-# RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR)
+# RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR                            scan_spinner.style('display:none')
+)
