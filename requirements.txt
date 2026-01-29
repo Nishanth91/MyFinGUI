@@ -4,3 +4,4 @@ gspread
 google-auth
 plotly
 python-dateutil
+google-cloud-vision
