@@ -1184,7 +1184,7 @@ TABS = {
 # Phase 6.5: OCR line-item intelligence
 # -----------------------------
 
-_PRICE_RE = re.compile(r"(?P<price>-?\d{1,6}\.\d{2})(?:\s*[A-Z])?\s*[^A-Za-z0-9]*$")
+_PRICE_RE = re.compile(r"(?P<price>\d{1,6}\.\d{2})(?:\s*[A-Z])?\b")
 
 def _is_noise_receipt_line(line: str) -> bool:
     l = (line or '').strip().lower()
@@ -1202,83 +1202,66 @@ def _is_noise_receipt_line(line: str) -> bool:
     return False
 
 def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
-    """Extract best-effort line items from OCR text.
+    """Extract a list of {'name': str, 'price': float} from OCR text.
 
-    Returns list of dicts: {name:str, price:float, raw:str}
-    Heuristic: lines that end with a price (e.g., 'BANANAS 2.97').
-
-    Phase 6.5 HF1 improvements:
-    - Strip long numeric item codes (e.g., 6290...) before matching.
-    - Keep a 'raw' copy for debugging.
-    - Less aggressive digit filtering (Walmart lines often include codes).
+    More resilient to receipt formats such as:
+      'ITEM NAME 123456789012 $12.00 E'
+      'ITEM NAME $12.00E'
+      'ITEM NAME 12.00 D'
     """
-    items: list[dict[str, Any]] = []
+    items: List[Dict[str, Any]] = []
     if not text:
         return items
 
+    ignore_tokens = {
+        'subtotal', 'sub total', 'visa', 'mastercard', 'mcard', 'change', 'tend', 'tender',
+        'gst', 'pst', 'hst', 'tax', 'approval', 'rrn', 'aid', 'terminal', 'items sold',
+        'store', 'op#', 'tr#', 'te#', 'cash', 'debit', 'no signature', 'survey', 'gift card',
+    }
+
     for ln in str(text).splitlines():
-        ln = ln.strip()
-        if not ln or _is_noise_receipt_line(ln):
+        t = re.sub(r'\s+', ' ', ln).strip()
+        if not t or len(t) < 4:
             continue
 
-        ln2 = ln.replace('CAD', '').strip()
-        m = _PRICE_RE.search(ln2.replace('$', ''))
+        t_low = t.lower()
+        if any(tok in t_low for tok in ignore_tokens):
+            continue
+
+        # normalize currency symbols and spacing
+        t_norm = t.replace('$', '').replace('€', '').replace('£', '')
+        t_norm = re.sub(r'(\d\.\d\d)([A-Za-z])\b', r'\1 \2', t_norm)  # 12.00E -> 12.00 E
+
+        m = _PRICE_RE.search(t_norm)
         if not m:
             continue
-        try:
-            price = float(m.group('price'))
-        except Exception:
+
+        price = safe_float(m.group('price'))
+        if price is None:
+            continue
+        price = float(price)
+
+        left = t_norm[:m.start()].strip()
+        if not re.search(r'[A-Za-z]{2,}', left):
             continue
 
-        raw_name = ln2[:m.start('price')].replace('$', '').strip(" -:·|")
-
-        # Clean up Walmart-style item lines which often contain long SKU/UPC codes.
-        # Example: "PHARMACY RX 062773566705" -> "PHARMACY RX".
-        raw_name = re.sub(r"\b\d{4,}\b", " ", raw_name)
-        raw_name = re.sub(r"\s+", " ", raw_name).strip()
-        if len(raw_name) < 2:
+        # Remove long numeric codes and stray separators
+        item_name = re.sub(r'\b\d{4,}\b', '', left)
+        item_name = re.sub(r'\s{2,}', ' ', item_name).strip(' -#:;')
+        item_name = re.sub(r'\s{2,}', ' ', item_name).strip()
+        if len(item_name) < 2:
             continue
 
-        # Remove long numeric codes and common trailing markers (E/D/H etc.)
-        toks = [t for t in raw_name.split() if not re.fullmatch(r"\d{4,}", t)]
-        # Drop orphan trailing tokens like 'E', 'D', 'H', '0D'
-        while toks and re.fullmatch(r"[A-Z]", toks[-1], flags=re.I):
-            toks.pop()
-        while toks and re.fullmatch(r"\d?+[A-Z]", toks[-1], flags=re.I):
-            # e.g., '0D'
-            toks.pop()
-
-        name = " ".join(toks).strip()
-        if len(name) < 2:
-            name = raw_name  # fallback
-
-        # Reject lines that are clearly not product names
-        # (but tolerate some digits because Walmart includes item codes)
-        digits = sum(ch.isdigit() for ch in name)
-        if digits > max(12, int(0.75 * len(name))):
+        # Avoid lines that are *just* weights, e.g. "0.310 kg @ 7.22 /kg"
+        low = item_name.lower()
+        if (('kg' in low or 'lb' in low or '/kg' in low or '/lb' in low or '@' in low) and not re.search(r'[A-Za-z]{4,}', item_name)):
             continue
 
-        items.append({'name': name, 'price': price, 'raw': raw_name})
-    return items
-    for ln in str(text).splitlines():
-        ln = ln.strip()
-        if not ln or _is_noise_receipt_line(ln):
-            continue
-        ln2 = ln.replace('CAD', '').strip()
-        m = _PRICE_RE.search(ln2.replace('$',''))
-        if not m:
-            continue
-        try:
-            price = float(m.group('price'))
-        except Exception:
-            continue
-        name = ln2[:m.start('price')].replace('$','').strip(" -:·|")
-        if len(name) < 2:
-            continue
-        # Reject lines that are mostly digits/codes
-        if sum(ch.isdigit() for ch in name) > max(6, int(0.6 * len(name))):
-            continue
-        items.append({'name': name, 'price': price})
+        items.append({'name': item_name.title(), 'price': price})
+
+        if len(items) >= 60:
+            break
+
     return items
 
 def _build_rules_index(rules: List[Tuple[str, str]]) -> Dict[str, List[str]]:
@@ -4416,9 +4399,6 @@ def add_page():
                         raw_out = ui.textarea('OCR text (debug)', value='').props('readonly').classes('w-full')
                         raw_out.style('max-height: 160px')
 
-                        cat_sig_out = ui.textarea('Category signals (debug)', value='').props('readonly').classes('w-full')
-                        cat_sig_out.style('max-height: 120px')
-
                         async def _on_upload(e: Any) -> None:
                             """Store uploaded image as a data URL for client-side OCR (tesseract.js).
 
@@ -4506,10 +4486,6 @@ def add_page():
                             scan_state['ocr_text'] = ''
                             scan_state['parsed'] = None
                             raw_out.value = ''
-                            try:
-                                cat_sig_out.value = ''
-                            except Exception:
-                                pass
                             _sync_apply_btn()
                             _sync_run_btn()
                             _mount_upload()
@@ -4530,12 +4506,6 @@ def add_page():
                                     ui.notify('Please upload a receipt image first.', type='warning')
                                     return
                             ui.notify('Scanning…', type='info', timeout=8.0)
-                            # Let UI render the toast/spinner before heavy OCR work
-                            try:
-                                import asyncio
-                                await asyncio.sleep(0)
-                            except Exception:
-                                pass
                             # Show busy indicator (mobile Safari can take a while)
                             try:
                                 scan_spinner.style('display:block')
@@ -4677,19 +4647,6 @@ def add_page():
                             except Exception:
                                 pass
 
-                            # Update category signal debug (counts + amounts)
-                            try:
-                                ca = (parsed or {}).get('category_amounts') or {}
-                                cc = (parsed or {}).get('category_counts') or {}
-                                lines_dbg = []
-                                for c in ['Groceries','Household','Shopping','Health']:
-                                    a = float(ca.get(c, 0.0) or 0.0)
-                                    n = int(cc.get(c, 0) or 0)
-                                    lines_dbg.append(f"{c}: {n} items | ${a:.2f}")
-                                cat_sig_out.value = "\n".join(lines_dbg)
-                            except Exception:
-                                pass
-
                             merch = str(parsed.get('merchant') or '').strip()
                             last4 = str(parsed.get('card_last4') or '').strip()
                             rdate = parsed.get('date')
@@ -4716,19 +4673,6 @@ def add_page():
                             if not parsed:
                                 ui.notify('Nothing to apply yet.', type='warning')
                                 return
-
-                            # Update category signal debug (counts + amounts)
-                            try:
-                                ca = (parsed or {}).get('category_amounts') or {}
-                                cc = (parsed or {}).get('category_counts') or {}
-                                lines_dbg = []
-                                for c in ['Groceries','Household','Shopping','Health']:
-                                    a = float(ca.get(c, 0.0) or 0.0)
-                                    n = int(cc.get(c, 0) or 0)
-                                    lines_dbg.append(f"{c}: {n} items | ${a:.2f}")
-                                cat_sig_out.value = "\n".join(lines_dbg)
-                            except Exception:
-                                pass
 
                             merch = str(parsed.get('merchant') or '').strip()
                             last4 = str(parsed.get('card_last4') or '').strip()
@@ -4812,15 +4756,7 @@ def add_page():
                         apply_btn.disable()
                         ui.button('Close', on_click=scan_dlg.close).props('outline')
 
-                def _open_scan_dialog():
-                    # Always start fresh so user can scan multiple receipts back-to-back
-                    try:
-                        _reset_scan_ui()
-                    except Exception:
-                        pass
-                    scan_dlg.open()
-
-                ui.button('Scan receipt', on_click=_open_scan_dialog).props('outline').classes('w-full')
+                ui.button('Scan receipt', on_click=scan_dlg.open).props('outline').classes('w-full')
 
                 # Phase 6.5: Multi-category split UI — shown only after OCR Apply for Walmart/Costco/Superstore
                 split_hint = ui.label("").classes("text-xs").style("color: var(--mf-muted)")
@@ -6964,5 +6900,5 @@ ui.run(
 
 # Release: FinTrackr Phase 6.7.1 (Google Vision OCR optional + stable 6.5 logic)
 
-
-# RELEASE_VERSION: 6.7.2 HF3 (scan UX: immediate toast/spinner, reset scan state, debug signals)
+# RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR)
+# RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR                            scan_spinner.style('display:none')
