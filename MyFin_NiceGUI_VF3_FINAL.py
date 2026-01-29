@@ -806,110 +806,83 @@ def _get_gcp_vision_sa_info() -> Optional[dict]:
 
 
 def _google_vision_rest_ocr(image_bytes: bytes) -> Tuple[str, str]:
-    """
-    OCR via Google Vision REST (DOCUMENT_TEXT_DETECTION).
-    Returns (text, debug_error). debug_error is '' on success.
-    This avoids requiring the google-cloud-vision package.
-    """
-    sa_info = _get_gcp_vision_sa_info()
-    if not sa_info:
-        return '', 'Google Vision credentials JSON not configured.'
+    """Google Cloud Vision OCR via REST.
 
+    Returns (text, debug_msg). On errors, text=="" and debug_msg contains details.
+    """
+    debug = ""
     try:
-        from google.oauth2 import service_account
-        from google.auth.transport.requests import Request
         import requests
-    except Exception as e:
-        return '', f'Missing dependency for Google auth/requests: {e}'
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request as GoogleAuthRequest
 
-    try:
-        creds = service_account.Credentials.from_service_account_info(
-            sa_info,
-            scopes=['https://www.googleapis.com/auth/cloud-platform'],
+        sa_info = _load_json_from_env(
+            "GOOGLE_VISION_CREDENTIALS_JSON",
+            "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+            "SERVICE_ACCOUNT_JSON",
         )
-        creds.refresh(Request())
-        token = creds.token
+        if not sa_info:
+            return "", "Missing credentials env. Set GOOGLE_VISION_CREDENTIALS_JSON (or SERVICE_ACCOUNT_JSON)."
+
+        scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+        creds = service_account.Credentials.from_service_account_info(sa_info, scopes=scopes)
+
+        creds.refresh(GoogleAuthRequest())
+        token = getattr(creds, "token", None)
         if not token:
-            return '', 'Unable to obtain Google access token.'
-    except Exception as e:
-        return '', f'Failed to build/refresh Google credentials: {e}'
+            return "", "Could not obtain access token from service account."
 
-    try:
-        import base64
-        content_b64 = base64.b64encode(image_bytes).decode('utf-8')
-        payload = {
-            "requests": [{
-                "image": {"content": content_b64},
-                "features": [{"type": "DOCUMENT_TEXT_DETECTION"}],
-            }]
-        }
-        resp = requests.post(
-            'https://vision.googleapis.com/v1/images:annotate',
-            headers={
-                'Authorization': f'Bearer {token}',
-                'Content-Type': 'application/json',
-            },
-            json=payload,
-            timeout=20,
-        )
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        url = "https://vision.googleapis.com/v1/images:annotate"
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        payload = {"requests": [{"image": {"content": b64}, "features": [{"type": "TEXT_DETECTION"}]}]}
+
+        resp = requests.post(url, headers=headers, json=payload, timeout=25)
         if resp.status_code != 200:
-            return '', f'Vision API HTTP {resp.status_code}: {resp.text[:400]}'
+            detail = (getattr(resp, "text", "") or "")[:900]
+            return "", f"Vision API HTTP {resp.status_code}: {detail}"
+
         data = resp.json()
-        if not data or 'responses' not in data or not data['responses']:
-            return '', f'Vision API returned empty response: {data}'
-        r0 = data['responses'][0]
-        if 'error' in r0:
-            return '', f"Vision API error: {r0['error']}"
-        text_out = ''
-        if r0.get('fullTextAnnotation') and r0['fullTextAnnotation'].get('text'):
-            text_out = r0['fullTextAnnotation']['text']
-        elif r0.get('textAnnotations'):
-            # first item is full text
-            text_out = r0['textAnnotations'][0].get('description', '') or ''
-        text_out = (text_out or '').strip()
-        if not text_out:
-            return '', 'Vision OCR produced empty text.'
-        return text_out, ''
+        if "error" in data:
+            return "", f"Vision API error: {json.dumps(data['error'])[:900]}"
+
+        ann = (data.get("responses") or [{}])[0].get("fullTextAnnotation") or {}
+        text = (ann.get("text") or "").strip()
+        if not text:
+            # Keep a tiny hint for debugging
+            debug = "Vision returned empty text (no fullTextAnnotation.text)."
+        return text, debug
+
     except Exception as e:
-        return '', f'Vision OCR request failed: {e}'
+        return "", f"{type(e).__name__}: {e}"
 
+def server_ocr_from_data_url(data_url: str, *, return_debug: bool = False):
+    """Server-side OCR entrypoint.
 
-def server_ocr_from_data_url(data_url: str) -> str:
+    Returns:
+      - if return_debug=False (default): just the OCR text (str)
+      - if return_debug=True: (text, debug_msg)
     """
-    Server-side OCR. Prefers Google Vision (REST) when credentials are configured.
-    Falls back to pytesseract only when Google Vision is unavailable.
-    Never raises; returns '' on failure.
-    """
+    debug_msg = ""
     try:
-        raw_bytes = _decode_data_url_to_bytes(data_url)
-        if not raw_bytes:
-            return ''
+        img_bytes = _decode_data_url_to_bytes(data_url)
+        if not img_bytes:
+            debug_msg = "No image bytes decoded from upload."
+            return ("", debug_msg) if return_debug else ""
 
-        engine = (os.getenv('OCR_ENGINE') or '').strip().lower()
-        # Auto mode: use Google when creds exist; else tesseract
-        if engine in ('', 'auto'):
-            engine = 'google' if _get_gcp_vision_sa_info() else 'tesseract'
+        engine = (os.getenv('OCR_ENGINE') or 'google').strip().lower()
+        if engine in ('google', 'gcv', 'vision', 'cloudvision'):
+            text, dbg = _google_vision_rest_ocr(img_bytes)
+            debug_msg = dbg or debug_msg
+            return (text, debug_msg) if return_debug else text
 
-        if engine == 'google':
-            text_out, err = _google_vision_rest_ocr(raw_bytes)
-            if text_out:
-                return text_out
-            # If Google failed, keep a short marker in logs for troubleshooting
-            print(f'[OCR] Google Vision failed: {err}')
-            # fall through to tesseract as last resort
+        # fallback / legacy
+        text = _fallback_simple_ocr(img_bytes)
+        return (text, debug_msg) if return_debug else text
 
-        # Tesseract fallback (may not be available on Render)
-        try:
-            from PIL import Image
-            import pytesseract
-            img = Image.open(BytesIO(raw_bytes))
-            return (pytesseract.image_to_string(img) or '').strip()
-        except Exception as e:
-            print(f'[OCR] Tesseract fallback failed: {e}')
-            return ''
     except Exception as e:
-        print(f'[OCR] Unexpected OCR error: {e}')
-        return ''
+        debug_msg = f"{type(e).__name__}: {e}"
+        return ("", debug_msg) if return_debug else ""
 
 def parse_receipt_text(text: str) -> Dict[str, Any]:
     """Return best-effort parsed fields from OCR text.
@@ -4458,11 +4431,12 @@ def add_page():
                             result = None
                             if use_gcv:
                                 # Prefer server-side OCR (Google Vision) to reduce mobile lag and improve accuracy
-                                gcv_text = server_ocr_from_data_url(str(scan_state.get('data_url') or ''))
+                                gcv_text, gcv_dbg = server_ocr_from_data_url(str(scan_state.get('data_url') or ''), return_debug=True)
                                 if str(gcv_text).strip():
-                                    result = {'ok': True, 'text': str(gcv_text)}
+                                    result = {'ok': True, 'text': str(gcv_text), 'debug': str(gcv_dbg or '')}
                                 else:
-                                    ui.notify('OCR failed. Please try another photo (clear TOTAL) or refresh.', type='negative')
+                                    raw_out.value = (gcv_dbg or 'OCR returned empty text.')
+                                    ui.notify('OCR failed. Details shown in OCR debug box.', type='negative')
                                     return
                             else:
                                 # Quick client-side dependency check (if CDN blocked, fail fast with clear message)
@@ -4534,7 +4508,7 @@ def add_page():
                                     result = None
                                 # If client OCR failed (or returned empty), fall back to server OCR
                                 if (not result) or (not isinstance(result, dict)) or (not result.get('ok')) or (not str((result or {}).get('text') or '').strip()):
-                                    fallback_text = server_ocr_from_data_url(str(scan_state.get('data_url') or ''))
+                                    fallback_text = server_ocr_from_data_url(str(scan_state.get('data_url') or ''), return_debug=True)[0]
                                     if str(fallback_text).strip():
                                         result = {'ok': True, 'text': str(fallback_text)}
                                 if not result or not isinstance(result, dict) or not result.get('ok'):
