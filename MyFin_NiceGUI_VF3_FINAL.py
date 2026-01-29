@@ -4772,7 +4772,8 @@ def add_page():
                     _reset_scan_ui()
                     scan_dlg.open()
 
-                ui.button('Scan receipt', on_click=_open_scan_dialog).props('outline').classes('w-full')
+                btn_scan_receipt = ui.button('Scan receipt').props('outline').classes('w-full')
+                btn_scan_receipt.on('click', lambda e: asyncio.create_task(_open_scan_dialog()))
 
                 # Phase 6.5: Multi-category split UI — shown only after OCR Apply for Walmart/Costco/Superstore
                 split_hint = ui.label("").classes("text-xs").style("color: var(--mf-muted)")
