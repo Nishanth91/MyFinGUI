@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '6.7'
+APP_VERSION = '6.7.1'
 
 
 def log(message: str) -> None:
@@ -87,6 +87,7 @@ import time
 import calendar
 import hashlib
 import base64
+from io import BytesIO
 import asyncio
 import datetime as dt
 from typing import Any, Dict, List, Optional, Tuple, cast
@@ -784,59 +785,130 @@ def _get_google_vision_client():
         return None
 
 
-def server_ocr_from_data_url(data_url: str) -> str:
-    """Server OCR for receipts.
+def _get_gcp_vision_sa_info() -> Optional[dict]:
+    """Return service account info dict for Google Vision, if configured."""
+    raw = (os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON') or
+           os.getenv('GOOGLE_VISION_CREDENTIALS_JSON') or
+           os.getenv('GOOGLE_VISION_CREDENTIALS') or
+           os.getenv('GOOGLE_VISION_JSON') or
+           os.getenv('SERVICE_ACCOUNT_JSON') or '')
+    raw = (raw or '').strip()
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        # Sometimes users paste with leading/trailing quotes or escaped newlines
+        try:
+            return json.loads(raw.encode('utf-8').decode('unicode_escape'))
+        except Exception:
+            return None
 
-    Priority:
-      1) Google Cloud Vision (if GOOGLE_APPLICATION_CREDENTIALS_JSON is set AND google-cloud-vision is installed)
-      2) Local Tesseract via pytesseract (fallback)
 
-    Accepts a data URL (data:image/..;base64,...) and returns extracted text.
+def _google_vision_rest_ocr(image_bytes: bytes) -> Tuple[str, str]:
     """
+    OCR via Google Vision REST (DOCUMENT_TEXT_DETECTION).
+    Returns (text, debug_error). debug_error is '' on success.
+    This avoids requiring the google-cloud-vision package.
+    """
+    sa_info = _get_gcp_vision_sa_info()
+    if not sa_info:
+        return '', 'Google Vision credentials JSON not configured.'
+
+    try:
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+        import requests
+    except Exception as e:
+        return '', f'Missing dependency for Google auth/requests: {e}'
+
+    try:
+        creds = service_account.Credentials.from_service_account_info(
+            sa_info,
+            scopes=['https://www.googleapis.com/auth/cloud-platform'],
+        )
+        creds.refresh(Request())
+        token = creds.token
+        if not token:
+            return '', 'Unable to obtain Google access token.'
+    except Exception as e:
+        return '', f'Failed to build/refresh Google credentials: {e}'
+
     try:
         import base64
-        from io import BytesIO
-        from PIL import Image, ImageOps
+        content_b64 = base64.b64encode(image_bytes).decode('utf-8')
+        payload = {
+            "requests": [{
+                "image": {"content": content_b64},
+                "features": [{"type": "DOCUMENT_TEXT_DETECTION"}],
+            }]
+        }
+        resp = requests.post(
+            'https://vision.googleapis.com/v1/images:annotate',
+            headers={
+                'Authorization': f'Bearer {token}',
+                'Content-Type': 'application/json',
+            },
+            json=payload,
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            return '', f'Vision API HTTP {resp.status_code}: {resp.text[:400]}'
+        data = resp.json()
+        if not data or 'responses' not in data or not data['responses']:
+            return '', f'Vision API returned empty response: {data}'
+        r0 = data['responses'][0]
+        if 'error' in r0:
+            return '', f"Vision API error: {r0['error']}"
+        text_out = ''
+        if r0.get('fullTextAnnotation') and r0['fullTextAnnotation'].get('text'):
+            text_out = r0['fullTextAnnotation']['text']
+        elif r0.get('textAnnotations'):
+            # first item is full text
+            text_out = r0['textAnnotations'][0].get('description', '') or ''
+        text_out = (text_out or '').strip()
+        if not text_out:
+            return '', 'Vision OCR produced empty text.'
+        return text_out, ''
+    except Exception as e:
+        return '', f'Vision OCR request failed: {e}'
 
-        if not data_url or 'base64,' not in data_url:
+
+def server_ocr_from_data_url(data_url: str) -> str:
+    """
+    Server-side OCR. Prefers Google Vision (REST) when credentials are configured.
+    Falls back to pytesseract only when Google Vision is unavailable.
+    Never raises; returns '' on failure.
+    """
+    try:
+        raw_bytes = _decode_data_url_to_bytes(data_url)
+        if not raw_bytes:
             return ''
-        b64 = data_url.split('base64,', 1)[1]
-        raw = base64.b64decode(b64)
 
-        # Try Google Vision first if available (best quality for phone receipts)
-        client = _get_google_vision_client()
-        if client is not None:
-            try:
-                from google.cloud import vision  # type: ignore
-                img = vision.Image(content=raw)
-                resp = client.document_text_detection(image=img)
-                if resp and getattr(resp, 'full_text_annotation', None) and resp.full_text_annotation.text:
-                    return resp.full_text_annotation.text
-                # Fallback to text_detection if document_text_detection is empty
-                resp2 = client.text_detection(image=img)
-                if resp2 and getattr(resp2, 'text_annotations', None):
-                    if resp2.text_annotations and getattr(resp2.text_annotations[0], 'description', None):
-                        return resp2.text_annotations[0].description or ''
-            except Exception:
-                # If Vision fails for any reason, fall back to local OCR below
-                pass
+        engine = (os.getenv('OCR_ENGINE') or '').strip().lower()
+        # Auto mode: use Google when creds exist; else tesseract
+        if engine in ('', 'auto'):
+            engine = 'google' if _get_gcp_vision_sa_info() else 'tesseract'
 
-        # Local Tesseract fallback
-        import pytesseract
+        if engine == 'google':
+            text_out, err = _google_vision_rest_ocr(raw_bytes)
+            if text_out:
+                return text_out
+            # If Google failed, keep a short marker in logs for troubleshooting
+            print(f'[OCR] Google Vision failed: {err}')
+            # fall through to tesseract as last resort
 
-        im = Image.open(BytesIO(raw))
-        # Normalize for OCR: grayscale + autocontrast
-        im = ImageOps.exif_transpose(im)
-        im = im.convert('L')
-        im = ImageOps.autocontrast(im)
-        # Upscale small images a bit (helps receipts)
-        w, h = im.size
-        if max(w, h) < 1200:
-            scale = 1200 / max(w, h)
-            im = im.resize((int(w*scale), int(h*scale)))
-        config = '--oem 1 --psm 6'
-        return pytesseract.image_to_string(im, lang='eng', config=config) or ''
-    except Exception:
+        # Tesseract fallback (may not be available on Render)
+        try:
+            from PIL import Image
+            import pytesseract
+            img = Image.open(BytesIO(raw_bytes))
+            return (pytesseract.image_to_string(img) or '').strip()
+        except Exception as e:
+            print(f'[OCR] Tesseract fallback failed: {e}')
+            return ''
+    except Exception as e:
+        print(f'[OCR] Unexpected OCR error: {e}')
         return ''
 
 def parse_receipt_text(text: str) -> Dict[str, Any]:
@@ -6762,7 +6834,7 @@ ui.run(
     title=APP_TITLE,
 )
 
-# Release: FinTrackr Phase 6.7 (Google Vision OCR optional + stable 6.5 logic)
+# Release: FinTrackr Phase 6.7.1 (Google Vision OCR optional + stable 6.5 logic)
 
-# RELEASE_VERSION: 6.7 (Google Vision OCR optional; falls back to existing OCR)
-# RELEASE_VERSION: 6.7 (Google Vision OCR optional; falls back to existing OCR)
+# RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR)
+# RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR)
