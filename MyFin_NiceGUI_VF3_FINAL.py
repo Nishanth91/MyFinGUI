@@ -4727,22 +4727,10 @@ def add_page():
                                             best = 'Groceries'
                                         category_amounts = _blank_split(detected_total, best)
                                         category_debug = f"(fallback) receipt-level signal: {best} | scores={scores}"
-                                classified = classify_receipt_items(items, rules)
+                                # Persist line-items and category split for the Split dialog
                                 parsed['line_items'] = items
-                                detected_amounts = classified.get('detected_amounts', {})
-                                # The classifier sums line-item prices (usually subtotal). Users want the
-                                # paid amount (total). If total and subtotal differ (tax), scale detected
-                                # amounts so the split matches the receipt total.
-                                try:
-                                    total_amt = float(parsed.get('amount') or 0.0)
-                                    detected_sum = float(sum(float(v or 0.0) for v in detected_amounts.values()))
-                                    if total_amt > 0 and detected_sum > 0 and abs(total_amt - detected_sum) > 0.02:
-                                        scale = total_amt / detected_sum
-                                        detected_amounts = {k: round(float(v or 0.0) * scale, 2) for k, v in detected_amounts.items()}
-                                except Exception:
-                                    pass
-
-                                parsed['category_amounts'] = detected_amounts
+                                parsed['category_amounts'] = category_amounts
+                                parsed['category_split_debug'] = category_debug
                                 parsed['category_counts'] = classified.get('counts', {})
                                 parsed['classified_items'] = classified.get('per_item', [])
                             except Exception:
