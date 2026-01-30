@@ -4768,18 +4768,25 @@ def add_page():
                         apply_btn.disable()
                         ui.button('Close', on_click=scan_dlg.close).props('outline')
 
-                def _open_scan_dialog() -> None:
+                def _open_scan_dialog():
+                    """Open the receipt scanner dialog (and reset it so user can scan again)."""
+                    _reset_scan_ui()
+                    # Clear previous file selection so the same dialog can be reused without closing the Add page
                     try:
-                        ui.notify('Opening scanner…', type='info')
-                        _logger.info('[Scan] Opening scan dialog')
+                        if 'scan_upload' in locals() or 'scan_upload' in globals():
+                            if hasattr(scan_upload, 'reset'):
+                                scan_upload.reset()
+                            # best-effort: also clear the native file input
+                            try:
+                                ui.run_javascript("""try{const el=document.querySelector('input[type=file]'); if(el) el.value='';}catch(e){}""")
+                            except Exception:
+                                pass
                     except Exception:
                         pass
-                    _reset_scan_ui()
                     scan_dlg.open()
 
-                btn_scan_receipt = ui.button('Scan receipt', on_click=_open_scan_dialog).props('outline type=button').classes('w-full')
-                # extra binding for iOS/Safari quirks
-                btn_scan_receipt.on('click', lambda e: _open_scan_dialog())
+                btn_scan_receipt = ui.button('Scan receipt', on_click=_open_scan_dialog).props('outline').classes('w-full')
+
 
                 # Phase 6.5: Multi-category split UI — shown only after OCR Apply for Walmart/Costco/Superstore
                 split_hint = ui.label("").classes("text-xs").style("color: var(--mf-muted)")
