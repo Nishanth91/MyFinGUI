@@ -1367,7 +1367,7 @@ def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, s
     def infer_item_category(item_name: str) -> str:
         t = _norm(item_name)
         if not t:
-            return 'Groceries'
+            return 'Uncategorized'
         # priority: Health -> Shopping -> Household -> Groceries
         if _has_any(t, kw_health) or _has_any(t, fb_health):
             return 'Health'
