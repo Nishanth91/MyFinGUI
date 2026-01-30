@@ -597,94 +597,108 @@ def _extract_total_amount(text: str) -> Tuple[Optional[float], float, str]:
 
     Returns (amount, confidence, source).
 
-    Confidence is a heuristic score in [0..10]. Source is the keyword bucket used.
+    Confidence is a heuristic score in [0..6] where:
+      - 0 means nothing found
+      - 2 means a weak guess
+      - 4+ means strong enough to skip the "low confidence" warning
     """
-    lines = [ln.strip() for ln in (text or '').splitlines() if ln.strip()]
+    t = (text or "")
+    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
+    if not lines:
+        return None, 0.0, ""
 
-    # Prefer explicit totals; avoid SUBTOTAL/TAX unless nothing else exists.
-    # Scores tuned for receipts; higher is more trustworthy.
-    key_scores = [
-        ('GRAND TOTAL', 10.0),
-        ('AMOUNT DUE', 9.5),
-        ('BALANCE DUE', 9.5),
-        ('TOTAL', 8.5),
-        ('BALANCE', 7.5),
-        ('PAYMENT', 6.0),
-        # SUBTOTAL is only used if no better match exists
-        ('SUBTOTAL', 2.0),
-    ]
+    # helper
+    def _to_num(s: str) -> Optional[float]:
+        try:
+            s = s.replace(",", "").strip()
+            return float(s)
+        except Exception:
+            return None
 
-    negative_markers = (
-        'SUBTOTAL', 'TAX', 'GST', 'PST', 'HST', 'TIP', 'CHANGE', 'CASH', 'REFUND', 'RETURN',
-        'DISCOUNT', 'SAVINGS', 'COUPON', 'POINTS', 'DEPOSIT',
-    )
+    # patterns: allow optional currency, trailing tax-code letter (H/D/E/etc)
+    num_pat = r"(?P<amt>\d{1,5}(?:[\.,]\d{2}))"
+    amt_re = re.compile(num_pat)
 
-    # Currency-like values (prefer cents): 12.34, $12.34, 1,234.56
-    money_pat = re.compile(r"(?:(?:CAD|USD)\s*)?(\$?\s*-?\d{1,7}(?:[\,\s]\d{3})*(?:\.\d{2})?)")
+    # We score candidates; later lines are generally more trustworthy for totals.
+    best_amt: Optional[float] = None
+    best_score: float = 0.0
+    best_src: str = ""
 
-    candidates: list[tuple[float, float, int, str]] = []  # (amount, score, line_idx, source)
-
-    for i, ln in enumerate(lines):
-        up = ln.upper()
-        vals = money_pat.findall(ln)
-        if not vals:
-            continue
-
-        # Base score: if line has decimals and looks like a total line
-        base = 0.5
-        if re.search(r"\.\d{2}\b", ln):
-            base += 0.8
-
-        # Keyword-based scoring
-        source = ''
-        kscore = 0.0
-        for key, sc in key_scores:
-            if key in up:
-                # Special case: avoid catching TOTAL in SUBTOTAL (handled by explicit SUBTOTAL entry)
-                if key == 'TOTAL' and 'SUBTOTAL' in up:
-                    continue
-                kscore = max(kscore, sc)
-                source = key
-
-        # Penalize lines that are clearly not the final payable amount
-        penalty = 0.0
-        if any(m in up for m in negative_markers):
-            # If we matched SUBTOTAL explicitly, don't over-penalize
-            if source != 'SUBTOTAL':
-                penalty += 3.0
-
-        # Take the last amount on the line (receipts often show: TOTAL 12.34)
-        v = parse_money(vals[-1], default=float('nan'))
-        if math.isnan(v) or v == 0:
-            continue
-        v = abs(v)
-
-        score = max(base + kscore - penalty, 0.0)
-        candidates.append((v, score, i, source or 'LINE'))
-
-    if candidates:
-        # pick best score; tie-break by later line (totals tend to appear near the bottom)
-        candidates.sort(key=lambda t: (t[1], t[2]), reverse=True)
-        amt, score, _, source = candidates[0]
-        # Clamp score to 0..10 for display
-        score = max(0.0, min(10.0, score))
-        return amt, score, source
-
-    # Fallback: pick the largest plausible currency-like value anywhere
-    best: Optional[float] = None
+    # Pre-compute how many times each amount appears (helps with receipts where TOTAL and TEND repeat)
+    all_amounts = []
     for ln in lines:
-        for s in money_pat.findall(ln):
-            v = parse_money(s, default=float('nan'))
-            if math.isnan(v):
-                continue
-            v = abs(v)
-            if v <= 0:
-                continue
-            if best is None or v > best:
-                best = v
+        for m in amt_re.finditer(ln.replace("$", "")):
+            v = _to_num(m.group("amt").replace(",", "").replace(" ", "").replace(".", "."))
+            if v is not None:
+                all_amounts.append(round(v, 2))
+    freq = {}
+    for v in all_amounts:
+        freq[v] = freq.get(v, 0) + 1
 
-    return best, (1.0 if best is not None else 0.0), 'MAX'
+    # keyword tiers
+    strong_kw = (" total", "total ", "grand total", "amount due", "balance due")
+    mid_kw = ("mcard tend", "visa tend", "debit tend", "tend", "paid", "purchase", "total purchase")
+    weak_kw = ("subtotal", "sub total")
 
+    for i, ln_raw in enumerate(lines):
+        ln = ln_raw.lower()
+        # Skip obvious noise-only header lines
+        if len(ln) < 4:
+            continue
+
+        # Find the right-most amount on the line (often the relevant one)
+        matches = list(amt_re.finditer(ln_raw.replace("$", "")))
+        if not matches:
+            continue
+        m_last = matches[-1]
+        amt_s = m_last.group("amt").replace(",", "").strip()
+        val = _to_num(amt_s)
+        if val is None:
+            continue
+        val = round(val, 2)
+
+        score = 0.0
+
+        # position weight: later lines => higher
+        pos_w = (i + 1) / max(1, len(lines))
+        score += 1.0 * pos_w  # 0..1
+
+        # keyword weight
+        if any(k in ln for k in strong_kw):
+            score += 4.0
+            src = "total"
+        elif any(k in ln for k in mid_kw):
+            score += 3.0
+            src = "tender"
+        elif any(k in ln for k in weak_kw):
+            # subtotal is useful but weaker
+            score += 1.0
+            src = "subtotal"
+        else:
+            score += 0.5
+            src = "number"
+
+        # If the same amount repeats multiple times on the receipt, bump confidence.
+        if freq.get(val, 0) >= 2:
+            score += 1.0
+        if freq.get(val, 0) >= 3:
+            score += 0.5
+
+        # Sanity: totals rarely are 0.00
+        if val <= 0:
+            score -= 2.0
+
+        if score > best_score:
+            best_score = score
+            best_amt = val
+            best_src = src
+
+    if best_amt is None:
+        return None, 0.0, ""
+
+    # Clamp into [0..6]
+    best_score = max(0.0, min(6.0, best_score))
+    return best_amt, best_score, best_src
 
 def _extract_card_last4(text: str) -> str:
     """Try to find last-4 digits of card, if printed."""
@@ -4653,18 +4667,66 @@ def add_page():
                             try:
                                 rules = load_rules(force=False)
                                 items = extract_receipt_line_items(text)
-                                # If OCR line-item extraction yields nothing (common on short pharmacy receipts),
-                                # fall back to a text-level signal so we can still split correctly.
-                                if (not items) and isinstance(text, str):
-                                    lowtxt = text.lower()
-                                    total_fallback = float(parsed.get('amount') or 0.0)
-                                    if total_fallback > 0:
-                                        if ('pharmacy' in lowtxt) or re.search(r'\brx\b', lowtxt):
-                                            items = [{'name': 'PHARMACY', 'price': total_fallback, 'raw': 'fallback'}]
-                                        elif any(k in lowtxt for k in ['detergent', 'laundry', 'paper towel', 'paper towels', 'garbage bag', 'garbage bags', 'bleach', 'dish soap']):
-                                            items = [{'name': 'HOUSEHOLD', 'price': total_fallback, 'raw': 'fallback'}]
-                                        elif any(k in lowtxt for k in ['shirt', 'jeans', 'pant', 'pants', 'dress', 'toy', 'toys']):
-                                            items = [{'name': 'SHOPPING', 'price': total_fallback, 'raw': 'fallback'}]
+
+                                # Category split:
+                                # Prefer priced line-items. If we can't reliably extract line-items (common on some receipts),
+                                # fall back to receipt-level keyword signals (e.g., PHARMACY/RX => Health).
+                                detected_total = float(parsed.get('amount') or 0.0)
+                                category_amounts: Dict[str, float] = {}
+                                category_debug: str = ""
+
+                                if items:
+                                    cat_result = classify_receipt_items(items, total_amount=detected_total)
+                                    category_amounts = cat_result.get('category_amounts', {}) or {}
+                                    category_debug = cat_result.get('debug', '') or ""
+                                else:
+                                    lowtxt = (text or "").lower()
+
+                                    def _blank_split(total: float, main: str) -> Dict[str, float]:
+                                        total = float(total or 0.0)
+                                        out = {'Groceries': 0.0, 'Household': 0.0, 'Shopping': 0.0, 'Health': 0.0}
+                                        out[main] = round(total, 2)
+                                        return out
+
+                                    # Strong overrides first
+                                    if any(k in lowtxt for k in ['pharmacy', ' rx', 'rx ', 'prescription', 'drug', 'dispens']):
+                                        category_amounts = _blank_split(detected_total, 'Health')
+                                        category_debug = "(fallback) receipt-level signal: Health (pharmacy/rx)"
+                                    elif any(k in lowtxt for k in ['dollarama', 'dollar tree', 'canadian tire', 'ikea', 'winners', 'marshall', 'value village']):
+                                        category_amounts = _blank_split(detected_total, 'Shopping')
+                                        category_debug = "(fallback) receipt-level signal: Shopping (store keyword)"
+                                    else:
+                                        # Lightweight scoring
+                                        scores = {'Groceries': 0.0, 'Household': 0.0, 'Shopping': 0.0, 'Health': 0.0}
+
+                                        shop_kw = ['shirt', 'jeans', 'pant', 'pants', 'sock', 'socks', 'shoe', 'shoes', 'apparel', 'clothing', 'jacket', 'coat']
+                                        house_kw = ['detergent', 'bleach', 'soap', 'paper', 'towel', 'towels', 'toilet', 'tissue', 'dish', 'clean', 'cleaner', 'garbage', 'trash', 'broom', 'mop', 'shampoo']
+                                        health_kw = ['vitamin', 'medicine', 'medical', 'clinic', 'doctor', 'pharmacy', 'rx']
+                                        # groceries as a base if we detect typical produce/food words
+                                        grocery_kw = ['banana', 'bananas', 'apple', 'apples', 'milk', 'bread', 'tofu', 'spinach', 'cauliflower', 'watermelon', 'pear', 'avocado', 'yogurt']
+
+                                        for w in shop_kw:
+                                            if w in lowtxt:
+                                                scores['Shopping'] += 1.0
+                                        for w in house_kw:
+                                            if w in lowtxt:
+                                                scores['Household'] += 1.0
+                                        for w in health_kw:
+                                            if w in lowtxt:
+                                                scores['Health'] += 1.5
+                                        for w in grocery_kw:
+                                            if w in lowtxt:
+                                                scores['Groceries'] += 1.0
+
+                                        # If Walmart and we see clear clothing keywords, bias Shopping; otherwise groceries.
+                                        if 'walmart' in lowtxt:
+                                            scores['Groceries'] += 0.5
+
+                                        best = max(scores, key=lambda k: scores[k])
+                                        if scores[best] <= 0.0:
+                                            best = 'Groceries'
+                                        category_amounts = _blank_split(detected_total, best)
+                                        category_debug = f"(fallback) receipt-level signal: {best} | scores={scores}"
                                 classified = classify_receipt_items(items, rules)
                                 parsed['line_items'] = items
                                 detected_amounts = classified.get('detected_amounts', {})
@@ -6959,4 +7021,4 @@ ui.run(
 
 # RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR)
 # RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR                            scan_spinner.style('display:none')
-# Release: 6.7.3 (HF5 - Scan button event binding + immediate popup)
+# Release: 6.7.3 (HF2 - Scan button event binding + immediate popup)
