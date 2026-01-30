@@ -4477,6 +4477,7 @@ def add_page():
                                 parsed_state['parsed'] = None
                                 parsed_card.style('display:none')
                                 apply_btn.disable()
+                                _sync_run_btn()
                             except Exception as ex:
                                 ui.notify(f'Upload failed: {ex}', type='negative')
 
@@ -4487,6 +4488,32 @@ def add_page():
                             nonlocal upload_receipt
                             upload_holder.clear()
                             upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt')                                .props("accept='image/*'")                                .classes('w-full')                                .on_upload(_on_upload)
+
+                        def _sync_run_btn():
+                            """Enable/disable the Run scan button based on whether we have an image."""
+                            try:
+                                has_img = bool(scan_state.get('img_bytes') or scan_state.get('data_url'))
+                                if has_img:
+                                    try: run_btn.enable()
+                                    except Exception: run_btn.props('disable=false')
+                                else:
+                                    try: run_btn.disable()
+                                    except Exception: run_btn.props('disable=true')
+                            except Exception:
+                                pass
+
+                        def _sync_apply_btn():
+                            """Enable/disable the Apply button based on whether we have parsed OCR results."""
+                            try:
+                                parsed = parsed_state.get('parsed') or scan_state.get('parsed')
+                                if parsed:
+                                    try: apply_btn.enable()
+                                    except Exception: apply_btn.props('disable=false')
+                                else:
+                                    try: apply_btn.disable()
+                                    except Exception: apply_btn.props('disable=true')
+                            except Exception:
+                                pass
 
                         def _reset_scan_ui():
                             scan_state['data_url'] = None
@@ -6932,4 +6959,4 @@ ui.run(
 
 # RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR)
 # RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR                            scan_spinner.style('display:none')
-# Release: 6.7.3 (HF2 - Scan button event binding + immediate popup)
+# Release: 6.7.3 (HF4 - Scan button event binding + immediate popup)
