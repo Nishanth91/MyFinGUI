@@ -131,7 +131,7 @@ def gs_retry(fn, *, retries: int = 6, base_sleep: float = 0.8):
 
 from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
-from nicegui import ui, app
+from nicegui import ui, app, run
 
 # ---------------------------
 # Minimal OCR API endpoint (Phase 6.5 HF5)
@@ -6959,4 +6959,4 @@ ui.run(
 
 # RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR)
 # RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR                            scan_spinner.style('display:none')
-# Release: 6.7.3 (HF4 - Scan button event binding + immediate popup)
+# Release: 6.7.3 (HF5 - Scan button event binding + immediate popup)
