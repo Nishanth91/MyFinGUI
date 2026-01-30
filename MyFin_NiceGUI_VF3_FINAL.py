@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '6.7.1'
+APP_VERSION = '6.7.3'
 
 
 def log(message: str) -> None:
@@ -4769,10 +4769,16 @@ def add_page():
                         ui.button('Close', on_click=scan_dlg.close).props('outline')
 
                 def _open_scan_dialog() -> None:
+                    try:
+                        ui.notify('Opening scanner…', type='info')
+                        _logger.info('[Scan] Opening scan dialog')
+                    except Exception:
+                        pass
                     _reset_scan_ui()
                     scan_dlg.open()
 
-                btn_scan_receipt = ui.button('Scan receipt').props('outline').classes('w-full')
+                btn_scan_receipt = ui.button('Scan receipt', on_click=_open_scan_dialog).props('outline type=button').classes('w-full')
+                # extra binding for iOS/Safari quirks
                 btn_scan_receipt.on('click', lambda e: _open_scan_dialog())
 
                 # Phase 6.5: Multi-category split UI — shown only after OCR Apply for Walmart/Costco/Superstore
@@ -6919,3 +6925,4 @@ ui.run(
 
 # RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR)
 # RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR                            scan_spinner.style('display:none')
+# Release: 6.7.3 (HF2 - Scan button event binding + immediate popup)
