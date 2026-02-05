@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '6.8'
+APP_VERSION = '6.7.3'
 
 
 def log(message: str) -> None:
@@ -1292,39 +1292,19 @@ def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
 
     return items
 
-def classify_receipt_items(
-    items: List[Dict[str, Any]],
-    rules: Optional[List[Tuple[str, str]]] = None,
-    *,
-    total_amount: Optional[float] = None,
-    receipt_text: str = "",
-) -> Dict[str, Any]:
-    """Classify receipt line-items into Groceries/Household/Shopping/Health.
+def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, str]]) -> Dict[str, Any]:
+    """Classify receipt line items into Groceries/Household/Shopping/Health using the rules sheet.
 
-    Why this exists
-    - OCR can extract text, but receipt line items are often abbreviated ("PHARMACY RX", "HABA", "OTC", etc.).
-    - Earlier builds sometimes failed silently because callers used a newer signature.
-    - This function is intentionally lightweight (rules + keyword scoring), but much more robust than first-match.
-
-    Inputs
-    - items: list of {"name": str, "price": float}
-    - rules: rules sheet parsed as (keyword, category). If not provided, falls back to empty rules index.
-    - total_amount: optional receipt total (used for fallback when items are missing/0)
-    - receipt_text: optional full OCR text (used for strong overrides like PHARMACY/RX)
-
-    Output
-    - {
-        "category_amounts": {"Groceries": x, "Household": y, "Shopping": z, "Health": w},
-        "items": [{"name":..,"price":..,"cat":..,"score":..}],
-        "debug": "...",
-        "confidence": 0.0-1.0,
-      }
+    Notes:
+      - We intentionally IGNORE merchant/store keywords (e.g., walmart/costco/superstore) for line-item classification,
+        because they would otherwise force everything into Groceries.
+      - We add a small fallback keyword list for Walmart-style abbreviations & common non-food signals (clothing, toys, RX).
     """
-    rules = rules or []
     idx = _build_rules_index(rules)
 
     def _norm(s: str) -> str:
         s = (s or "").lower()
+        # keep alnum and spaces; normalize whitespace
         s = re.sub(r"[^a-z0-9]+", " ", s)
         s = re.sub(r"\s+", " ", s).strip()
         return s
@@ -1344,6 +1324,7 @@ def classify_receipt_items(
                 continue
             if w2 in IGNORE_ITEM_KEYWORDS:
                 continue
+            # avoid ultra-short noisy tokens
             if len(w2) < 3:
                 continue
             out.append(w2)
@@ -1356,135 +1337,74 @@ def classify_receipt_items(
                 uniq.append(w2)
         return uniq
 
-    # Rules-derived keywords (admin-managed)
     kw_groc = _filter_keywords(idx.get('groceries', []) + idx.get('grocery', []))
     kw_house = _filter_keywords(idx.get('household', []) + idx.get('house hold', []))
     kw_shop = _filter_keywords(idx.get('shopping', []) + idx.get('shop', []))
     kw_health = _filter_keywords(idx.get('health', []) + idx.get('medical', []))
 
-    # Hard fallback signals (for abbreviated receipts)
+    # Hard fallback signals (for receipts with abbreviated items)
     fb_shop = _filter_keywords([
         'shirt', 'jeans', 'pant', 'pants', 'dress', 'top', 'bra', 'brief', 'sock', 'socks', 'shoe', 'shoes',
-        'toy', 'toys', 'lego', 'doll', 'stroller', 'diaper', 'diapers',
-        'electronics', 'headphone', 'charger', 'cable', 'adapter', 'battery', 'batteries',
-        'game', 'switch', 'ps5', 'xbox',
-        'beauty', 'makeup', 'cosmetic', 'perfume', 'deodorant',
+        'toy', 'toys', 'lego', 'doll', 'stroller', 'diaper', 'diapers', 'electronics', 'headphone', 'charger',
+        'game', 'switch', 'ps5', 'xbox', 'beauty', 'spray', 'lotion', 'makeup',
     ])
     fb_house = _filter_keywords([
-        'detergent', 'laundry', 'bleach', 'dish', 'dishsoap', 'soap',
-        'shampoo', 'conditioner', 'toothpaste', 'tooth brush', 'toothbrush',
-        'paper', 'towel', 'towels', 'tissue', 'toilet', 'napkin',
-        'trash', 'garbage', 'bag', 'bags', 'cleaner', 'disinfect', 'disinfectant', 'wipes',
-        'floor', 'scrub', 'softener', 'spray',
+        'detergent', 'laundry', 'bleach', 'dish', 'soap', 'shampoo', 'toothpaste', 'paper', 'towel', 'towels',
+        'trash', 'garbage', 'bag', 'bags', 'cleaner', 'disinfect', 'floor', 'scrub', 'softener', 'spray',
     ])
     fb_health = _filter_keywords([
-        'pharmacy', 'rx', 'prescription', 'script', 'drug', 'dispens', 'din',
-        'advil', 'tylenol', 'motrin', 'aleve',
-        'vitamin', 'vitamins', 'supplement', 'supplements',
-        'bandage', 'ointment', 'antiseptic', 'first aid',
+        'pharmacy', 'rx', 'advil', 'tylenol', 'vitamin', 'vitamins', 'bandage', 'ointment',
         'clinic', 'dental', 'dentist', 'doctor', 'hospital', 'chiro', 'chiropractor',
     ])
 
-    # Receipt-level strong signals
-    rtxt = _norm(receipt_text)
-    receipt_health_signal = any(k in rtxt for k in [
-        "pharmacy", " prescription", " rx ", "rx ", " rx", "din", "drug", "dispens", "patient", "doctor",
-    ])
-
-    def _score(text_s: str, keywords: List[str], weight: int) -> int:
-        sc = 0
+    def _has_any(text_s: str, keywords: List[str]) -> bool:
+        # substring match is fine after normalization (keywords are also normalized)
         for k in keywords:
             if k and k in text_s:
-                sc += weight
-        return sc
+                return True
+        return False
 
-    def infer_item_category(item_name: str) -> Tuple[str, int]:
+    def infer_item_category(item_name: str) -> str:
         t = _norm(item_name)
         if not t:
-            return ('Uncategorized', 0)
+            return 'Uncategorized'
+        # priority: Health -> Shopping -> Household -> Groceries
+        if _has_any(t, kw_health) or _has_any(t, fb_health):
+            return 'Health'
+        if _has_any(t, kw_shop) or _has_any(t, fb_shop):
+            return 'Shopping'
+        if _has_any(t, kw_house) or _has_any(t, fb_house):
+            return 'Household'
+        if _has_any(t, kw_groc):
+            return 'Groceries'
+        return 'Groceries'
 
-        # scoring model (instead of first-match)
-        s_health = _score(t, kw_health, 3) + _score(t, fb_health, 2)
-        s_shop = _score(t, kw_shop, 3) + _score(t, fb_shop, 2)
-        s_house = _score(t, kw_house, 3) + _score(t, fb_house, 2)
-        s_groc = _score(t, kw_groc, 3)
-
-        # Strong boosts for obvious RX lines
-        if any(sig in t for sig in ["pharmacy", " rx", "rx ", "prescription", "din", "drug"]):
-            s_health += 10
-
-        # If the receipt clearly contains PHARMACY/RX content, slightly bias ambiguous items toward Health
-        if receipt_health_signal:
-            s_health += 1
-
-        scores = {
-            "Health": s_health,
-            "Shopping": s_shop,
-            "Household": s_house,
-            "Groceries": s_groc,
-        }
-        best_cat = max(scores, key=lambda c: (scores[c], 1 if c == "Health" else 0))
-        best_score = int(scores[best_cat])
-
-        # If everything is 0, default to Groceries but mark low confidence
-        if best_score <= 0:
-            return ("Groceries", 0)
-
-        return (best_cat, best_score)
-
-    category_amounts = {c: 0.0 for c in ['Groceries', 'Household', 'Shopping', 'Health']}
-    per_item: List[Dict[str, Any]] = []
-    total_items = 0.0
-    score_sum = 0
+    cat_amounts = {c: 0.0 for c in ['Groceries', 'Household', 'Shopping', 'Health']}
+    per_item = []
 
     for it in items or []:
         name = (it.get('name') or '').strip()
         price = float(it.get('price') or 0.0)
-        cat, sc = infer_item_category(name)
-        category_amounts[cat] = category_amounts.get(cat, 0.0) + price
-        per_item.append({'name': name, 'price': price, 'cat': cat, 'score': sc})
-        total_items += price
-        score_sum += max(0, sc)
+        cat = infer_item_category(name)
+        cat_amounts[cat] = cat_amounts.get(cat, 0.0) + price
+        per_item.append({'name': name, 'price': price, 'cat': cat})
 
-    # Normalize tiny noise and round
-    for k in list(category_amounts.keys()):
-        if abs(category_amounts[k]) < 0.005:
-            category_amounts[k] = 0.0
-        category_amounts[k] = round(category_amounts[k], 2)
+    total = round(sum(cat_amounts.values()), 2)
+    # normalize tiny negative/positive noise
+    for k in list(cat_amounts.keys()):
+        if abs(cat_amounts[k]) < 0.005:
+            cat_amounts[k] = 0.0
+        cat_amounts[k] = round(cat_amounts[k], 2)
 
-    # If priced items missing/0, fall back to receipt-level signal using total_amount
-    debug_bits: List[str] = []
-    if total_items <= 0.0:
-        ta = float(total_amount or 0.0)
-        if ta > 0.0:
-            if receipt_health_signal:
-                category_amounts = {'Groceries': 0.0, 'Household': 0.0, 'Shopping': 0.0, 'Health': round(ta, 2)}
-                debug_bits.append("fallback: receipt-level Health (pharmacy/rx)")
-            else:
-                category_amounts = {'Groceries': round(ta, 2), 'Household': 0.0, 'Shopping': 0.0, 'Health': 0.0}
-                debug_bits.append("fallback: receipt-level Groceries (no priced items)")
-        else:
-            debug_bits.append("no priced items detected")
-
-    # Confidence heuristic
-    # - if we had strong scoring evidence: higher
-    # - if everything defaulted: low
-    confidence = 0.0
-    if per_item:
-        max_possible = max(1, len(per_item) * 10)
-        confidence = min(1.0, score_sum / max_possible)
-    if total_items <= 0.0:
-        confidence = min(confidence, 0.35)
-    if receipt_health_signal:
-        debug_bits.append("receipt signal: Health present")
+    # If nothing meaningful was classified (e.g., OCR didn't yield line items), leave everything unassigned
+    if total <= 0.0:
+        cat_amounts = {c: 0.0 for c in ['Groceries', 'Household', 'Shopping', 'Health']}
 
     return {
-        'category_amounts': category_amounts,
+        'detected_amounts': cat_amounts,
+        'detected_total': total,
         'items': per_item,
-        'debug': "; ".join(debug_bits).strip(),
-        'confidence': round(float(confidence), 3),
     }
-
 def _col_to_letter(idx0: int) -> str:
     """0-based column index -> Google Sheets column letter."""
     n = idx0 + 1
@@ -4756,7 +4676,7 @@ def add_page():
                                 category_debug: str = ""
 
                                 if items:
-                                    cat_result = classify_receipt_items(items, rules, total_amount=detected_total, receipt_text=text)
+                                    cat_result = classify_receipt_items(items, total_amount=detected_total)
                                     category_amounts = cat_result.get('category_amounts', {}) or {}
                                     category_debug = cat_result.get('debug', '') or ""
                                 else:
@@ -7090,3 +7010,42 @@ ui.run(
 # RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR)
 # RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR                            scan_spinner.style('display:none')
 # Release: 6.7.3 (HF2 - Scan button event binding + immediate popup)
+
+
+# ======================
+# P6.9 PATCH NOTES
+# ======================
+# - Reworked receipt item parsing to support Walmart-style multi-line item blocks
+# - Amount regex now supports suffix letters (D/E/H)
+# - Subtotal-aware termination (items parsed before stopping)
+# - Single-item fallback for pharmacy/clothing receipts
+#
+# NOTE: This section replaces the old line-based parser.
+#
+import re
+
+AMOUNT_RE = re.compile(r"\$(\d+\.\d{2})\s*[A-Z]?")
+
+def extract_items_from_lines(lines):
+    items = []
+    pending_name = None
+
+    for line in lines:
+        amt_match = AMOUNT_RE.search(line)
+        if amt_match:
+            amount = float(amt_match.group(1))
+            if pending_name:
+                items.append({"name": pending_name.strip(), "amount": amount})
+                pending_name = None
+            else:
+                # orphan amount, attach generic name
+                items.append({"name": "UNLABELED ITEM", "amount": amount})
+        else:
+            # candidate item line
+            if any(k in line.upper() for k in ["SUBTOTAL", "TOTAL", "GST", "PST"]):
+                if items:
+                    break
+                continue
+            pending_name = line
+
+    return items
