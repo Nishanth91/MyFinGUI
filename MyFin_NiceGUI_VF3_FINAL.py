@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '6.7.3'
+APP_VERSION = '7.0.0'
 
 
 def log(message: str) -> None:
@@ -1218,7 +1218,7 @@ def _is_noise_receipt_line(line: str) -> bool:
 def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
     """Extract best-effort line items from OCR text.
 
-    Returns list of dicts: {name:str, price:float}
+    Returns list of dicts: {name:str, price:float, section_hint:str|None}
 
     Supports two patterns seen in receipts / OCR:
     1) "ITEM NAME ... $12.34" on the SAME line
@@ -1226,6 +1226,8 @@ def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
        (common with Google Vision line breaks)
 
     We intentionally keep this lightweight and deterministic: no ML here.
+    Section headers (like PHARMACY, GROCERY, etc.) are tracked so that items
+    underneath a section inherit a category hint.
     """
     items: list[dict[str, Any]] = []
     if not text:
@@ -1233,6 +1235,20 @@ def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
 
     lines = [ln.strip() for ln in str(text).splitlines() if ln and ln.strip()]
     prev_candidate: str | None = None
+
+    # Track section headers (Walmart/Costco receipts often have PHARMACY, GROCERY, etc.)
+    _SECTION_MAP = {
+        'pharmacy': 'Health', 'pharm': 'Health', 'rx': 'Health', 'drug': 'Health',
+        'health': 'Health', 'otc': 'Health', 'wellness': 'Health',
+        'household': 'Household', 'hhold': 'Household', 'home': 'Household',
+        'cleaning': 'Household', 'hba': 'Health',
+        'grocery': 'Groceries', 'groceries': 'Groceries', 'produce': 'Groceries',
+        'dairy': 'Groceries', 'bakery': 'Groceries', 'deli': 'Groceries', 'meat': 'Groceries',
+        'frozen': 'Groceries', 'fresh': 'Groceries',
+        'apparel': 'Shopping', 'clothing': 'Shopping', 'electronics': 'Shopping',
+        'toys': 'Shopping', 'garden': 'Shopping',
+    }
+    current_section: str | None = None
 
     def _clean_name(s: str) -> str:
         s = s.replace('CAD', '').replace('$', '').strip(" -:·|")
@@ -1253,6 +1269,16 @@ def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
             continue
 
         ln2 = ln.replace('CAD', '').strip()
+
+        # Detect section headers (e.g., "** PHARMACY **", "PHARMACY", "--- GROCERY ---")
+        header_clean = re.sub(r'[*\-_=\[\]{}()|#]+', ' ', ln2).strip().lower()
+        header_clean = re.sub(r'\s+', ' ', header_clean).strip()
+        if header_clean and not _PRICE_RE.search(ln2.replace('$', '')):
+            for sec_kw, sec_cat in _SECTION_MAP.items():
+                if sec_kw in header_clean and len(header_clean) < 30:
+                    current_section = sec_cat
+                    break
+
         m = _PRICE_RE.search(ln2.replace('$', ''))
         if m:
             try:
@@ -1280,7 +1306,7 @@ def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
                     prev_candidate = None
                     continue
 
-                items.append({'name': name, 'price': price})
+                items.append({'name': name, 'price': price, 'section_hint': current_section})
                 prev_candidate = None
                 continue
 
@@ -1385,9 +1411,24 @@ def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, s
         'lysol', 'clorox', 'windex', 'pledge', 'swiffer', 'drano', 'ajax', 'comet',
         'bin liner', 'bin liners', 'garbage bag', 'trash bag',
         'pet food', 'dog food', 'cat food', 'cat litter', 'litter',
+        # Extended household signals (Walmart abbreviations & common items)
+        'household', 'hhold', 'hh ', 'home care', 'cleaning', 'clean supply',
+        'tide', 'gain', 'downy', 'bounce', 'oxiclean', 'resolve', 'shout', 'spray nine',
+        'dawn', 'palmolive', 'cascade', 'finish', 'fairy', 'method cleaner',
+        'glad', 'hefty', 'glad bag', 'hefty bag', 'glad wrap', 'saran',
+        'bounty', 'charmin', 'cottonelle', 'scott', 'viva', 'royale', 'purex',
+        'glade', 'renuzit', 'air wick', 'airwick', 'plug in', 'candle warmer',
+        'toilet bowl', 'bowl cleaner', 'toilet cleaner', 'drain cleaner',
+        'furniture polish', 'wood cleaner', 'glass cleaner', 'stainless steel cleaner',
+        'rubber gloves', 'latex gloves', 'cleaning gloves', 'dust cloth', 'microfiber',
+        'shelf liner', 'drawer liner', 'contact paper', 'storage bin', 'storage box',
+        'clothespin', 'clothespins', 'ironing', 'starch', 'fabric spray',
+        'pest control', 'mouse trap', 'ant trap', 'roach', 'raid', 'off spray',
+        'door mat', 'bath mat', 'shower curtain', 'curtain rod', 'curtain ring',
+        'command hook', 'command strip', 'adhesive hook', 'wall hook',
     ])
     fb_health = _filter_keywords([
-        'pharmacy', 'advil', 'tylenol', 'vitamin', 'vitamins', 'bandage', 'bandages', 'ointment',
+        'pharmacy', 'pharm', 'pharma', 'advil', 'tylenol', 'vitamin', 'vitamins', 'bandage', 'bandages', 'ointment',
         'clinic', 'dental', 'dentist', 'doctor', 'hospital', 'chiro', 'chiropractor',
         'medicine', 'medication', 'prescription', 'ibuprofen', 'acetaminophen', 'aspirin',
         'antibiotic', 'antacid', 'allergy', 'benadryl', 'claritin', 'zyrtec', 'reactine',
@@ -1400,6 +1441,17 @@ def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, s
         'heating pad', 'ice pack', 'knee brace', 'tensor', 'bandaid', 'band aid',
         'melatonin', 'probiotic', 'supplement', 'supplements', 'omega', 'fish oil', 'multivitamin',
         'diaper', 'diapers', 'baby wipes', 'formula', 'baby formula',
+        # Walmart pharmacy / OTC signals
+        'otc', 'drug', 'dispens', 'health', 'wellness', 'rx item', 'rx sale',
+        'polysporin', 'neosporin', 'pepto', 'gravol', 'tums', 'gaviscon', 'robitussin',
+        'mucinex', 'dayquil', 'nyquil', 'vicks', 'halls', 'buckley', 'dimetapp',
+        'motrin', 'aleve', 'midol', 'excedrin', 'robax', 'voltaren',
+        'calamine', 'hydrocortisone', 'cortisone', 'orajel', 'anbesol',
+        'pepcid', 'zantac', 'imodium', 'metamucil', 'dulcolax', 'senokot',
+        'sudafed', 'aerius', 'allegra', 'xyzal', 'cetirizine', 'loratadine',
+        'pedialyte', 'cepacol', 'strepsils', 'chloraseptic',
+        'prenatal', 'folic acid', 'iron supplement', 'calcium supplement', 'vitamin d',
+        'vitamin c', 'zinc supplement', 'biotin', 'collagen',
     ])
     fb_groc = _filter_keywords([
         'banana', 'bananas', 'apple', 'apples', 'orange', 'oranges', 'grape', 'grapes', 'mango', 'mangoes',
@@ -1462,6 +1514,10 @@ def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, s
         name = (it.get('name') or '').strip()
         price = float(it.get('price') or 0.0)
         cat = infer_item_category(name)
+        # If the item couldn't be categorized by name but we have a section hint
+        # from the receipt (e.g., items under "PHARMACY" header), use that hint
+        if cat == 'Uncategorized' and it.get('section_hint'):
+            cat = str(it['section_hint'])
         cat_amounts[cat] = cat_amounts.get(cat, 0.0) + price
         per_item.append({'name': name, 'price': price, 'cat': cat})
 
@@ -2702,35 +2758,38 @@ html.mf-light {
   --mf-card-shadow: 0 20px 55px rgba(0,0,0,0.14);
 }
 body, .q-layout, .q-page {
-  background: radial-gradient(1200px 700px at 18% 12%, var(--mf-g1), transparent 60%),
-              radial-gradient(900px 600px at 82% 18%, var(--mf-g2), transparent 58%),
-              radial-gradient(900px 600px at 80% 20%, rgba(34,197,94,0.12), transparent 55%),
-              radial-gradient(900px 600px at 40% 90%, rgba(251,191,36,0.08), transparent 55%),
+  background: radial-gradient(ellipse 1400px 800px at 10% 8%, var(--mf-g1), transparent 55%),
+              radial-gradient(ellipse 1000px 650px at 85% 15%, var(--mf-g2), transparent 52%),
+              radial-gradient(ellipse 800px 500px at 50% 95%, rgba(168,85,247,0.06), transparent 50%),
               var(--mf-bg) !important;
   color: var(--mf-text) !important;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .my-card {
-  background: var(--mf-card-bg, linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom))) !important;
+  background: var(--mf-card-bg, linear-gradient(165deg, var(--mf-card-top), var(--mf-card-bottom))) !important;
   border: 1px solid var(--mf-card-border) !important;
-  border-radius: 24px !important;
+  border-radius: 20px !important;
   box-shadow:
-    var(--mf-card-shadow, 0 20px 55px rgba(0,0,0,0.42)),
-    inset 0 1px 0 rgba(255,255,255,0.12);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+    var(--mf-card-shadow, 0 8px 32px rgba(0,0,0,0.28)),
+    inset 0 1px 0 rgba(255,255,255,0.10);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   overflow: hidden;
   position: relative;
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease;
 }
 .my-card::before{
   content:"";
-  position:absolute; inset:-2px;
+  position:absolute; inset:-1px;
   background:
-    radial-gradient(500px 220px at 20% 0%, rgba(255,255,255,0.14), transparent 60%),
-    radial-gradient(420px 240px at 80% 20%, rgba(91,140,255,0.18), transparent 65%),
-    radial-gradient(420px 240px at 70% 90%, rgba(70,230,166,0.10), transparent 70%);
+    radial-gradient(600px 250px at 15% 0%, rgba(255,255,255,0.10), transparent 55%),
+    radial-gradient(400px 200px at 85% 15%, var(--mf-g1), transparent 60%);
   pointer-events:none;
-  opacity:0.9;
+  opacity:0.7;
+  border-radius: 20px;
 }
 
 /* 5.5: Issuer-tinted bank glass for Cards tiles */
@@ -2783,11 +2842,13 @@ body, .q-layout, .q-page {
 }
 .my-card > * { position: relative; }
 .my-card:hover{
-  transform: translateY(-1px);
+  transform: translateY(-2px);
   box-shadow:
-    0 26px 70px rgba(0,0,0,0.48),
-    inset 0 1px 0 rgba(255,255,255,0.14);
+    0 12px 40px rgba(0,0,0,0.32),
+    inset 0 1px 0 rgba(255,255,255,0.12);
 }
+/* Premium smooth transitions on interactive elements */
+* { transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
 
 
 .kpi {
@@ -2988,29 +3049,49 @@ html.mf-light .q-btn__content {
   color: var(--mf-text) !important;
 }
 .q-table__container {
-  background: rgba(255,255,255,0.04) !important;
+  background: rgba(255,255,255,0.03) !important;
   border: 1px solid var(--mf-border) !important;
-  border-radius: 14px !important;
+  border-radius: 16px !important;
+  overflow: hidden;
 }
 .q-table__top, .q-table__bottom {
   background: transparent !important;
   color: var(--mf-text) !important;
 }
 .q-table thead tr th {
-  color: var(--mf-text) !important;
-  background: rgba(255,255,255,0.06) !important;
+  color: var(--mf-muted) !important;
+  background: rgba(255,255,255,0.04) !important;
+  font-size: 0.72rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  border-bottom: 1px solid var(--mf-border) !important;
 }
 .q-table tbody td {
   color: var(--mf-text) !important;
+  font-size: 0.88rem !important;
+  padding: 10px 12px !important;
+}
+.q-table tbody tr {
+  transition: background 0.15s ease;
 }
 .q-table tbody tr:nth-child(odd) {
-  background: rgba(255,255,255,0.02) !important;
+  background: rgba(255,255,255,0.015) !important;
 }
 .q-table tbody tr:hover {
-  background: rgba(46,125,255,0.10) !important;
+  background: rgba(var(--mf-accent-rgb, 91,140,255),0.08) !important;
+}
+.q-table tbody tr.selected {
+  background: rgba(var(--mf-accent-rgb, 91,140,255),0.14) !important;
 }
 .q-btn {
   text-transform: none !important;
+  border-radius: 10px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.01em !important;
+}
+.q-btn--unelevated {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12) !important;
 }
 
 .mf-top-menu { display: none; }
@@ -3020,10 +3101,13 @@ html.mf-light .q-btn__content {
 
 .mf-bottom-nav {
   position: fixed;
-  bottom: 10px;
-  left: 10px;
-  right: 10px;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
   z-index: 1000;
+  border-radius: 20px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 @media (min-width: 900px) {
   .mf-bottom-nav { display: none; }
@@ -3031,25 +3115,34 @@ html.mf-light .q-btn__content {
 
 .tile {
   cursor: pointer;
-  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  transition: transform .22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow .22s ease, border-color .22s ease;
 }
 .tile:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 25px rgba(0,0,0,0.25);
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.22);
 }
 .tile:active {
-  transform: translateY(0px);
+  transform: translateY(-1px) scale(0.99);
 }
 
 /* Glassy dialogs (used for Add sub-flows like receipt scan) */
 .q-dialog__backdrop {
-  backdrop-filter: blur(10px) !important;
-  background: rgba(0,0,0,0.55) !important;
+  backdrop-filter: blur(16px) !important;
+  background: rgba(0,0,0,0.50) !important;
 }
 .q-dialog__inner > div {
-  background: rgba(16, 23, 40, 0.70) !important;
-  border: 1px solid rgba(255,255,255,0.14) !important;
-  box-shadow: 0 24px 70px rgba(0,0,0,0.55) !important;
+  background: rgba(16, 23, 40, 0.82) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.45) !important;
+  border-radius: 20px !important;
+}
+html.mf-light .q-dialog__backdrop {
+  background: rgba(255,255,255,0.45) !important;
+}
+html.mf-light .q-dialog__inner > div {
+  background: rgba(255,255,255,0.92) !important;
+  border: 1px solid rgba(17,24,39,0.10) !important;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.12) !important;
 }
 .q-dialog__inner > div .q-card {
   background: transparent !important;
@@ -3059,22 +3152,27 @@ html.mf-light .q-btn__content {
 
 /* Nicer KPI blocks */
 .kpi {
-  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03)) !important;
-  border: 1px solid rgba(255,255,255,0.12) !important;
+  background: linear-gradient(165deg, rgba(255,255,255,0.07), rgba(255,255,255,0.02)) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  border-radius: 16px !important;
 }
-.kpi .kpi-value { letter-spacing: 0.2px; }
+.kpi .kpi-value { letter-spacing: -0.02em; font-feature-settings: 'tnum'; }
 
 /* Budget progress bar */
 .mf-progress {
-  height: 10px;
+  height: 8px;
   border-radius: 999px;
-  background: rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.08);
   overflow: hidden;
 }
 .mf-progress > div {
   height: 100%;
-  background: rgba(46,125,255,0.85);
+  background: linear-gradient(90deg, var(--mf-accent), var(--mf-accent2));
   border-radius: 999px;
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+html.mf-light .mf-progress {
+  background: rgba(17,24,39,0.06);
 }
 
 
@@ -3109,13 +3207,13 @@ html.mf-light .q-btn__content {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   border: 1px solid var(--mf-border);
   background: var(--mf-surface);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-radius: 18px;
-  box-shadow: 0 8px 26px rgba(0,0,0,0.35);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.28);
   padding: 14px;
 }
 .mf-brand{
@@ -3298,6 +3396,172 @@ html.mf-light .q-btn__content {
 
 /* Remove any numeric label rendered inside progress bars */
 .q-linear-progress__label { display: none !important; }
+
+/* ========================================
+   Phase 7.0: Premium UI Overhaul
+   ======================================== */
+
+/* Premium form inputs */
+.q-field--outlined .q-field__control,
+.q-field--filled .q-field__control {
+  border-radius: 12px !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.q-field--outlined .q-field__control:focus-within,
+.q-field--filled .q-field__control:focus-within {
+  border-color: var(--mf-accent) !important;
+  box-shadow: 0 0 0 3px rgba(91,140,255,0.12) !important;
+}
+html.mf-light .q-field--outlined .q-field__control:focus-within,
+html.mf-light .q-field--filled .q-field__control:focus-within {
+  box-shadow: 0 0 0 3px rgba(29,78,216,0.10) !important;
+}
+
+/* Premium badges */
+.q-badge {
+  border-radius: 8px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em !important;
+  padding: 3px 10px !important;
+}
+
+/* Premium separator */
+.q-separator {
+  background: var(--mf-border) !important;
+}
+
+/* Premium scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+html.mf-light ::-webkit-scrollbar-thumb { background: rgba(17,24,39,0.12); }
+html.mf-light ::-webkit-scrollbar-thumb:hover { background: rgba(17,24,39,0.22); }
+
+/* Premium login page */
+.mf-login-hero {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse 1200px 700px at 30% 20%, var(--mf-g1), transparent 50%),
+              radial-gradient(ellipse 800px 500px at 70% 80%, var(--mf-g2), transparent 50%),
+              var(--mf-bg);
+}
+
+/* Premium card accent strip */
+.mf-accent-strip {
+  height: 3px;
+  border-radius: 0 0 2px 2px;
+  background: linear-gradient(90deg, var(--mf-accent), var(--mf-accent2));
+  opacity: 0.7;
+}
+
+/* Premium stat value */
+.mf-stat-value {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  font-feature-settings: 'tnum';
+}
+.mf-stat-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mf-muted);
+}
+
+/* Premium header */
+.mf-header {
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+}
+
+/* Premium chip / tag */
+.mf-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--mf-border);
+  color: var(--mf-text);
+}
+html.mf-light .mf-tag { background: rgba(17,24,39,0.04); }
+
+/* Premium card utilization bar */
+.mf-util-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  overflow: hidden;
+  position: relative;
+}
+.mf-util-bar > div {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mf-util-green { background: linear-gradient(90deg, #22c55e, #4ade80); }
+.mf-util-yellow { background: linear-gradient(90deg, #eab308, #fbbf24); }
+.mf-util-red { background: linear-gradient(90deg, #ef4444, #f87171); }
+
+/* Premium section headers */
+.mf-section-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mf-muted);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--mf-border);
+  margin-bottom: 12px;
+}
+
+/* Premium icon containers */
+.mf-icon-box {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Premium nav buttons */
+.mf-navbtn {
+  border-radius: 12px !important;
+  transition: background 0.2s ease, transform 0.15s ease !important;
+}
+.mf-navbtn:hover {
+  background: rgba(255,255,255,0.08) !important;
+}
+.mf-navbtn.is-active {
+  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.14) !important;
+}
+
+/* Smooth page transitions */
+.mf-canvas {
+  animation: mf-fadeIn 0.3s ease;
+}
+@keyframes mf-fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Premium empty states */
+.mf-empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--mf-muted);
+}
+.mf-empty-state .q-icon { font-size: 48px; opacity: 0.3; margin-bottom: 12px; }
+
 """
 ui.add_head_html("<style>" + BANK_CSS + """
 /* Budget progress: hide numeric overlay label */
@@ -3325,6 +3589,8 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
 
 </style>""", shared=True)
+
+ui.add_head_html('<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap">', shared=True)
 
 ui.add_head_html(r'''
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%0A%3Cstop%20offset%3D%220%22%20stop-color%3D%22%235B8CFF%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%2346E6A6%22/%3E%0A%3C/linearGradient%3E%3C/defs%3E%0A%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2214%22%20fill%3D%22%23070A12%22/%3E%0A%3Cpath%20d%3D%22M18%2044V20h10c9%200%2016%205%2016%2012s-7%2012-16%2012H18zm6-6h4c6%200%2010-3%2010-6s-4-6-10-6h-4v12z%22%20fill%3D%22url%28%23g%29%22/%3E%0A%3C/svg%3E">
@@ -3418,7 +3684,6 @@ ui.add_head_html(
     }
   };
 
-  window.
   window.mfFixPlotlyText = function(){
     try{
       const cs = getComputedStyle(document.documentElement);
@@ -3516,7 +3781,7 @@ window.mfSetTheme = function(name){
       Object.keys(t).forEach(k => root.style.setProperty(k, t[k]));
 
       // detect light themes
-      const LIGHT_THEMES = new Set(["Frost", "Sand Gold", "Slate Light"]);
+      const LIGHT_THEMES = new Set(["Frost", "Sand Gold", "Slate Light", "Mint Light", "Rose Light", "Arctic Light"]);
       const isLight = LIGHT_THEMES.has(name) || (String(name||"").toLowerCase().includes("light"));
       // Keep Quasar/NiceGUI in sync with the selected theme (fixes dark dropdowns/dialogs on light themes)
       try {
@@ -3683,7 +3948,7 @@ def current_theme_name() -> str:
 
 def is_light_theme_name(name: str) -> bool:
     n = (name or "").lower()
-    return ("light" in n) or (n in ("arctic light", "slate light", "sand gold", "frost", "pearl mint"))
+    return ("light" in n) or (n in ("arctic light", "slate light", "sand gold", "frost", "pearl mint", "mint light", "rose light"))
 
 def plotly_font_color() -> str:
     return "rgba(17,24,39,0.88)" if is_light_theme_name(current_theme_name()) else "rgba(255,255,255,0.88)"
@@ -3778,7 +4043,7 @@ def shell(content_fn, *, active_path: str = ""):
                 nav_btn("Admin", "settings", "/admin")
 
                 ui.separator().props("dark").classes("opacity-20 my-1")
-                ui.label("Phase 6.5").classes("text-xs").style("color: var(--mf-muted); text-align:center;")
+                ui.label(f"v{APP_VERSION}").classes("text-xs").style("color: var(--mf-muted); text-align:center; opacity: 0.5;")
 
         # Main
         with ui.element("main").classes("mf-main"):
@@ -3787,49 +4052,95 @@ def shell(content_fn, *, active_path: str = ""):
                     # LEFT: hamburger + title
                     with ui.row().classes("items-center gap-3"):
                         ui.button("", icon="menu").props("flat round dense").style(
-                            "border: 1px solid var(--mf-border); background: var(--mf-surface);"
+                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
                         ).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-nav-open')"))
                         with ui.element("div").classes("mf-title"):
-                            ui.link("FinTrackr", "/").classes("t1 text-2xl md:text-3xl").style("color: inherit; text-decoration: none;")
+                            ui.link("FinTrackr", "/").classes("t1 text-xl md:text-2xl font-extrabold").style("color: inherit; text-decoration: none; letter-spacing: -0.03em;")
                             
                     # RIGHT: theme + actions
                     with ui.row().classes("items-center gap-2"):
                         # Theme control (desktop: inline select, mobile: palette dialog)
                         def _open_theme_dialog():
-                            with ui.dialog() as td, ui.card().classes("my-card p-4 w-full max-w-sm"):
-                                ui.label("Theme").classes("text-base font-bold")
-                                # Theme chooser (button list instead of dropdown; avoids iOS Safari dark menu rendering)
-                                themes = ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Slate Light', 'Sand Gold']
-                                cur = app.storage.user.get('theme')
-                                if not cur:
-                                    # Auto theme: dark at night, light in daytime (based on server TIMEZONE)
-                                    try:
-                                        h = now().hour
-                                    except Exception:
-                                        h = datetime.datetime.now().hour
-                                    cur = 'Midnight Blue' if (h >= 19 or h < 7) else 'Arctic Light'
-                                    app.storage.user['theme'] = cur
-                                else:
-                                    cur = str(cur)
+                            with ui.dialog() as td, ui.card().classes("my-card p-0 w-full max-w-sm").style("overflow: hidden; border-radius: 24px;"):
+                                ui.element('div').classes('mf-accent-strip')
+                                with ui.column().classes("p-5 gap-3"):
+                                    with ui.row().classes("items-center gap-2"):
+                                        ui.icon("palette").style("color: var(--mf-accent); font-size: 20px;")
+                                        ui.label("Theme").classes("text-base font-bold")
 
-                                with ui.column().classes("w-full mt-2 gap-2"):
-                                    for tname in themes:
-                                        is_cur = (tname == cur)
-                                        btn = ui.button(
-                                            tname,
-                                            on_click=lambda tn=tname: (
-                                                app.storage.user.__setitem__('theme', tn),
-                                                ui.run_javascript(f"window.mfSetTheme({tn!r})"),
-                                                td.close(),
-                                            ),
-                                        ).classes("w-full justify-start")
-                                        btn.props("unelevated" if is_cur else "outline")
-                                        btn.style("border-radius: 12px; padding: 10px 12px;")
-                                with ui.row().classes("justify-end w-full mt-2"):
-                                    ui.button("Close").props("flat").on("click", td.close)
+                                    # All themes including Mint Light & Rose Light
+                                    themes = ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Mint Light', 'Rose Light', 'Slate Light', 'Sand Gold']
+
+                                    # Theme color swatches for premium preview
+                                    _theme_swatches = {
+                                        'Midnight Blue': ('#5B8CFF', '#46E6A6'), 'Emerald Gold': ('#22C55E', '#FBBF24'),
+                                        'Graphite Rose': ('#F472B6', '#A78BFA'), 'Arctic Light': ('#1D4ED8', '#0EA5E9'),
+                                        'Mint Light': ('#059669', '#10B981'), 'Rose Light': ('#DB2777', '#F43F5E'),
+                                        'Slate Light': ('#334155', '#2563EB'), 'Sand Gold': ('#B45309', '#D97706'),
+                                    }
+
+                                    cur = app.storage.user.get('theme')
+                                    if not cur:
+                                        try:
+                                            h = now().hour
+                                        except Exception:
+                                            h = datetime.datetime.now().hour
+                                        cur = 'Midnight Blue' if (h >= 19 or h < 7) else 'Arctic Light'
+                                        app.storage.user['theme'] = cur
+                                    else:
+                                        cur = str(cur)
+
+                                    # Dark themes section
+                                    ui.label('Dark').classes('mf-stat-label mt-1')
+                                    with ui.column().classes("w-full gap-1"):
+                                        for tname in ['Midnight Blue', 'Emerald Gold', 'Graphite Rose']:
+                                            is_cur = (tname == cur)
+                                            c1, c2 = _theme_swatches.get(tname, ('#5B8CFF', '#46E6A6'))
+                                            with ui.button(
+                                                on_click=lambda tn=tname: (
+                                                    app.storage.user.__setitem__('theme', tn),
+                                                    ui.run_javascript(f"window.mfSetTheme({tn!r})"),
+                                                    td.close(),
+                                                ),
+                                            ).classes("w-full justify-start").props("unelevated" if is_cur else "flat").style(
+                                                f"border-radius: 12px; padding: 8px 12px;"
+                                                f"{'border: 2px solid var(--mf-accent);' if is_cur else 'border: 1px solid var(--mf-border);'}"
+                                            ):
+                                                with ui.row().classes("items-center gap-3 w-full"):
+                                                    with ui.element("div").style(f"width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, {c1}, {c2}); flex-shrink: 0;"):
+                                                        pass
+                                                    ui.label(tname).classes("text-sm font-medium")
+                                                    if is_cur:
+                                                        ui.icon("check_circle").style("color: var(--mf-accent); margin-left: auto; font-size: 18px;")
+
+                                    # Light themes section
+                                    ui.label('Light').classes('mf-stat-label mt-2')
+                                    with ui.column().classes("w-full gap-1"):
+                                        for tname in ['Arctic Light', 'Mint Light', 'Rose Light', 'Slate Light', 'Sand Gold']:
+                                            is_cur = (tname == cur)
+                                            c1, c2 = _theme_swatches.get(tname, ('#1D4ED8', '#0EA5E9'))
+                                            with ui.button(
+                                                on_click=lambda tn=tname: (
+                                                    app.storage.user.__setitem__('theme', tn),
+                                                    ui.run_javascript(f"window.mfSetTheme({tn!r})"),
+                                                    td.close(),
+                                                ),
+                                            ).classes("w-full justify-start").props("unelevated" if is_cur else "flat").style(
+                                                f"border-radius: 12px; padding: 8px 12px;"
+                                                f"{'border: 2px solid var(--mf-accent);' if is_cur else 'border: 1px solid var(--mf-border);'}"
+                                            ):
+                                                with ui.row().classes("items-center gap-3 w-full"):
+                                                    with ui.element("div").style(f"width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, {c1}, {c2}); flex-shrink: 0;"):
+                                                        pass
+                                                    ui.label(tname).classes("text-sm font-medium")
+                                                    if is_cur:
+                                                        ui.icon("check_circle").style("color: var(--mf-accent); margin-left: auto; font-size: 18px;")
+
+                                    with ui.row().classes("justify-end w-full mt-2"):
+                                        ui.button("Close").props("flat").style("border-radius: 10px;").on("click", td.close)
                             td.open()
 
-                        _theme_names = ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Slate Light', 'Sand Gold']
+                        _theme_names = ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Mint Light', 'Rose Light', 'Slate Light', 'Sand Gold']
                         theme_select = ui.select(
                             _theme_names,
                             value=(app.storage.user.get('theme') or 'Midnight Blue'),
@@ -3847,20 +4158,22 @@ def shell(content_fn, *, active_path: str = ""):
                                 pass
                         # Theme selection sync handled on user interaction to avoid timer issues on fast navigation
                         ui.button("", icon="palette").props("flat round dense").classes("mf-show-mobile").style(
-                            "border: 1px solid var(--mf-border); background: var(--mf-surface);"
+                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
                         ).on("click", _open_theme_dialog)
                         ui.run_javascript('window.mfSetTheme(localStorage.getItem(\"mf_theme\") || \"Midnight Blue\")')
                         ui.button("", icon="refresh").props("flat round dense").style(
-                            "border: 1px solid var(--mf-border); background: var(--mf-surface);"
+                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
                         ).on("click", lambda: ui.navigate.to(ui.context.client.page.path))
                         ui.button("", icon="logout").props("flat round dense").style(
-                            "border: 1px solid var(--mf-border); background: var(--mf-surface);"
+                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
                         ).on("click", do_logout)
                         ui.button("", icon="search").props("flat round dense").style(
-                            "border: 1px solid var(--mf-border); background: var(--mf-surface);"
+                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
                         ).on("click", lambda: open_search_dialog())
                         ui.button("Add", icon="add").props("unelevated").style(
-                            "background: var(--mf-accent); color: #071022; border-radius: 12px; font-weight: 900;"
+                            "background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2)) !important; color: #fff !important;"
+                            "border-radius: 10px; font-weight: 700; padding: 6px 16px;"
+                            "box-shadow: 0 2px 10px rgba(91,140,255,0.20);"
                         ).on("click", lambda: nav_to("/add"))
 
             with ui.element("div").classes("mf-canvas"):
@@ -3913,29 +4226,49 @@ def methods_list() -> List[str]:
 # -----------------------------
 @ui.page("/login")
 def login_page():
-    with ui.column().classes('w-full max-w-[640px] mx-auto mt-12 p-4 gap-4'):
-        with ui.card().classes('my-card p-8'):
-            with ui.row().classes('w-full items-center justify-between'):
-                with ui.row().classes('items-center gap-3'):
-                    ui.label('💳').classes('text-3xl')
-                    with ui.column().classes('gap-0'):
-                        ui.label('Welcome to FinTrackr').classes('text-2xl font-bold')
-                        ui.label('Sign in to continue').classes('text-sm').style('color: var(--mf-muted)')
-                ui.badge('Secure').style('background: rgba(46,125,255,0.18); color: var(--mf-text); border: 1px solid var(--mf-border);')
-            ui.separator().classes('my-4 opacity-30')
-            ui.label('Use your admin credentials.').classes('text-sm').style('color: var(--mf-muted)')
-            u_in = ui.input("Username").classes("w-full")
-            p_in = ui.input("Password", password=True, password_toggle_button=True).classes("w-full")
+    # Premium login - centered, full-height with subtle gradient background
+    with ui.element('div').classes('mf-login-hero'):
+        with ui.column().classes('w-full max-w-[440px] mx-auto p-4 gap-0'):
+            # Logo & brand
+            with ui.column().classes('items-center gap-1 mb-8'):
+                with ui.element('div').style(
+                    'width: 64px; height: 64px; border-radius: 18px; display: flex; align-items: center; justify-content: center;'
+                    'background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2));'
+                    'box-shadow: 0 8px 24px rgba(91,140,255,0.25);'
+                ):
+                    ui.icon('account_balance_wallet').style('font-size: 32px; color: #fff;')
+                ui.label('FinTrackr').classes('text-2xl font-extrabold mt-3').style('letter-spacing: -0.02em;')
+                ui.label('Personal Finance Dashboard').classes('text-sm').style('color: var(--mf-muted)')
 
-            def attempt():
-                if check_login(u_in.value or "", p_in.value or ""):
-                    app.storage.user["logged_in"] = True
-                    ui.notify("Welcome 👋", type="positive")
-                    nav_to("/")
-                else:
-                    ui.notify("Invalid login", type="negative")
+            with ui.card().classes('my-card p-8').style('border-radius: 24px;'):
+                ui.label('Welcome back').classes('text-xl font-bold')
+                ui.label('Sign in to manage your finances').classes('text-sm mb-4').style('color: var(--mf-muted)')
 
-            ui.button("Login", on_click=attempt).classes("w-full").props("unelevated")
+                u_in = ui.input("Username").classes("w-full").props("outlined dense")
+                u_in.style("margin-bottom: 8px;")
+                p_in = ui.input("Password", password=True, password_toggle_button=True).classes("w-full").props("outlined dense")
+
+                def attempt():
+                    if check_login(u_in.value or "", p_in.value or ""):
+                        app.storage.user["logged_in"] = True
+                        ui.notify("Welcome 👋", type="positive")
+                        nav_to("/")
+                    else:
+                        ui.notify("Invalid login", type="negative")
+
+                ui.button("Sign in", on_click=attempt).classes("w-full mt-4").props("unelevated").style(
+                    "background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2)) !important;"
+                    "color: #fff !important; font-weight: 700; border-radius: 12px; padding: 12px 0;"
+                    "box-shadow: 0 4px 14px rgba(91,140,255,0.25);"
+                )
+
+                with ui.row().classes('w-full justify-center mt-4 gap-2'):
+                    ui.icon('lock').style('font-size: 14px; color: var(--mf-muted);')
+                    ui.label('256-bit encrypted').classes('text-xs').style('color: var(--mf-muted);')
+
+            # Footer
+            with ui.row().classes('w-full justify-center mt-6'):
+                ui.label(f'v{APP_VERSION}').classes('text-xs').style('color: var(--mf-muted); opacity: 0.5;')
 
 
 
@@ -4129,57 +4462,76 @@ def dashboard_page():
         except Exception:
             days_to_next = None
 
-        with ui.card().classes('my-card p-5 mf-budget'):
-            ui.label('Overview').classes('text-xs uppercase').style('color: var(--mf-muted); letter-spacing: 0.12em')
-            with ui.row().classes('w-full items-end justify-between gap-4'):
-                with ui.column().classes('gap-1'):
-                    ui.label('Pay period net').classes('text-sm').style('color: var(--mf-muted)')
-                    ui.label(currency(net_pp)).classes('text-4xl font-extrabold')
-                    ui.label(f"{pp_start.strftime('%b %d')} → {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
-                with ui.column().classes('items-end gap-1'):
+        # Premium Hero Card
+        with ui.card().classes('my-card p-0 mf-budget').style('overflow: hidden;'):
+            # Accent strip at top
+            ui.element('div').classes('mf-accent-strip').style('height: 3px;')
+            with ui.column().classes('p-6 gap-4'):
+                with ui.row().classes('w-full items-start justify-between'):
+                    with ui.column().classes('gap-1'):
+                        ui.label('Pay Period Net').classes('mf-stat-label')
+                        _net_color = 'var(--mf-good)' if net_pp >= 0 else 'var(--mf-bad)'
+                        ui.label(currency(net_pp)).classes('mf-stat-value').style(f'color: {_net_color};')
+                        with ui.row().classes('items-center gap-2 mt-1'):
+                            ui.icon('date_range').style('font-size: 14px; color: var(--mf-muted);')
+                            ui.label(f"{pp_start.strftime('%b %d')} — {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
                     if next_pay:
-                        ui.label('Next payday').classes('text-sm').style('color: var(--mf-muted)')
-                        ui.label(next_pay.strftime('%a, %b %d')).classes('text-xl font-bold')
-                        if days_to_next is not None:
-                            ui.badge(f"In {days_to_next} days").style('background: rgba(32,201,151,0.18); color: var(--mf-text); border: 1px solid var(--mf-border);')
-            ui.separator().classes('my-3 opacity-20')
-            with ui.row().classes('gap-2'):
-                ui.button('Add expense', icon='add').props('unelevated').on('click', lambda: nav_to('/add?mode=expense'))
-                ui.button('Add income', icon='add').props('outline').on('click', lambda: nav_to('/add?mode=income'))
-                ui.button('View transactions', icon='receipt_long').props('flat').on('click', lambda: nav_to('/tx'))
+                        with ui.column().classes('items-end gap-1'):
+                            ui.label('Next Payday').classes('mf-stat-label')
+                            ui.label(next_pay.strftime('%b %d')).classes('text-2xl font-extrabold').style('letter-spacing: -0.02em;')
+                            if days_to_next is not None:
+                                _badge_bg = 'rgba(34,197,94,0.14)' if days_to_next <= 7 else 'rgba(255,255,255,0.06)'
+                                _badge_color = '#22c55e' if days_to_next <= 7 else 'var(--mf-text)'
+                                ui.element('span').classes('mf-tag').style(f'background: {_badge_bg}; color: {_badge_color};').text = f"{days_to_next}d away"
+                                with ui.element('span').classes('mf-tag').style(f'background: {_badge_bg}; color: {_badge_color};'):
+                                    ui.label(f"{days_to_next}d away").classes('text-xs font-semibold')
 
-        # KPI tiles (bank-style grid, 5.2.2)
+                ui.separator().classes('opacity-10')
+
+                with ui.row().classes('gap-2 flex-wrap'):
+                    ui.button('Add expense', icon='remove_circle_outline').props('unelevated').style(
+                        'background: var(--mf-accent) !important; color: #fff !important; border-radius: 10px; font-weight: 600; padding: 6px 16px;'
+                    ).on('click', lambda: nav_to('/add?mode=expense'))
+                    ui.button('Add income', icon='add_circle_outline').props('outline').style(
+                        'border-radius: 10px; font-weight: 600; padding: 6px 16px;'
+                    ).on('click', lambda: nav_to('/add?mode=income'))
+                    ui.button('Transactions', icon='receipt_long').props('flat').style(
+                        'border-radius: 10px; font-weight: 500;'
+                    ).on('click', lambda: nav_to('/tx'))
+
+        # KPI tiles (premium bank-style grid)
         with ui.element("div").classes("grid grid-cols-2 md:grid-cols-4 gap-3 w-full"):
-            for label, val, icon in [
-                ("Income (this month)", income, "trending_up"),
-                ("Expenses (this month)", expense, "trending_down"),
-                ("Investments (this month)", invest, "savings"),
-                ("Net (this month)", net, "insights"),
+            for label, val, icon, accent_color, icon_bg in [
+                ("Income", income, "trending_up", "#22c55e", "rgba(34,197,94,0.12)"),
+                ("Expenses", expense, "trending_down", "#ef4444", "rgba(239,68,68,0.12)"),
+                ("Investments", invest, "savings", "#3b82f6", "rgba(59,130,246,0.12)"),
+                ("Net", net, "insights", "#a855f7", "rgba(168,85,247,0.12)"),
             ]:
-                _lbl = label.lower()
-                _col = "rgba(34,197,94,0.95)" if "income" in _lbl else ("rgba(239,68,68,0.95)" if "expense" in _lbl else ("rgba(59,130,246,0.95)" if "invest" in _lbl else "rgba(168,85,247,0.92)"))
-                with ui.card().classes("my-card p-4 w-full").style("min-height: 110px;"):
-                    with ui.row().classes("items-center justify-between"):
-                        ui.label(label).classes("text-xs uppercase").style("color: var(--mf-muted); letter-spacing: .12em")
-                        ui.icon(icon).style("color: var(--mf-muted)")
-                    ui.label(currency(val)).classes("text-2xl font-bold mt-1").style(f"color: {_col};")
-                    ui.label(mkey).classes("text-xs").style("color: var(--mf-muted)")
+                with ui.card().classes("my-card p-4 w-full").style("min-height: 100px;"):
+                    with ui.row().classes("items-center gap-2"):
+                        with ui.element("div").classes("mf-icon-box").style(f"background: {icon_bg};"):
+                            ui.icon(icon).style(f"font-size: 20px; color: {accent_color};")
+                        ui.label(label).classes("mf-stat-label")
+                    ui.label(currency(val)).classes("text-xl font-extrabold mt-2").style(f"color: {accent_color}; letter-spacing: -0.02em; font-feature-settings: 'tnum';")
+                    ui.label(mkey).classes("text-xs mt-1").style("color: var(--mf-muted)")
 
-        with ui.row().classes('w-full gap-3'):
-            # Pay period tiles (grid, 5.2.2)
+        # Pay period breakdown
+        with ui.card().classes('my-card p-5'):
+            ui.label('Pay Period Breakdown').classes('mf-section-title')
             with ui.element("div").classes("grid grid-cols-2 md:grid-cols-4 gap-3 w-full"):
-                for label, val, icon in [
-                    ('Income (pay period)', income_pp, "payments"),
-                    ('Expenses (pay period)', expense_pp, "receipt_long"),
-                    ('Investments (pay period)', invest_pp, "account_balance"),
-                    ('Net (pay period)', net_pp, "timeline"),
+                for label, val, icon, accent in [
+                    ('Income', income_pp, "payments", "#22c55e"),
+                    ('Expenses', expense_pp, "receipt_long", "#ef4444"),
+                    ('Investments', invest_pp, "account_balance", "#3b82f6"),
+                    ('Net', net_pp, "timeline", "#a855f7"),
                 ]:
-                    with ui.card().classes('my-card p-4 w-full').style("min-height: 110px;"):
-                        with ui.row().classes("items-center justify-between"):
-                            ui.label(label).classes('text-xs uppercase').style('color: var(--mf-muted); letter-spacing: .12em')
-                            ui.icon(icon).style("color: var(--mf-muted)")
-                        ui.label(currency(val)).classes('text-2xl font-bold mt-1')
-                        ui.label(f"{pp_start.strftime('%b %d')} → {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
+                    with ui.element("div").style(
+                        "padding: 14px; border-radius: 14px; border: 1px solid var(--mf-border);"
+                        "background: rgba(255,255,255,0.02);"
+                    ):
+                        ui.label(label).classes('mf-stat-label')
+                        ui.label(currency(val)).classes('text-lg font-bold mt-1').style(f'color: {accent}; font-feature-settings: "tnum";')
+                        ui.label(f"{pp_start.strftime('%b %d')} — {pp_end.strftime('%b %d')}").classes('text-xs mt-1').style('color: var(--mf-muted)')
 
 
         # Quick actions + data quality
@@ -4276,17 +4628,23 @@ def dashboard_page():
                     if not next_d:
                         return
                     days = (next_d - today()).days
-                    with ui.card().classes("my-card p-4 w-full").style("background: rgba(255,255,255,0.045);"):
+                    _urgent = days <= 3
+                    _badge_style = 'background: rgba(34,197,94,0.14); color: #22c55e;' if _urgent else 'background: rgba(255,255,255,0.06); color: var(--mf-text);'
+                    with ui.element("div").style(
+                        "padding: 16px; border-radius: 16px; border: 1px solid var(--mf-border);"
+                        "background: rgba(255,255,255,0.03);"
+                    ):
                         with ui.row().classes("items-center justify-between"):
-                            ui.label(f"{name}'s salary").classes("text-sm font-bold")
-                            ui.badge(f"In {days} days").style(
-                                "background: rgba(255,255,255,0.10); color: var(--mf-text); border: 1px solid var(--mf-border);"
-                            )
-                        ui.label(next_d.strftime("%a, %b %d")).classes("text-2xl font-extrabold mt-1")
-                        # show 2 upcoming dates (optional)
-                        upcoming = [x for x in dates if x >= today()][:2]
+                            with ui.row().classes("items-center gap-2"):
+                                with ui.element("div").classes("mf-icon-box").style("background: rgba(34,197,94,0.10);"):
+                                    ui.icon("account_balance").style("font-size: 18px; color: #22c55e;")
+                                ui.label(f"{name}").classes("text-sm font-semibold")
+                            with ui.element("span").classes("mf-tag").style(_badge_style):
+                                ui.label(f"{days}d").classes("text-xs font-bold")
+                        ui.label(next_d.strftime("%a, %b %d")).classes("text-xl font-extrabold mt-2").style("letter-spacing: -0.02em;")
+                        upcoming = [x for x in dates if x >= today()][:3]
                         if len(upcoming) > 1:
-                            ui.label("Next: " + ", ".join([x.strftime("%b %d") for x in upcoming[1:]])).classes("text-xs").style("color: var(--mf-muted)")
+                            ui.label("Upcoming: " + ", ".join([x.strftime("%b %d") for x in upcoming[1:]])).classes("text-xs mt-1").style("color: var(--mf-muted)")
 
                 with ui.element("div").classes("grid grid-cols-1 md:grid-cols-2 gap-3 w-full"):
                     _salary_card("Nishanth", grouped.get("Nishanth", []))
@@ -4294,7 +4652,7 @@ def dashboard_page():
 
         # Spending breakdown
         with ui.card().classes("my-card p-5"):
-            ui.label("Spending breakdown (this month)").classes("text-lg font-bold")
+            ui.label("Spending Breakdown").classes("mf-section-title")
             if spend.empty:
                 ui.label("No expenses this month.").style("color: var(--mf-muted)")
             else:
@@ -4312,7 +4670,7 @@ def dashboard_page():
 
         # Top merchants (best-effort from Notes)
         with ui.card().classes("my-card p-5"):
-            ui.label("Top merchants (this month)").classes("text-lg font-bold")
+            ui.label("Top Merchants").classes("mf-section-title")
             if spend.empty or "notes" not in spend.columns:
                 ui.label("No merchant data available.").style("color: var(--mf-muted)")
             else:
@@ -4346,7 +4704,7 @@ def dashboard_page():
 
         # Trend
         with ui.card().classes("my-card p-5"):
-            ui.label("Cashflow trend (last 90 days)").classes("text-lg font-bold")
+            ui.label("Cashflow Trend").classes("mf-section-title")
             recent = tx[tx["date_parsed"] >= (today() - dt.timedelta(days=90))].copy()
             recent["day"] = recent["date_parsed"].astype(str)
             recent["sign"] = recent["type_l"].map(lambda t: 1 if t in ("credit", "income") else (-1 if t in ("debit", "expense", "investment") else 0))
@@ -4372,7 +4730,7 @@ def add_page():
         nav_to("/login")
         return
 
-    def open_add_dialog(entry_type: str, *, preset_category: str | None = None, preset_method: str | None = None, preset_account: str | None = None):
+    def open_add_dialog(entry_type: str, *, preset_category: str | None = None, preset_method: str | None = None, preset_account: str | None = None, auto_scan: bool = False):
         rules = load_rules()
         owners = owners_list()
         accounts = accounts_list()
@@ -4485,11 +4843,17 @@ def add_page():
                     ui.spinner(size='lg')
                     ui.label('Scanning...').classes('text-subtitle1')
                 parsed_state: Dict[str, Any] = {"parsed": None}
-                with scan_dlg, ui.card().classes('my-card p-0 w-[720px] max-w-[95vw]').style('max-height: min(88vh, 80dvh); height: min(88vh, 80dvh); display:flex; flex-direction:column; overflow:hidden;'):
+                with scan_dlg, ui.card().classes('my-card p-0 w-[720px] max-w-[95vw]').style('max-height: min(88vh, 80dvh); height: min(88vh, 80dvh); display:flex; flex-direction:column; overflow:hidden; border-radius: 24px;'):
+                    # Accent strip
+                    ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #3b82f6, #10b981); flex-shrink: 0;')
                     # Keep action buttons visible on mobile by making the content area scrollable.
-                    with ui.column().classes('w-full').style('flex:1; overflow-y:auto; padding: 16px;'):
-                        ui.label('Scan receipt').classes('text-lg font-bold')
-                        ui.label('Tip: on iPhone, this will prompt for camera access.').classes('text-xs').style('color: var(--mf-muted)')
+                    with ui.column().classes('w-full').style('flex:1; overflow-y:auto; padding: 20px;'):
+                        with ui.row().classes('items-center gap-3 mb-2'):
+                            with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
+                                ui.icon("document_scanner").style("font-size: 20px; color: #6366f1;")
+                            with ui.column().classes("gap-0"):
+                                ui.label('Scan Receipt').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                                ui.label('Take a photo or upload an image').classes('text-xs').style('color: var(--mf-muted)')
 
                         preview = ui.image('').classes('w-full rounded').style('display:none')
 
@@ -4779,7 +5143,7 @@ def add_page():
                                         return out
 
                                     # Strong overrides first
-                                    if any(k in lowtxt for k in ['pharmacy', ' rx', 'rx ', 'prescription', 'drug', 'dispens']):
+                                    if any(k in lowtxt for k in ['pharmacy', 'pharm', ' rx', 'rx ', 'prescription', 'drug', 'dispens', 'otc ', ' otc', 'wellness', 'health care']):
                                         category_amounts = _blank_split(detected_total, 'Health')
                                         category_debug = "(fallback) receipt-level signal: Health (pharmacy/rx)"
                                     elif any(k in lowtxt for k in ['dollarama', 'dollar tree', 'canadian tire', 'ikea', 'winners', 'marshall', 'value village']):
@@ -4790,8 +5154,8 @@ def add_page():
                                         scores = {'Groceries': 0.0, 'Household': 0.0, 'Shopping': 0.0, 'Health': 0.0}
 
                                         shop_kw = ['shirt', 'jeans', 'pant', 'pants', 'sock', 'socks', 'shoe', 'shoes', 'apparel', 'clothing', 'jacket', 'coat']
-                                        house_kw = ['detergent', 'bleach', 'soap', 'paper', 'towel', 'towels', 'toilet', 'tissue', 'dish', 'clean', 'cleaner', 'garbage', 'trash', 'broom', 'mop', 'shampoo']
-                                        health_kw = ['vitamin', 'medicine', 'medical', 'clinic', 'doctor', 'pharmacy', 'rx']
+                                        house_kw = ['detergent', 'bleach', 'soap', 'paper', 'towel', 'towels', 'toilet', 'tissue', 'dish', 'clean', 'cleaner', 'garbage', 'trash', 'broom', 'mop', 'shampoo', 'household', 'hhold', 'lysol', 'clorox', 'windex', 'swiffer', 'tide', 'downy', 'bounce', 'glad', 'hefty', 'charmin', 'bounty', 'sponge']
+                                        health_kw = ['vitamin', 'medicine', 'medical', 'clinic', 'doctor', 'pharmacy', 'pharm', 'rx', 'otc', 'drug', 'prescription', 'tylenol', 'advil', 'supplement', 'health', 'wellness']
                                         # groceries as a base if we detect typical produce/food words
                                         grocery_kw = ['banana', 'bananas', 'apple', 'apples', 'milk', 'bread', 'tofu', 'spinach', 'cauliflower', 'watermelon', 'pear', 'avocado', 'yogurt']
 
@@ -4930,12 +5294,14 @@ def add_page():
                             scan_dlg.close()
 
                     # Sticky footer so buttons don't get pushed below the upload card on mobile
-                    with ui.row().classes('w-full items-center gap-2 sticky bottom-0').style('background: rgba(8,12,20,0.92); backdrop-filter: blur(8px); padding: 10px; border-top: 1px solid var(--mf-border); position: sticky; bottom: 0; background: var(--mf-menu-bg, var(--mf-surface-2)); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); z-index: 20'):
-                        run_btn = ui.button('Run scan', on_click=_run_ocr).props('unelevated').classes('flex-1')
-                        apply_btn = ui.button('Apply', on_click=_apply_to_form).props('unelevated')
-                        apply_btn.classes('flex-1')
+                    with ui.row().classes('w-full items-center gap-2').style('position: sticky; bottom: 0; background: var(--mf-menu-bg, var(--mf-surface-2)); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); z-index: 20; padding: 12px 16px; border-top: 1px solid var(--mf-border);'):
+                        run_btn = ui.button('Scan', icon='document_scanner', on_click=_run_ocr).props('unelevated').classes('flex-1').style(
+                            'background: linear-gradient(135deg, #6366f1, #3b82f6) !important; color: #fff !important; border-radius: 10px; font-weight: 600;'
+                        )
+                        apply_btn = ui.button('Apply', icon='check', on_click=_apply_to_form).props('unelevated')
+                        apply_btn.classes('flex-1').style('border-radius: 10px; font-weight: 600;')
                         apply_btn.disable()
-                        ui.button('Close', on_click=scan_dlg.close).props('outline')
+                        ui.button('', icon='close', on_click=scan_dlg.close).props('flat round dense').style('border: 1px solid var(--mf-border); border-radius: 10px;')
 
                 def _open_scan_dialog():
                     """Open the receipt scanner dialog (and reset it so user can scan again)."""
@@ -4955,6 +5321,10 @@ def add_page():
                     scan_dlg.open()
 
                 btn_scan_receipt = ui.button('Scan receipt', on_click=_open_scan_dialog).props('outline').classes('w-full')
+
+                # Auto-open scan dialog if requested (from "Scan Now" hero button)
+                if auto_scan:
+                    _open_scan_dialog()
 
 
                 # Phase 6.5: Multi-category split UI — shown only after OCR Apply for Walmart/Costco/Superstore
@@ -5363,56 +5733,62 @@ def add_page():
         dlg.open()
 
     def content():
-        # --- Hero: Scan Receipt (highlighted prominently) ---
+        # --- Hero: Scan Receipt (premium gradient card) ---
         with ui.card().classes("my-card p-0").style(
-            "background: linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(59,130,246,0.10) 100%);"
-            "border: 1px solid rgba(99,102,241,0.3);"
+            "background: linear-gradient(135deg, rgba(99,102,241,0.16) 0%, rgba(59,130,246,0.08) 50%, rgba(16,185,129,0.06) 100%) !important;"
+            "border: 1px solid rgba(99,102,241,0.20);"
         ):
-            with ui.row().classes("w-full items-center p-5 gap-4"):
-                with ui.column().classes("flex-1 gap-1"):
-                    ui.label("Scan a Receipt").classes("text-xl font-bold")
-                    ui.label("Snap a photo or upload an image — AI reads the total, date, and splits items automatically.").classes("text-sm").style("color: var(--mf-muted); line-height: 1.5;")
-                    ui.button("Scan Now", icon="document_scanner", on_click=lambda: open_add_dialog("Debit")).props("unelevated color=primary").classes("mt-2").style(
-                        "font-weight: 600; letter-spacing: 0.02em; padding: 8px 28px;"
+            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #3b82f6, #10b981); border-radius: 0;')
+            with ui.row().classes("w-full items-center p-6 gap-5"):
+                with ui.column().classes("flex-1 gap-2"):
+                    ui.label("Scan a Receipt").classes("text-2xl font-extrabold").style("letter-spacing: -0.02em;")
+                    ui.label("Snap a photo or upload — AI reads total, date & splits items by category.").classes("text-sm").style("color: var(--mf-muted); line-height: 1.6;")
+                    ui.button("Scan Now", icon="document_scanner", on_click=lambda: open_add_dialog("Debit", auto_scan=True)).props("unelevated").classes("mt-1").style(
+                        "background: linear-gradient(135deg, #6366f1, #3b82f6) !important; color: #fff !important;"
+                        "font-weight: 700; letter-spacing: 0.01em; padding: 10px 32px; border-radius: 12px;"
+                        "box-shadow: 0 4px 14px rgba(99,102,241,0.30);"
                     )
-                ui.icon("receipt_long").classes("text-5xl").style("color: rgba(99,102,241,0.5);")
+                with ui.element("div").style(
+                    "width: 64px; height: 64px; border-radius: 18px; display: flex; align-items: center; justify-content: center;"
+                    "background: rgba(99,102,241,0.12); flex-shrink: 0;"
+                ):
+                    ui.icon("document_scanner").style("font-size: 32px; color: rgba(99,102,241,0.65);")
 
-        # --- Quick Add Grid ---
+        # --- Quick Add Grid (Premium) ---
         with ui.card().classes("my-card p-5"):
-            ui.label("Quick Add").classes("text-lg font-bold")
-            ui.label("Select a transaction type to add manually.").classes("text-sm").style("color: var(--mf-muted); margin-bottom: 12px;")
+            ui.label("Quick Add").classes("mf-section-title")
 
             tiles = [
-                ("Expense",   "shopping_cart",    "Debit",      {},  "rgba(239,68,68,0.12)",  "rgba(239,68,68,0.6)"),
-                ("Income",    "trending_up",      "Credit",     {},  "rgba(34,197,94,0.12)",  "rgba(34,197,94,0.6)"),
-                ("Investment","show_chart",       "Investment", {},  "rgba(168,85,247,0.12)", "rgba(168,85,247,0.6)"),
-                ("CC Repay",  "credit_card",      "CC Repay",   {},  "rgba(251,191,36,0.12)", "rgba(251,191,36,0.6)"),
-                ("LOC Draw",  "account_balance",  "LOC Draw",   {"preset_category": "LOC Utilization", "preset_method": "Card", "preset_account": "Line of Credit"}, "rgba(96,165,250,0.12)", "rgba(96,165,250,0.6)"),
-                ("LOC Repay", "swap_horiz",       "LOC Repay",  {"preset_category": "Repayment", "preset_method": "Bank", "preset_account": "Line of Credit"}, "rgba(45,212,191,0.12)", "rgba(45,212,191,0.6)"),
+                ("Expense",   "shopping_cart",    "Debit",      {},  "rgba(239,68,68,0.10)",  "#ef4444"),
+                ("Income",    "trending_up",      "Credit",     {},  "rgba(34,197,94,0.10)",  "#22c55e"),
+                ("Investment","show_chart",       "Investment", {},  "rgba(168,85,247,0.10)", "#a855f7"),
+                ("CC Repay",  "credit_card",      "CC Repay",   {},  "rgba(251,191,36,0.10)", "#eab308"),
+                ("LOC Draw",  "account_balance",  "LOC Draw",   {"preset_category": "LOC Utilization", "preset_method": "Card", "preset_account": "Line of Credit"}, "rgba(96,165,250,0.10)", "#60a5fa"),
+                ("LOC Repay", "swap_horiz",       "LOC Repay",  {"preset_category": "Repayment", "preset_method": "Bank", "preset_account": "Line of Credit"}, "rgba(45,212,191,0.10)", "#2dd4bf"),
             ]
 
             with ui.element("div").classes("w-full").style(
-                "display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px;"
+                "display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px;"
             ):
                 for label, icon, etype, kw, bg, accent in tiles:
                     with ui.card().classes("my-card tile p-0").style(
-                        f"cursor: pointer; border: 1px solid {accent.replace('0.6', '0.2')};"
+                        f"cursor: pointer; border: 1px solid rgba(255,255,255,0.06);"
                     ).on("click", lambda e=etype, k=kw: open_add_dialog(e, **k)):
-                        with ui.column().classes("items-center justify-center p-4 gap-2").style("min-height: 110px;"):
-                            with ui.element("div").style(
-                                f"width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center;"
-                                f"justify-content: center; background: {bg};"
-                            ):
+                        with ui.column().classes("items-center justify-center p-4 gap-3").style("min-height: 105px;"):
+                            with ui.element("div").classes("mf-icon-box").style(f"background: {bg};"):
                                 ui.icon(icon).style(f"font-size: 22px; color: {accent};")
-                            ui.label(label).classes("text-sm font-semibold text-center").style("line-height: 1.2;")
+                            ui.label(label).classes("text-xs font-semibold text-center").style(f"line-height: 1.2; color: var(--mf-text);")
 
         # --- Recurring ---
         with ui.card().classes("my-card p-5"):
             with ui.row().classes("w-full items-center justify-between"):
-                with ui.column().classes("gap-1"):
-                    ui.label("Recurring Entries").classes("text-lg font-bold")
-                    ui.label("Auto-generated when due date arrives.").classes("text-sm").style("color: var(--mf-muted)")
-                ui.button("Run Now", icon="autorenew", on_click=lambda: ui.notify(f"Created {generate_recurring_for_date(today())} entries", type="positive")).props("outline").style("white-space: nowrap;")
+                with ui.row().classes("items-center gap-2"):
+                    with ui.element("div").classes("mf-icon-box").style("background: rgba(34,197,94,0.10);"):
+                        ui.icon("autorenew").style("font-size: 18px; color: #22c55e;")
+                    with ui.column().classes("gap-0"):
+                        ui.label("Recurring Entries").classes("text-sm font-bold")
+                        ui.label("Auto-generated on due date").classes("text-xs").style("color: var(--mf-muted)")
+                ui.button("Run Now", icon="autorenew", on_click=lambda: ui.notify(f"Created {generate_recurring_for_date(today())} entries", type="positive")).props("outline").style("white-space: nowrap; border-radius: 10px;")
 
     shell(content)
 
@@ -5426,21 +5802,39 @@ def admin_page() -> None:
         return
 
     def content() -> None:
-        with ui.card().classes("my-card p-5"):
-            ui.label("Admin").classes("text-lg font-bold")
-            ui.label("Manage rules, cards, recurring templates, and fix mistakes.").style("color: var(--mf-muted)")
+        with ui.card().classes("my-card p-0").style("overflow: hidden;"):
+            ui.element(‘div’).style(‘height: 3px; background: linear-gradient(90deg, #6366f1, #8b5cf6); border-radius: 0;’)
+            with ui.column().classes("p-5 gap-3"):
+                with ui.row().classes("items-center gap-3"):
+                    with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
+                        ui.icon("settings").style("font-size: 20px; color: #6366f1;")
+                    with ui.column().classes("gap-0"):
+                        ui.label("Admin Panel").classes("text-xl font-extrabold").style("letter-spacing: -0.02em;")
+                        ui.label("Manage rules, cards, templates & data tools").classes("text-xs").style("color: var(--mf-muted)")
 
-            with ui.column().classes("w-full gap-3 mt-3"):
-                ui.button("Keyword Rules", on_click=lambda: nav_to("/rules")).props("unelevated").classes("w-full")
-                ui.button("Cards", on_click=lambda: nav_to("/cards")).props("unelevated").classes("w-full")
-                ui.button("Recurring Templates", on_click=lambda: nav_to("/recurring")).props("unelevated").classes("w-full")
-                ui.button("Transactions (Fix Mistakes)", on_click=lambda: nav_to("/tx")).props("unelevated").classes("w-full")
-                ui.button("Budgets", on_click=lambda: nav_to("/budgets")).props("unelevated").classes("w-full")
-                ui.button("Data Tools (Import/Backup)", on_click=lambda: nav_to("/data_tools")).props("unelevated").classes("w-full")
+                _admin_links = [
+                    ("Keyword Rules", "rule", "/rules", "rgba(34,197,94,0.10)", "#22c55e"),
+                    ("Cards", "credit_card", "/cards", "rgba(59,130,246,0.10)", "#3b82f6"),
+                    ("Recurring Templates", "autorenew", "/recurring", "rgba(168,85,247,0.10)", "#a855f7"),
+                    ("Transactions", "receipt_long", "/tx", "rgba(239,68,68,0.10)", "#ef4444"),
+                    ("Budgets", "account_balance_wallet", "/budgets", "rgba(251,191,36,0.10)", "#eab308"),
+                    ("Data Tools", "cloud_download", "/data_tools", "rgba(96,165,250,0.10)", "#60a5fa"),
+                ]
+                with ui.element("div").style("display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px;"):
+                    for label, icon, href, bg, accent in _admin_links:
+                        with ui.card().classes("tile p-0").style(
+                            f"cursor: pointer; border: 1px solid var(--mf-border); border-radius: 14px; background: rgba(255,255,255,0.02);"
+                        ).on("click", lambda h=href: nav_to(h)):
+                            with ui.column().classes("items-center justify-center p-4 gap-2").style("min-height: 90px;"):
+                                with ui.element("div").classes("mf-icon-box").style(f"background: {bg};"):
+                                    ui.icon(icon).style(f"font-size: 20px; color: {accent};")
+                                ui.label(label).classes("text-xs font-semibold text-center")
 
-        with ui.card().classes("my-card p-5"):
-            ui.label("Locks").classes("text-lg font-bold")
-            ui.label("Locking is enforced by your Transactions sheet’s locked_month column (if present). Use sheet-side admin for now.").style("color: var(--mf-muted)")
+        with ui.card().classes("my-card p-5 mt-3"):
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("lock").style("color: var(--mf-muted); font-size: 18px;")
+                ui.label("Month Locks").classes("text-sm font-bold")
+            ui.label("Managed via the Transactions page month lock toggle.").classes("text-xs mt-1").style("color: var(--mf-muted)")
 
     shell(content)
 
@@ -5587,9 +5981,16 @@ def transactions_page():
             ui.notify('Category updated.', type='positive')
             nav_to('/tx')
 
-        with ui.card().classes("my-card p-5"):
-            ui.label("Transactions").classes("text-lg font-bold")
+        # Premium header
+        with ui.element("div").style("margin-bottom: -8px;"):
+            with ui.card().classes("my-card p-0").style("overflow: hidden; border-bottom-left-radius: 0; border-bottom-right-radius: 0;"):
+                ui.element('div').classes('mf-accent-strip')
+                with ui.row().classes("items-center gap-3 p-5"):
+                    with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
+                        ui.icon("receipt_long").style("font-size: 20px; color: #6366f1;")
+                    ui.label("Transactions").classes("text-xl font-extrabold").style("letter-spacing: -0.02em;")
 
+        with ui.card().classes("my-card p-5"):
             # Month selector + lock (5.12)
             month_options = []
             try:
@@ -5883,11 +6284,18 @@ def security_page() -> None:
         return
 
     def content() -> None:
-        with ui.card().classes("my-card p-5"):
-            ui.label("Passkeys / Face ID").classes("text-lg font-bold")
-            ui.label("Register a passkey for quick biometric login (iPhone Face ID, Touch ID, etc.).").style("color: var(--mf-muted)")
-            ui.separator().classes("my-3 opacity-30")
+        # Premium security header
+        with ui.element("div").style("margin-bottom: -8px;"):
+            with ui.card().classes("my-card p-0").style("overflow: hidden;"):
+                ui.element('div').style('height: 3px; background: linear-gradient(90deg, #22c55e, #10b981); border-radius: 0;')
+                with ui.column().classes("p-5 gap-3"):
+                    with ui.row().classes("items-center gap-3"):
+                        with ui.element("div").classes("mf-icon-box").style("background: rgba(34,197,94,0.12);"):
+                            ui.icon("fingerprint").style("font-size: 22px; color: #22c55e;")
+                        ui.label("Passkeys / Face ID").classes("text-xl font-extrabold").style("letter-spacing: -0.02em;")
+                    ui.label("Register a passkey for quick biometric login (iPhone Face ID, Touch ID, etc.).").classes("text-sm").style("color: var(--mf-muted)")
 
+        with ui.card().classes("my-card p-5"):
             default_user = os.environ.get('APP_USER') or os.environ.get('APP_USERNAME') or 'admin'
             u_in = ui.input("Username for passkey", value=default_user).classes("w-full").props("id=pk_user")
 
@@ -5987,8 +6395,15 @@ def cards_page() -> None:
         return
 
     def content() -> None:
-        ui.label('Cards').classes('text-2xl font-semibold').style('color: var(--mf-text);')
-        ui.label('Limits and billing details from Google Sheets.').classes('text-sm').style('color: var(--mf-muted);')
+        # Premium cards header
+        with ui.card().classes('my-card p-0 mb-4').style('overflow: hidden;'):
+            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #3b82f6, #6366f1, #a855f7); border-radius: 0;')
+            with ui.row().classes('items-center gap-3 p-5'):
+                with ui.element("div").classes("mf-icon-box").style("background: rgba(59,130,246,0.12);"):
+                    ui.icon("credit_card").style("font-size: 22px; color: #3b82f6;")
+                with ui.column().classes('gap-0'):
+                    ui.label('Cards').classes('text-xl font-extrabold').style('letter-spacing: -0.02em;')
+                    ui.label('Credit limits, utilization & billing cycles').classes('text-xs').style('color: var(--mf-muted);')
 
         df = cached_df('cards')
         if df.empty:
@@ -6168,32 +6583,51 @@ def cards_page() -> None:
                 variant = ' mf-ct-black' if ('black' in nlow) else (' mf-ct-grey' if ('grey' in nlow or 'gray' in nlow) else '')
             elif _is_rbc(c):
                 variant = ' mf-rbc-blue'
-            # Use a plain div with Quasar grid classes so 2 cards can sit in a single row reliably (incl. mobile)
+
+            # Utilization color
+            pct_val = float(c.get('pct', 0.0))
+            util_class = 'mf-util-green' if pct_val < 0.50 else ('mf-util-yellow' if pct_val < 0.80 else 'mf-util-red')
+            pct_display = f"{int(round(pct_val * 100))}%"
+
             with ui.element('div').classes(col):
-                with ui.card().classes('my-card mf-card-widget' + extra + issuer + variant):
-                    with ui.row().classes('items-center justify-between'):
-                        ui.label(f"{c['emoji']} {c['name']}").classes('text-lg font-semibold').style('color: var(--mf-text);')
-                        if c.get('method'):
-                            ui.badge(c['method']).classes('q-pa-xs').style('background: rgba(120,160,255,0.18); color: var(--mf-text); border: 1px solid var(--mf-border);')
+                with ui.card().classes('my-card mf-card-widget p-0' + extra + issuer + variant).style('overflow: hidden;'):
+                    # Top accent strip based on issuer
+                    _strip_color = '#ef4444' if _is_ct(c) else ('#3b82f6' if _is_rbc(c) else ('#94a3b8' if _is_loc(c) else 'var(--mf-accent)'))
+                    ui.element('div').style(f'height: 3px; background: {_strip_color}; opacity: 0.6;')
 
-                    with ui.row().classes('w-full items-center justify-between mt-3'):
-                        ui.label('Limit').classes('text-xs').style('color: var(--mf-muted);')
-                        ui.label(currency(c['limit']) if c.get('limit') else '—').classes('text-sm font-semibold').style('color: var(--mf-text);')
-                        ui.label('Billing day').classes('text-xs').style('color: var(--mf-muted);')
-                        ui.label(str(c.get('billing_day') or '—')).classes('text-sm font-semibold').style('color: var(--mf-text);')
+                    with ui.column().classes('p-5 gap-3'):
+                        with ui.row().classes('items-center justify-between'):
+                            with ui.row().classes('items-center gap-2'):
+                                ui.label(c['emoji']).classes('text-xl')
+                                ui.label(c['name']).classes('text-base font-bold').style('color: var(--mf-text);')
+                            if c.get('method'):
+                                with ui.element('span').classes('mf-tag'):
+                                    ui.label(c['method']).classes('text-xs')
 
-                    ui.separator().classes('my-3 opacity-30')
+                        # Stats grid
+                        with ui.element('div').style('display: grid; grid-template-columns: 1fr 1fr; gap: 12px;'):
+                            with ui.column().classes('gap-0'):
+                                ui.label('Limit').classes('mf-stat-label')
+                                ui.label(currency(c['limit']) if c.get('limit') else '—').classes('text-sm font-bold').style('font-feature-settings: "tnum";')
+                            with ui.column().classes('gap-0'):
+                                ui.label('Billing Day').classes('mf-stat-label')
+                                ui.label(str(c.get('billing_day') or '—')).classes('text-sm font-bold')
 
-                    with ui.row().classes('w-full items-center justify-between'):
-                        ui.label('Used').classes('text-xs').style('color: var(--mf-muted);')
-                        ui.label(currency(c.get('balance', 0.0))).classes('text-sm font-semibold').style('color: var(--mf-text);')
+                        # Utilization section
+                        with ui.column().classes('gap-2'):
+                            with ui.row().classes('w-full items-center justify-between'):
+                                ui.label('Utilization').classes('mf-stat-label')
+                                ui.label(pct_display).classes('text-xs font-bold').style(f'color: {"#22c55e" if pct_val < 0.50 else ("#eab308" if pct_val < 0.80 else "#ef4444")};')
+                            with ui.element('div').classes('w-full mf-util-bar'):
+                                ui.element('div').classes(util_class).style(f"width: {pct_val*100:.1f}%;")
 
-                    with ui.element('div').classes('w-full mf-progress'):
-                        ui.element('div').style(f"width: {float(c.get('pct', 0.0))*100:.1f}%;")
-
-                    with ui.row().classes('w-full items-center justify-between mt-2'):
-                        ui.label('Remaining').classes('text-xs').style('color: var(--mf-muted);')
-                        ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '—').classes('text-sm font-semibold').style('color: var(--mf-text);')
+                        with ui.element('div').style('display: grid; grid-template-columns: 1fr 1fr; gap: 12px;'):
+                            with ui.column().classes('gap-0'):
+                                ui.label('Balance').classes('mf-stat-label')
+                                ui.label(currency(c.get('balance', 0.0))).classes('text-sm font-bold').style('font-feature-settings: "tnum";')
+                            with ui.column().classes('gap-0'):
+                                ui.label('Available').classes('mf-stat-label')
+                                ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '—').classes('text-sm font-bold').style('color: var(--mf-good); font-feature-settings: "tnum";')
 
                     # Mini trend chart: balance since last payoff (resets after fully repaid)
                     try:
@@ -6224,27 +6658,26 @@ def cards_page() -> None:
                 for c in items:
                     _tile(c, col='w-full')
 
-        # --- Render: Canadian Tire (2 in a row)
+        # --- Render: Canadian Tire
         if ct:
-            ui.label('Canadian Tire').classes('text-sm font-semibold mt-4').style('color: var(--mf-muted); letter-spacing:0.4px;')
+            ui.label('Canadian Tire').classes('mf-section-title mt-4')
             _two_row(ct)
 
-        # --- Render: RBC Cards (2 in a row)
+        # --- Render: RBC Cards
         if rbc:
-            ui.label('RBC Cards').classes('text-sm font-semibold mt-6').style('color: var(--mf-muted); letter-spacing:0.4px;')
+            ui.label('RBC Cards').classes('mf-section-title mt-6')
             _two_row(rbc)
 
         if other:
-            ui.label('Other').classes('text-sm font-semibold mt-6').style('color: var(--mf-muted); letter-spacing:0.4px;')
+            ui.label('Other Cards').classes('mf-section-title mt-6')
             _two_row(other)
 
-        # spacer + LOC single
+        # LOC
         if loc:
-            ui.element('div').style('height: 18px;')
-            ui.label('Line of Credit').classes('text-sm font-semibold mt-6').style('color: var(--mf-muted); letter-spacing:0.4px;')
-            with ui.row().classes('row w-full q-col-gutter-md justify-center'):
+            ui.label('Line of Credit').classes('mf-section-title mt-6')
+            with ui.element('div').classes('grid grid-cols-1 gap-4 w-full'):
                 for c in loc:
-                    _tile(c, col='col-12', emph=True)
+                    _tile(c, col='w-full', emph=True)
 
     shell(content)
 
@@ -6257,10 +6690,17 @@ def recurring_page():
 
     def content():
         rdf = cached_df("recurring")
-        with ui.card().classes("my-card p-5"):
-            ui.label("Recurring templates").classes("text-lg font-bold")
-            ui.label("Templates only. Transactions get created when the due date arrives.").style("color: var(--mf-muted)")
+        # Premium header
+        with ui.card().classes("my-card p-0").style("overflow: hidden; margin-bottom: 12px;"):
+            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #22c55e, #10b981); border-radius: 0;')
+            with ui.row().classes("items-center gap-3 p-5"):
+                with ui.element("div").classes("mf-icon-box").style("background: rgba(34,197,94,0.12);"):
+                    ui.icon("autorenew").style("font-size: 20px; color: #22c55e;")
+                with ui.column().classes("gap-0"):
+                    ui.label("Recurring Templates").classes("text-xl font-extrabold").style("letter-spacing: -0.02em;")
+                    ui.label("Auto-generated when due date arrives.").classes("text-xs").style("color: var(--mf-muted)")
 
+        with ui.card().classes("my-card p-5"):
             if rdf.empty:
                 ui.label("No templates yet. Mark an Add entry as recurring to create one.").style("color: var(--mf-muted)")
                 return
@@ -6403,9 +6843,15 @@ def rules_page():
             tail = len(keys) - len(shown)
             return " • ".join(shown) + (f"  +{tail}" if tail > 0 else "")
 
-        # UI
-        ui.label("Rules").classes("text-2xl font-semibold").style("color: var(--mf-text);")
-        ui.label("Keyword → category mapping used for Auto-category in Add.").classes("text-sm").style("color: var(--mf-muted);")
+        # Premium rules header
+        with ui.card().classes('my-card p-0 mb-4').style('overflow: hidden;'):
+            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #f59e0b, #f97316); border-radius: 0;')
+            with ui.row().classes('items-center gap-3 p-5'):
+                with ui.element("div").classes("mf-icon-box").style("background: rgba(245,158,11,0.12);"):
+                    ui.icon("rule").style("font-size: 22px; color: #f59e0b;")
+                with ui.column().classes('gap-0'):
+                    ui.label('Rules').classes('text-xl font-extrabold').style('letter-spacing: -0.02em;')
+                    ui.label('Keyword → category mapping used for Auto-category').classes('text-xs').style('color: var(--mf-muted);')
 
         with ui.row().classes("w-full gap-4 mt-4"):
 
@@ -6780,9 +7226,17 @@ def budgets_page() -> None:
         return
 
     def content() -> None:
+        # Premium budgets header
+        with ui.card().classes('my-card p-0 mb-4').style('overflow: hidden;'):
+            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #8b5cf6, #a855f7); border-radius: 0;')
+            with ui.row().classes('items-center gap-3 p-5'):
+                with ui.element("div").classes("mf-icon-box").style("background: rgba(139,92,246,0.12);"):
+                    ui.icon("savings").style("font-size: 22px; color: #8b5cf6;")
+                with ui.column().classes('gap-0'):
+                    ui.label('Budgets').classes('text-xl font-extrabold').style('letter-spacing: -0.02em;')
+                    ui.label('Create and manage monthly budgets per category').classes('text-xs').style('color: var(--mf-muted);')
+
         with ui.card().classes('my-card p-5'):
-            ui.label('Budgets').classes('text-lg font-bold')
-            ui.label('Create and manage monthly budgets per category.').style('color: var(--mf-muted)')
 
             ok = ensure_optional_sheet('budgets', OPTIONAL_SHEETS['budgets'])
             if not ok:
@@ -6922,9 +7376,15 @@ def data_tools_page() -> None:
         return
 
     def content() -> None:
-        with ui.card().classes('my-card p-5'):
-            ui.label('Data Tools').classes('text-lg font-bold')
-            ui.label('Import CSV, backup/restore, and merchant cleanup.').style('color: var(--mf-muted)')
+        # Premium data tools header
+        with ui.card().classes('my-card p-0 mb-4').style('overflow: hidden;'):
+            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #06b6d4, #0ea5e9); border-radius: 0;')
+            with ui.row().classes('items-center gap-3 p-5'):
+                with ui.element("div").classes("mf-icon-box").style("background: rgba(6,182,212,0.12);"):
+                    ui.icon("build").style("font-size: 22px; color: #06b6d4;")
+                with ui.column().classes('gap-0'):
+                    ui.label('Data Tools').classes('text-xl font-extrabold').style('letter-spacing: -0.02em;')
+                    ui.label('Import CSV, backup/restore & merchant cleanup').classes('text-xs').style('color: var(--mf-muted);')
 
         # Backup
         with ui.card().classes('my-card p-5'):
