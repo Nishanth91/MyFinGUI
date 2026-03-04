@@ -5373,7 +5373,7 @@ def add_page():
             ):
                 for label, icon, etype, kw, bg, accent in tiles:
                     with ui.card().classes("my-card tile p-0").style(
-                        f"cursor: pointer; border: 1px solid {accent.replace(‘0.6’, ‘0.2’)};"
+                        f"cursor: pointer; border: 1px solid {accent.replace('0.6', '0.2')};"
                     ).on("click", lambda e=etype, k=kw: open_add_dialog(e, **k)):
                         with ui.column().classes("items-center justify-center p-4 gap-2").style("min-height: 110px;"):
                             with ui.element("div").style(
