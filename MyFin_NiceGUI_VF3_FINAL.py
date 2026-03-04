@@ -1292,6 +1292,26 @@ def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
 
     return items
 
+def _build_rules_index(rules: List[Tuple[str, str]]) -> Dict[str, List[str]]:
+    """Build a category -> [keywords] index from the rules list.
+
+    Each rule is (keyword, category). We group keywords by their lowercase category name
+    so classify_receipt_items can look up keywords per category efficiently.
+    """
+    idx: Dict[str, List[str]] = {}
+    for kw, cat in (rules or []):
+        key = (cat or '').strip().lower()
+        if not key:
+            continue
+        kw_clean = (kw or '').strip().lower()
+        if not kw_clean:
+            continue
+        if key not in idx:
+            idx[key] = []
+        idx[key].append(kw_clean)
+    return idx
+
+
 def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, str]]) -> Dict[str, Any]:
     """Classify receipt line items into Groceries/Household/Shopping/Health using the rules sheet.
 
@@ -4788,9 +4808,7 @@ def add_page():
                                             if w in lowtxt:
                                                 scores['Groceries'] += 1.0
 
-                                        # If Walmart and we see clear clothing keywords, bias Shopping; otherwise groceries.
-                                        if 'walmart' in lowtxt:
-                                            scores['Groceries'] += 0.5
+                                        # Walmart is multi-category — do NOT bias toward Groceries
 
                                         best = max(scores, key=lambda k: scores[k])
                                         if scores[best] <= 0.0:
@@ -4802,8 +4820,13 @@ def add_page():
                                 parsed['category_amounts'] = category_amounts
                                 parsed['category_split_debug'] = category_debug
                                 parsed['classified_items'] = cat_result.get('items', []) if items else []
-                            except Exception:
-                                pass
+                            except Exception as _cls_err:
+                                import traceback
+                                _tb = traceback.format_exc()
+                                print(f"[FinTrackr] classify_receipt_items error: {_cls_err}\n{_tb}")
+                                # Ensure parsed still has empty defaults so the rest of the flow works
+                                parsed.setdefault('category_amounts', {})
+                                parsed.setdefault('classified_items', [])
 
                             merch = str(parsed.get('merchant') or '').strip()
                             last4 = str(parsed.get('card_last4') or '').strip()
