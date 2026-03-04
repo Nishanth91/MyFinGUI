@@ -16,7 +16,7 @@ File: Myfin_NICEGUI_VF2_P4_2.py
 
 Purpose
 - A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
-- Focus on correctness + usability + a consistent dark “banking style” UI.
+- Focus on correctness + usability + a consistent dark "banking style" UI.
 
 Key behavior changes (requested)
 1) Recurring:
@@ -468,7 +468,7 @@ def _extract_date_from_text(text: str) -> Optional[dt.date]:
     """Extract a receipt date from OCR text using candidate scoring.
 
     Supported formats (most common in your receipts):
-      - MM/DD/YYYY (e.g., Gill’s 12/8/2025)
+      - MM/DD/YYYY (e.g., Gill's 12/8/2025)
       - MM/DD/YY   (e.g., Walmart 1/17/26)
       - YY/MM/DD   (e.g., Dollarama 26/01/17 -> 2026-01-17)
       - YYYY/MM/DD, YYYY-MM-DD
@@ -5803,7 +5803,7 @@ def admin_page() -> None:
 
     def content() -> None:
         with ui.card().classes("my-card p-0").style("overflow: hidden;"):
-            ui.element(‘div’).style(‘height: 3px; background: linear-gradient(90deg, #6366f1, #8b5cf6); border-radius: 0;’)
+            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #8b5cf6); border-radius: 0;')
             with ui.column().classes("p-5 gap-3"):
                 with ui.row().classes("items-center gap-3"):
                     with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
