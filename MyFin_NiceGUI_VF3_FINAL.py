@@ -1345,41 +1345,97 @@ def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, s
     # Hard fallback signals (for receipts with abbreviated items)
     fb_shop = _filter_keywords([
         'shirt', 'jeans', 'pant', 'pants', 'dress', 'top', 'bra', 'brief', 'sock', 'socks', 'shoe', 'shoes',
-        'toy', 'toys', 'lego', 'doll', 'stroller', 'diaper', 'diapers', 'electronics', 'headphone', 'charger',
-        'game', 'switch', 'ps5', 'xbox', 'beauty', 'spray', 'lotion', 'makeup',
+        'toy', 'toys', 'lego', 'doll', 'stroller', 'electronics', 'headphone', 'headphones', 'earbuds', 'charger',
+        'game', 'switch', 'ps5', 'xbox', 'playstation', 'nintendo', 'beauty', 'lotion', 'makeup', 'cosmetic',
+        'jewelry', 'necklace', 'bracelet', 'watch', 'handbag', 'purse', 'backpack', 'luggage', 'suitcase',
+        'jacket', 'coat', 'hoodie', 'sweater', 'blouse', 'skirt', 'shorts', 'underwear', 'apparel', 'clothing',
+        'fabric', 'curtain', 'curtains', 'bedding', 'pillow', 'duvet', 'comforter', 'blanket',
+        'laptop', 'tablet', 'phone case', 'cable', 'adapter', 'keyboard', 'mouse', 'speaker',
+        'candle', 'decor', 'decoration', 'frame', 'picture frame', 'vase', 'plant pot',
     ])
     fb_house = _filter_keywords([
-        'detergent', 'laundry', 'bleach', 'dish', 'soap', 'shampoo', 'toothpaste', 'paper', 'towel', 'towels',
-        'trash', 'garbage', 'bag', 'bags', 'cleaner', 'disinfect', 'floor', 'scrub', 'softener', 'spray',
+        'detergent', 'laundry', 'bleach', 'dish', 'soap', 'shampoo', 'conditioner', 'toothpaste', 'toothbrush',
+        'paper towel', 'towel', 'towels', 'toilet paper', 'tissue', 'tissues', 'napkin', 'napkins',
+        'trash', 'garbage', 'bag', 'bags', 'cleaner', 'disinfect', 'disinfectant', 'floor', 'scrub', 'softener',
+        'sponge', 'sponges', 'wipes', 'wipe', 'mop', 'broom', 'dustpan', 'vacuum',
+        'batteries', 'battery', 'light bulb', 'bulb', 'lightbulb', 'hanger', 'hangers',
+        'foil', 'aluminum foil', 'cling wrap', 'plastic wrap', 'ziploc', 'ziplock',
+        'laundry basket', 'hamper', 'dish soap', 'dishwasher', 'rinse aid',
+        'air freshener', 'freshener', 'deodorizer', 'febreze',
+        'lysol', 'clorox', 'windex', 'pledge', 'swiffer', 'drano', 'ajax', 'comet',
+        'bin liner', 'bin liners', 'garbage bag', 'trash bag',
+        'pet food', 'dog food', 'cat food', 'cat litter', 'litter',
     ])
     fb_health = _filter_keywords([
-        'pharmacy', 'rx', 'advil', 'tylenol', 'vitamin', 'vitamins', 'bandage', 'ointment',
+        'pharmacy', 'advil', 'tylenol', 'vitamin', 'vitamins', 'bandage', 'bandages', 'ointment',
         'clinic', 'dental', 'dentist', 'doctor', 'hospital', 'chiro', 'chiropractor',
+        'medicine', 'medication', 'prescription', 'ibuprofen', 'acetaminophen', 'aspirin',
+        'antibiotic', 'antacid', 'allergy', 'benadryl', 'claritin', 'zyrtec', 'reactine',
+        'first aid', 'thermometer', 'blood pressure', 'glucometer', 'test strip',
+        'sunscreen', 'spf', 'insect repellent', 'bug spray',
+        'hand sanitizer', 'sanitizer', 'rubbing alcohol', 'hydrogen peroxide', 'isopropyl',
+        'floss', 'dental floss', 'mouthwash', 'listerine',
+        'cough', 'cold medicine', 'flu', 'sinus', 'nasal spray', 'throat lozenge',
+        'eye drops', 'contact lens', 'contact solution',
+        'heating pad', 'ice pack', 'knee brace', 'tensor', 'bandaid', 'band aid',
+        'melatonin', 'probiotic', 'supplement', 'supplements', 'omega', 'fish oil', 'multivitamin',
+        'diaper', 'diapers', 'baby wipes', 'formula', 'baby formula',
+    ])
+    fb_groc = _filter_keywords([
+        'banana', 'bananas', 'apple', 'apples', 'orange', 'oranges', 'grape', 'grapes', 'mango', 'mangoes',
+        'strawberry', 'blueberry', 'raspberry', 'cherry', 'peach', 'pear', 'pears', 'plum', 'kiwi',
+        'watermelon', 'cantaloupe', 'pineapple', 'avocado', 'lemon', 'lime', 'coconut', 'fig',
+        'milk', 'bread', 'butter', 'cheese', 'cream', 'yogurt', 'yoghurt', 'egg', 'eggs',
+        'chicken', 'beef', 'pork', 'lamb', 'turkey', 'salmon', 'fish', 'shrimp', 'tuna', 'steak',
+        'rice', 'pasta', 'noodle', 'noodles', 'flour', 'sugar', 'salt', 'pepper', 'spice',
+        'cereal', 'oatmeal', 'granola', 'pancake', 'waffle', 'syrup',
+        'tofu', 'spinach', 'lettuce', 'kale', 'broccoli', 'cauliflower', 'carrot', 'carrots',
+        'potato', 'potatoes', 'onion', 'onions', 'garlic', 'ginger', 'tomato', 'tomatoes',
+        'cucumber', 'celery', 'zucchini', 'squash', 'corn', 'beans', 'lentils', 'chickpeas',
+        'juice', 'coffee', 'tea', 'water', 'soda', 'pop', 'beverage',
+        'chip', 'chips', 'cracker', 'crackers', 'cookie', 'cookies', 'snack', 'snacks',
+        'sauce', 'ketchup', 'mustard', 'mayo', 'mayonnaise', 'salsa', 'dressing',
+        'jam', 'jelly', 'peanut butter', 'honey', 'nutella',
+        'frozen', 'ice cream', 'pizza', 'fries', 'nuggets',
+        'deli', 'ham', 'salami', 'bacon', 'sausage',
+        'olive oil', 'vegetable oil', 'canola oil', 'cooking oil',
+        'bakery', 'baguette', 'croissant', 'muffin', 'donut', 'bagel',
+        'organic', 'produce', 'fresh', 'meat', 'seafood', 'poultry',
     ])
 
+    # Words that are too short/ambiguous for plain substring matching and need word-boundary checks
+    _SHORT_AMBIGUOUS = {'bag', 'bags', 'top', 'bra', 'mop', 'gel', 'oil', 'bar', 'pad', 'tea', 'jam', 'dip', 'ham', 'rub'}
+
     def _has_any(text_s: str, keywords: List[str]) -> bool:
-        # substring match is fine after normalization (keywords are also normalized)
+        words_set = set(text_s.split())
         for k in keywords:
-            if k and k in text_s:
-                return True
+            if not k:
+                continue
+            if k in _SHORT_AMBIGUOUS:
+                # Use word-boundary match for short/ambiguous keywords
+                if k in words_set:
+                    return True
+            else:
+                if k in text_s:
+                    return True
         return False
 
     def infer_item_category(item_name: str) -> str:
         t = _norm(item_name)
         if not t:
             return 'Uncategorized'
-        # priority: Health -> Shopping -> Household -> Groceries
+        # priority: Health -> Shopping -> Household -> Groceries -> Uncategorized
         if _has_any(t, kw_health) or _has_any(t, fb_health):
             return 'Health'
         if _has_any(t, kw_shop) or _has_any(t, fb_shop):
             return 'Shopping'
         if _has_any(t, kw_house) or _has_any(t, fb_house):
             return 'Household'
-        if _has_any(t, kw_groc):
+        if _has_any(t, kw_groc) or _has_any(t, fb_groc):
             return 'Groceries'
-        return 'Groceries'
+        return 'Uncategorized'
 
-    cat_amounts = {c: 0.0 for c in ['Groceries', 'Household', 'Shopping', 'Health']}
+    cat_amounts = {c: 0.0 for c in ['Groceries', 'Household', 'Shopping', 'Health', 'Uncategorized']}
     per_item = []
 
     for it in items or []:
@@ -1398,7 +1454,11 @@ def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, s
 
     # If nothing meaningful was classified (e.g., OCR didn't yield line items), leave everything unassigned
     if total <= 0.0:
-        cat_amounts = {c: 0.0 for c in ['Groceries', 'Household', 'Shopping', 'Health']}
+        cat_amounts = {c: 0.0 for c in ['Groceries', 'Household', 'Shopping', 'Health', 'Uncategorized']}
+
+    # Remove Uncategorized from output if empty (keep output clean for split dialog)
+    if cat_amounts.get('Uncategorized', 0.0) < 0.005:
+        cat_amounts.pop('Uncategorized', None)
 
     return {
         'detected_amounts': cat_amounts,
@@ -2951,9 +3011,15 @@ html.mf-light .q-btn__content {
 
 .tile {
   cursor: pointer;
-  transition: transform .12s ease, background .12s ease;
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
 }
-.tile:hover { transform: translateY(-2px); background: rgba(255,255,255,0.07) !important; }
+.tile:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(0,0,0,0.25);
+}
+.tile:active {
+  transform: translateY(0px);
+}
 
 /* Glassy dialogs (used for Add sub-flows like receipt scan) */
 .q-dialog__backdrop {
@@ -4676,16 +4742,20 @@ def add_page():
                                 category_debug: str = ""
 
                                 if items:
-                                    cat_result = classify_receipt_items(items, total_amount=detected_total)
-                                    category_amounts = cat_result.get('category_amounts', {}) or {}
-                                    category_debug = cat_result.get('debug', '') or ""
+                                    cat_result = classify_receipt_items(items, rules)
+                                    category_amounts = cat_result.get('detected_amounts', {}) or {}
+                                    category_debug = f"line-item classification: {len(items)} items, total={cat_result.get('detected_total', 0)}"
                                 else:
                                     lowtxt = (text or "").lower()
 
                                     def _blank_split(total: float, main: str) -> Dict[str, float]:
                                         total = float(total or 0.0)
                                         out = {'Groceries': 0.0, 'Household': 0.0, 'Shopping': 0.0, 'Health': 0.0}
-                                        out[main] = round(total, 2)
+                                        if main in out:
+                                            out[main] = round(total, 2)
+                                        else:
+                                            # For 'Uncategorized' or unexpected categories, add them
+                                            out[main] = round(total, 2)
                                         return out
 
                                     # Strong overrides first
@@ -4724,15 +4794,14 @@ def add_page():
 
                                         best = max(scores, key=lambda k: scores[k])
                                         if scores[best] <= 0.0:
-                                            best = 'Groceries'
+                                            best = 'Uncategorized'
                                         category_amounts = _blank_split(detected_total, best)
                                         category_debug = f"(fallback) receipt-level signal: {best} | scores={scores}"
                                 # Persist line-items and category split for the Split dialog
                                 parsed['line_items'] = items
                                 parsed['category_amounts'] = category_amounts
                                 parsed['category_split_debug'] = category_debug
-                                parsed['category_counts'] = classified.get('counts', {})
-                                parsed['classified_items'] = classified.get('per_item', [])
+                                parsed['classified_items'] = cat_result.get('items', []) if items else []
                             except Exception:
                                 pass
 
@@ -4923,6 +4992,19 @@ def add_page():
                             amt_inputs[c] = ui.number(value=0.0, format='%.2f', step=0.01).props('dense outlined prefix=$').classes('w-40')
                             amt_inputs[c].on('update:model-value', _refresh_pcts)
 
+                    def _largest_bucket() -> str:
+                        """Return the category with the largest current amount (for remainder allocation)."""
+                        best_cat, best_val = 'Groceries', 0.0
+                        for c in split_cats:
+                            try:
+                                v = float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0))
+                            except Exception:
+                                v = 0.0
+                            if v > best_val:
+                                best_val = v
+                                best_cat = c
+                        return best_cat
+
                     def _reset_to_detected() -> None:
                         det = split_plan.get('detected_amounts') or {}
                         total_amt = _round2(float(to_float(d_amount.value)))
@@ -4932,12 +5014,13 @@ def add_page():
                                 amt_inputs[c].value = _round2(float(det.get(c, 0.0)))
                             except Exception:
                                 amt_inputs[c].value = 0.0
-                        # ensure it sums to total by allocating remainder to Groceries
+                        # ensure it sums to total by allocating remainder to the largest bucket
                         cur_sum = _sum_amounts()
                         diff = _round2(total_amt - cur_sum)
                         if abs(diff) > 0.02:
+                            target = _largest_bucket()
                             try:
-                                amt_inputs['Groceries'].value = _round2(float(to_float(amt_inputs['Groceries'].value)) + diff)
+                                amt_inputs[target].value = _round2(float(to_float(amt_inputs[target].value)) + diff)
                             except Exception:
                                 pass
                         _refresh_pcts()
@@ -4957,10 +5040,11 @@ def add_page():
                         total_amt = _round2(float(to_float(d_amount.value)))
                         cur_sum = _sum_amounts()
                         diff = _round2(total_amt - cur_sum)
-                        # If slightly off, auto-fix by nudging Groceries
+                        # If slightly off, auto-fix by nudging the largest bucket
                         if abs(diff) <= 0.05:
+                            target = _largest_bucket()
                             try:
-                                amt_inputs['Groceries'].value = _round2(float(to_float(amt_inputs['Groceries'].value)) + diff)
+                                amt_inputs[target].value = _round2(float(to_float(amt_inputs[target].value)) + diff)
                             except Exception:
                                 pass
                             cur_sum = _sum_amounts()
@@ -5132,10 +5216,11 @@ def add_page():
                         if abs(round(total_amt - s, 2)) > 0.05:
                             ui.notify('Split total does not match receipt total. Please adjust and try again.', type='warning')
                             return
-                        # Nudge rounding diff into Groceries if needed
+                        # Nudge rounding diff into the largest category bucket
                         diff = round(total_amt - s, 2)
                         if abs(diff) <= 0.05 and abs(diff) > 0.001:
-                            plan['Groceries'] = round(plan.get('Groceries', 0.0) + diff, 2)
+                            largest_cat = max(plan, key=lambda k: plan.get(k, 0.0)) if plan else 'Groceries'
+                            plan[largest_cat] = round(plan.get(largest_cat, 0.0) + diff, 2)
                         # Filter zero/negative
                         plan = {k: round(v, 2) for k, v in plan.items() if v and v > 0.009}
                         if not plan:
@@ -5255,30 +5340,56 @@ def add_page():
         dlg.open()
 
     def content():
+        # --- Hero: Scan Receipt (highlighted prominently) ---
+        with ui.card().classes("my-card p-0").style(
+            "background: linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(59,130,246,0.10) 100%);"
+            "border: 1px solid rgba(99,102,241,0.3);"
+        ):
+            with ui.row().classes("w-full items-center p-5 gap-4"):
+                with ui.column().classes("flex-1 gap-1"):
+                    ui.label("Scan a Receipt").classes("text-xl font-bold")
+                    ui.label("Snap a photo or upload an image — AI reads the total, date, and splits items automatically.").classes("text-sm").style("color: var(--mf-muted); line-height: 1.5;")
+                    ui.button("Scan Now", icon="document_scanner", on_click=lambda: open_add_dialog("Debit")).props("unelevated color=primary").classes("mt-2").style(
+                        "font-weight: 600; letter-spacing: 0.02em; padding: 8px 28px;"
+                    )
+                ui.icon("receipt_long").classes("text-5xl").style("color: rgba(99,102,241,0.5);")
+
+        # --- Quick Add Grid ---
         with ui.card().classes("my-card p-5"):
             ui.label("Quick Add").classes("text-lg font-bold")
-            ui.label("Tap a tile to add an entry.").classes("text-sm").style("color: var(--mf-muted)")
+            ui.label("Select a transaction type to add manually.").classes("text-sm").style("color: var(--mf-muted); margin-bottom: 12px;")
 
             tiles = [
-                ("Expense", "remove_shopping_cart", "Debit", {}),
-                ("Income", "payments", "Credit", {}),
-                ("Investment", "savings", "Investment", {}),
-                ("Credit Card Repayment", "credit_score", "CC Repay", {}),
-                ("LOC Withdrawal", "account_balance", "LOC Draw", {"preset_category": "LOC Utilization", "preset_method": "Card", "preset_account": "Line of Credit"}),
-                ("LOC Repayment", "swap_horiz", "LOC Repay", {"preset_category": "Repayment", "preset_method": "Bank", "preset_account": "Line of Credit"}),
+                ("Expense",   "shopping_cart",    "Debit",      {},  "rgba(239,68,68,0.12)",  "rgba(239,68,68,0.6)"),
+                ("Income",    "trending_up",      "Credit",     {},  "rgba(34,197,94,0.12)",  "rgba(34,197,94,0.6)"),
+                ("Investment","show_chart",       "Investment", {},  "rgba(168,85,247,0.12)", "rgba(168,85,247,0.6)"),
+                ("CC Repay",  "credit_card",      "CC Repay",   {},  "rgba(251,191,36,0.12)", "rgba(251,191,36,0.6)"),
+                ("LOC Draw",  "account_balance",  "LOC Draw",   {"preset_category": "LOC Utilization", "preset_method": "Card", "preset_account": "Line of Credit"}, "rgba(96,165,250,0.12)", "rgba(96,165,250,0.6)"),
+                ("LOC Repay", "swap_horiz",       "LOC Repay",  {"preset_category": "Repayment", "preset_method": "Bank", "preset_account": "Line of Credit"}, "rgba(45,212,191,0.12)", "rgba(45,212,191,0.6)"),
             ]
 
-            with ui.row().classes("w-full gap-3"):
-                for label, icon, etype, kw in tiles:
-                    with ui.card().classes("my-card p-4 tile w-full"):
-                        ui.label(label).classes("font-bold")
-                        ui.icon(icon).classes("text-2xl")
-                        ui.button("Add", on_click=lambda e=etype, k=kw: open_add_dialog(e, **k)).props("flat").classes("mt-2")
+            with ui.element("div").classes("w-full").style(
+                "display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px;"
+            ):
+                for label, icon, etype, kw, bg, accent in tiles:
+                    with ui.card().classes("my-card tile p-0").style(
+                        f"cursor: pointer; border: 1px solid {accent.replace(‘0.6’, ‘0.2’)};"
+                    ).on("click", lambda e=etype, k=kw: open_add_dialog(e, **k)):
+                        with ui.column().classes("items-center justify-center p-4 gap-2").style("min-height: 110px;"):
+                            with ui.element("div").style(
+                                f"width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center;"
+                                f"justify-content: center; background: {bg};"
+                            ):
+                                ui.icon(icon).style(f"font-size: 22px; color: {accent};")
+                            ui.label(label).classes("text-sm font-semibold text-center").style("line-height: 1.2;")
 
+        # --- Recurring ---
         with ui.card().classes("my-card p-5"):
-            ui.label("Today’s auto status").classes("text-lg font-bold")
-            ui.label("Recurring entries will be created only when the due date arrives.").style("color: var(--mf-muted)")
-            ui.button("Run recurring generation now", on_click=lambda: ui.notify(f"Created {generate_recurring_for_date(today())} entries", type="positive")).props("flat")
+            with ui.row().classes("w-full items-center justify-between"):
+                with ui.column().classes("gap-1"):
+                    ui.label("Recurring Entries").classes("text-lg font-bold")
+                    ui.label("Auto-generated when due date arrives.").classes("text-sm").style("color: var(--mf-muted)")
+                ui.button("Run Now", icon="autorenew", on_click=lambda: ui.notify(f"Created {generate_recurring_for_date(today())} entries", type="positive")).props("outline").style("white-space: nowrap;")
 
     shell(content)
 
