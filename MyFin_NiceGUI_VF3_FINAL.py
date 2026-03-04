@@ -1390,7 +1390,12 @@ def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, s
 
     # Hard fallback signals (for receipts with abbreviated items)
     fb_shop = _filter_keywords([
-        'shirt', 'jeans', 'pant', 'pants', 'dress', 'top', 'bra', 'brief', 'sock', 'socks', 'shoe', 'shoes',
+        'shirt', 'tshirt', 't-shirt', 'jeans', 'pant', 'pants', 'dress', 'top', 'bra', 'brief', 'sock', 'socks', 'shoe', 'shoes',
+        'tank', 'tank top', 'tanktop', 'cami', 'camisole', 'tunic', 'romper', 'jumpsuit', 'bodysuit',
+        'women', 'womens', "women's", 'mens', "men's", 'boys', 'girls', 'kids', 'infant', 'toddler',
+        'legging', 'leggings', 'tights', 'jogger', 'joggers', 'sweatpant', 'sweatpants', 'trackpant',
+        'polo', 'henley', 'cardigan', 'vest', 'blazer', 'suit', 'tie', 'scarf', 'glove', 'gloves', 'hat', 'cap', 'beanie',
+        'sandal', 'sandals', 'boot', 'boots', 'sneaker', 'sneakers', 'slipper', 'slippers', 'flip flop',
         'toy', 'toys', 'lego', 'doll', 'stroller', 'electronics', 'headphone', 'headphones', 'earbuds', 'charger',
         'game', 'switch', 'ps5', 'xbox', 'playstation', 'nintendo', 'beauty', 'lotion', 'makeup', 'cosmetic',
         'jewelry', 'necklace', 'bracelet', 'watch', 'handbag', 'purse', 'backpack', 'luggage', 'suitcase',
@@ -1398,6 +1403,7 @@ def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, s
         'fabric', 'curtain', 'curtains', 'bedding', 'pillow', 'duvet', 'comforter', 'blanket',
         'laptop', 'tablet', 'phone case', 'cable', 'adapter', 'keyboard', 'mouse', 'speaker',
         'candle', 'decor', 'decoration', 'frame', 'picture frame', 'vase', 'plant pot',
+        'swimwear', 'bikini', 'trunks', 'robe', 'pajama', 'pyjama', 'nightgown', 'lingerie',
     ])
     fb_house = _filter_keywords([
         'detergent', 'laundry', 'bleach', 'dish', 'soap', 'shampoo', 'conditioner', 'toothpaste', 'toothbrush',
@@ -3440,13 +3446,23 @@ html.mf-light ::-webkit-scrollbar-thumb:hover { background: rgba(17,24,39,0.22);
 
 /* Premium login page */
 .mf-login-hero {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 24px;
   background: radial-gradient(ellipse 1200px 700px at 30% 20%, var(--mf-g1), transparent 50%),
               radial-gradient(ellipse 800px 500px at 70% 80%, var(--mf-g2), transparent 50%),
               var(--mf-bg);
+}
+/* Login: show left brand panel + hide mobile logo on desktop (>768px) */
+@media (min-width: 769px) {
+  .mf-login-left { display: flex !important; }
+  .mf-login-mobile-logo { display: none !important; }
+}
+/* Login: on small screens, remove outer shadow/rounding so it fills nicely */
+@media (max-width: 768px) {
+  .mf-login-hero > div { border-radius: 0 !important; box-shadow: none !important; min-height: 100dvh; }
 }
 
 /* Premium card accent strip */
@@ -4226,49 +4242,82 @@ def methods_list() -> List[str]:
 # -----------------------------
 @ui.page("/login")
 def login_page():
-    # Premium login - centered, full-height with subtle gradient background
+    # Premium login - responsive: side-by-side on desktop, stacked on mobile
     with ui.element('div').classes('mf-login-hero'):
-        with ui.column().classes('w-full max-w-[440px] mx-auto p-4 gap-0'):
-            # Logo & brand
-            with ui.column().classes('items-center gap-1 mb-8'):
-                with ui.element('div').style(
-                    'width: 64px; height: 64px; border-radius: 18px; display: flex; align-items: center; justify-content: center;'
-                    'background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2));'
-                    'box-shadow: 0 8px 24px rgba(91,140,255,0.25);'
-                ):
-                    ui.icon('account_balance_wallet').style('font-size: 32px; color: #fff;')
-                ui.label('FinTrackr').classes('text-2xl font-extrabold mt-3').style('letter-spacing: -0.02em;')
-                ui.label('Personal Finance Dashboard').classes('text-sm').style('color: var(--mf-muted)')
-
-            with ui.card().classes('my-card p-8').style('border-radius: 24px;'):
-                ui.label('Welcome back').classes('text-xl font-bold')
-                ui.label('Sign in to manage your finances').classes('text-sm mb-4').style('color: var(--mf-muted)')
-
-                u_in = ui.input("Username").classes("w-full").props("outlined dense")
-                u_in.style("margin-bottom: 8px;")
-                p_in = ui.input("Password", password=True, password_toggle_button=True).classes("w-full").props("outlined dense")
-
-                def attempt():
-                    if check_login(u_in.value or "", p_in.value or ""):
-                        app.storage.user["logged_in"] = True
-                        ui.notify("Welcome 👋", type="positive")
-                        nav_to("/")
-                    else:
-                        ui.notify("Invalid login", type="negative")
-
-                ui.button("Sign in", on_click=attempt).classes("w-full mt-4").props("unelevated").style(
-                    "background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2)) !important;"
-                    "color: #fff !important; font-weight: 700; border-radius: 12px; padding: 12px 0;"
-                    "box-shadow: 0 4px 14px rgba(91,140,255,0.25);"
+        with ui.element('div').style(
+            'display: flex; align-items: stretch; width: 100%; max-width: 960px;'
+            'border-radius: 28px; overflow: hidden;'
+            'box-shadow: 0 20px 60px rgba(0,0,0,0.18);'
+        ):
+            # Left panel - branding (hidden on mobile, visible on desktop)
+            with ui.element('div').style(
+                'flex: 1; display: none; flex-direction: column; align-items: center; justify-content: center;'
+                'background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2));'
+                'padding: 48px 40px; gap: 24px; min-height: 520px;'
+            ).classes('mf-login-left'):
+                ui.icon('account_balance_wallet').style('font-size: 64px; color: rgba(255,255,255,0.95);')
+                ui.label('FinTrackr').style('font-size: 32px; font-weight: 800; color: #fff; letter-spacing: -0.03em;')
+                ui.label('Your premium personal finance dashboard').style(
+                    'color: rgba(255,255,255,0.85); font-size: 15px; text-align: center; max-width: 260px; line-height: 1.6;'
                 )
+                # Feature highlights
+                for feat_icon, feat_text in [
+                    ('insights', 'Smart spending insights'),
+                    ('document_scanner', 'AI receipt scanning'),
+                    ('palette', '8 premium themes'),
+                    ('security', 'Passkey authentication'),
+                ]:
+                    with ui.row().style(
+                        'align-items: center; gap: 10px; background: rgba(255,255,255,0.12);'
+                        'border-radius: 10px; padding: 8px 16px; width: 100%; max-width: 240px;'
+                    ):
+                        ui.icon(feat_icon).style('font-size: 18px; color: rgba(255,255,255,0.9);')
+                        ui.label(feat_text).style('font-size: 13px; color: rgba(255,255,255,0.9); font-weight: 500;')
 
-                with ui.row().classes('w-full justify-center mt-4 gap-2'):
-                    ui.icon('lock').style('font-size: 14px; color: var(--mf-muted);')
-                    ui.label('256-bit encrypted').classes('text-xs').style('color: var(--mf-muted);')
+            # Right panel - sign-in form
+            with ui.element('div').style(
+                'flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;'
+                'padding: 48px 40px; background: var(--mf-bg);'
+                'min-width: 0;'
+            ):
+                # Mobile-only logo (hidden on desktop where left panel shows it)
+                with ui.column().classes('items-center gap-1 mb-6 mf-login-mobile-logo'):
+                    with ui.element('div').style(
+                        'width: 56px; height: 56px; border-radius: 16px; display: flex; align-items: center; justify-content: center;'
+                        'background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2));'
+                        'box-shadow: 0 6px 20px rgba(91,140,255,0.25);'
+                    ):
+                        ui.icon('account_balance_wallet').style('font-size: 28px; color: #fff;')
+                    ui.label('FinTrackr').classes('text-xl font-extrabold mt-2').style('letter-spacing: -0.02em;')
 
-            # Footer
-            with ui.row().classes('w-full justify-center mt-6'):
-                ui.label(f'v{APP_VERSION}').classes('text-xs').style('color: var(--mf-muted); opacity: 0.5;')
+                with ui.column().classes('w-full gap-0').style('max-width: 380px;'):
+                    ui.label('Welcome back').classes('text-2xl font-extrabold').style('letter-spacing: -0.02em;')
+                    ui.label('Sign in to manage your finances').classes('text-sm mb-6').style('color: var(--mf-muted)')
+
+                    u_in = ui.input("Username").classes("w-full").props("outlined dense")
+                    u_in.style("margin-bottom: 12px;")
+                    p_in = ui.input("Password", password=True, password_toggle_button=True).classes("w-full").props("outlined dense")
+
+                    def attempt():
+                        if check_login(u_in.value or "", p_in.value or ""):
+                            app.storage.user["logged_in"] = True
+                            ui.notify("Welcome", type="positive")
+                            nav_to("/")
+                        else:
+                            ui.notify("Invalid login", type="negative")
+
+                    ui.button("Sign in", on_click=attempt).classes("w-full mt-5").props("unelevated").style(
+                        "background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2)) !important;"
+                        "color: #fff !important; font-weight: 700; border-radius: 12px; padding: 14px 0;"
+                        "box-shadow: 0 4px 14px rgba(91,140,255,0.25); font-size: 15px;"
+                    )
+
+                    with ui.row().classes('w-full justify-center mt-5 gap-2'):
+                        ui.icon('lock').style('font-size: 14px; color: var(--mf-muted);')
+                        ui.label('256-bit encrypted').classes('text-xs').style('color: var(--mf-muted);')
+
+                    with ui.row().classes('w-full justify-center mt-4'):
+                        ui.label(f'v{APP_VERSION}').classes('text-xs').style('color: var(--mf-muted); opacity: 0.5;')
 
 
 
@@ -4701,6 +4750,103 @@ def dashboard_page():
                         rows=rows,
                         row_key="merchant",
                     ).classes("w-full")
+
+        # ──── Monthly Insights ────
+        try:
+            _today = today()
+            _dom = _today.day  # day of month
+            _days_in_month = (dt.date(_today.year, _today.month % 12 + 1, 1) - dt.timedelta(days=1)).day if _today.month < 12 else 31
+
+            # Last month's data for comparison
+            if _today.month == 1:
+                _prev_year, _prev_month = _today.year - 1, 12
+            else:
+                _prev_year, _prev_month = _today.year, _today.month - 1
+            _prev_mkey = f"{_prev_year}-{_prev_month:02d}"
+            _prev_mtx = tx[tx["date_parsed"].apply(lambda d: month_key(d) == _prev_mkey)].copy()
+            if "type_l" not in _prev_mtx.columns:
+                _prev_mtx["type_l"] = _prev_mtx.get("type", pd.Series(dtype=str)).astype(str).str.lower().str.strip()
+            if "amount_num" not in _prev_mtx.columns:
+                _prev_mtx["amount_num"] = _prev_mtx.get("amount", pd.Series(dtype=float)).apply(to_float)
+            _prev_spend = _prev_mtx[_prev_mtx["type_l"].isin(["debit", "expense"])]
+            _prev_expense_total = float(_prev_spend["amount_num"].sum()) if not _prev_spend.empty else 0.0
+
+            with ui.card().classes("my-card p-0").style("overflow: hidden;"):
+                ui.element('div').style('height: 3px; background: linear-gradient(90deg, #f59e0b, #f97316); border-radius: 0;')
+                with ui.column().classes("p-5 gap-4"):
+                    with ui.row().classes("items-center gap-2"):
+                        with ui.element("div").classes("mf-icon-box").style("background: rgba(245,158,11,0.12);"):
+                            ui.icon("insights").style("font-size: 20px; color: #f59e0b;")
+                        ui.label("Monthly Insights").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
+
+                    # Insight tiles in a responsive grid
+                    with ui.element("div").style("display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;"):
+
+                        # 1) Daily avg spend + projected month-end
+                        _daily_avg = round(expense / max(_dom, 1), 2) if expense > 0 else 0.0
+                        _projected = round(_daily_avg * _days_in_month, 2)
+                        with ui.element("div").style(
+                            "padding: 16px; border-radius: 14px; border: 1px solid var(--mf-border);"
+                            "background: rgba(255,255,255,0.02);"
+                        ):
+                            ui.label("Daily Average").classes("mf-stat-label")
+                            ui.label(currency(_daily_avg)).classes("text-lg font-bold mt-1").style("color: #ef4444; font-feature-settings: 'tnum';")
+                            ui.label(f"Projected: {currency(_projected)} by month-end").classes("text-xs mt-1").style("color: var(--mf-muted);")
+
+                        # 2) vs Last Month comparison
+                        if _prev_expense_total > 0:
+                            _pct_change = ((expense - _prev_expense_total) / _prev_expense_total) * 100
+                        else:
+                            _pct_change = 0.0
+                        _change_color = "#ef4444" if _pct_change > 0 else "#22c55e"
+                        _change_icon = "trending_up" if _pct_change > 0 else "trending_down"
+                        _change_sign = "+" if _pct_change > 0 else ""
+                        with ui.element("div").style(
+                            "padding: 16px; border-radius: 14px; border: 1px solid var(--mf-border);"
+                            "background: rgba(255,255,255,0.02);"
+                        ):
+                            ui.label("vs Last Month").classes("mf-stat-label")
+                            with ui.row().classes("items-center gap-2 mt-1"):
+                                ui.icon(_change_icon).style(f"font-size: 20px; color: {_change_color};")
+                                ui.label(f"{_change_sign}{_pct_change:.1f}%").classes("text-lg font-bold").style(f"color: {_change_color}; font-feature-settings: 'tnum';")
+                            ui.label(f"Last month: {currency(_prev_expense_total)}").classes("text-xs mt-1").style("color: var(--mf-muted);")
+
+                        # 3) Largest single transaction this month
+                        if not spend.empty:
+                            _largest_row = spend.loc[spend["amount_num"].idxmax()]
+                            _largest_amt = float(_largest_row["amount_num"])
+                            _largest_note = str(_largest_row.get("notes", "") or "")[:24]
+                            _largest_cat = str(_largest_row.get("category", "") or "")
+                        else:
+                            _largest_amt = 0.0
+                            _largest_note = "—"
+                            _largest_cat = ""
+                        with ui.element("div").style(
+                            "padding: 16px; border-radius: 14px; border: 1px solid var(--mf-border);"
+                            "background: rgba(255,255,255,0.02);"
+                        ):
+                            ui.label("Biggest Expense").classes("mf-stat-label")
+                            ui.label(currency(_largest_amt)).classes("text-lg font-bold mt-1").style("color: #a855f7; font-feature-settings: 'tnum';")
+                            _hint = _largest_note or _largest_cat or "—"
+                            ui.label(_hint).classes("text-xs mt-1").style("color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;")
+
+                        # 4) Top spending category shift (this month vs last month)
+                        if not spend.empty and "category" in spend.columns:
+                            _top_cat_this = spend.groupby("category")["amount_num"].sum().idxmax()
+                            _top_cat_amt = float(spend.groupby("category")["amount_num"].sum().max())
+                        else:
+                            _top_cat_this = "—"
+                            _top_cat_amt = 0.0
+                        with ui.element("div").style(
+                            "padding: 16px; border-radius: 14px; border: 1px solid var(--mf-border);"
+                            "background: rgba(255,255,255,0.02);"
+                        ):
+                            ui.label("Top Category").classes("mf-stat-label")
+                            ui.label(str(_top_cat_this)).classes("text-lg font-bold mt-1").style("color: #3b82f6;")
+                            ui.label(currency(_top_cat_amt)).classes("text-xs mt-1").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
+
+        except Exception:
+            pass  # Insights are optional; never break the dashboard
 
         # Trend
         with ui.card().classes("my-card p-5"):
@@ -5261,15 +5407,11 @@ def add_page():
                                 except Exception:
                                     pass
 
-                            # Refresh category suggestion with updated notes
-                            _refresh_suggestion_now()
-
-                            # Phase 6.5: If OCR merchant is Walmart/Costco/Superstore, offer multi-category split (optional)
+                            # Phase 6.5+: Build detected category amounts from OCR line-item classification
                             try:
                                 split_plan['merchant'] = merch
                                 split_plan['enabled'] = False
                                 split_plan['amounts'] = {}
-                                # detected amounts from OCR line items (if available)
                                 det = {}
                                 try:
                                     cat_amounts = (parsed or {}).get('category_amounts') or {}
@@ -5282,10 +5424,26 @@ def add_page():
                                     det = {}
                                 split_plan['detected_amounts'] = det
 
-                                if entry_type.lower() == 'debit' and _is_split_merchant(merch):
+                                # Count how many distinct categories OCR detected
+                                _detected_cats = [k for k, v in det.items() if v > 0.01]
+                                _n_cats = len(_detected_cats)
+
+                                if entry_type.lower() == 'debit' and _n_cats >= 2:
+                                    # Multi-category receipt: open split dialog (any store, not just Walmart)
+                                    # Set category to the largest bucket so single-save still works if user skips split
+                                    _dominant = max(det, key=det.get) if det else 'Groceries'
+                                    _set_category_safely(_dominant)
                                     _open_split_dialog()
+                                elif _n_cats == 1:
+                                    # Single-category receipt: use the OCR-detected category directly
+                                    # (overrides the Notes-based rule inference which may default to Groceries)
+                                    _set_category_safely(_detected_cats[0])
+                                else:
+                                    # No OCR categories detected: fall back to Notes-based suggestion
+                                    _refresh_suggestion_now()
                             except Exception:
-                                pass
+                                # Fallback: use Notes-based suggestion
+                                _refresh_suggestion_now()
                             if conf < 3.0:
                                 ui.notify('Applied, but amount confidence was low — please verify before saving.', type='warning')
                             else:
@@ -5820,14 +5978,17 @@ def admin_page() -> None:
                     ("Budgets", "account_balance_wallet", "/budgets", "rgba(251,191,36,0.10)", "#eab308"),
                     ("Data Tools", "cloud_download", "/data_tools", "rgba(96,165,250,0.10)", "#60a5fa"),
                 ]
-                with ui.element("div").style("display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px;"):
+                with ui.element("div").style(
+                    "display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%;"
+                ):
                     for label, icon, href, bg, accent in _admin_links:
                         with ui.card().classes("tile p-0").style(
-                            f"cursor: pointer; border: 1px solid var(--mf-border); border-radius: 14px; background: rgba(255,255,255,0.02);"
+                            f"cursor: pointer; border: 1px solid var(--mf-border); border-radius: 14px;"
+                            f"background: rgba(255,255,255,0.02); transition: transform 0.15s ease, box-shadow 0.15s ease;"
                         ).on("click", lambda h=href: nav_to(h)):
-                            with ui.column().classes("items-center justify-center p-4 gap-2").style("min-height: 90px;"):
+                            with ui.column().classes("items-center justify-center p-4 gap-2").style("min-height: 100px;"):
                                 with ui.element("div").classes("mf-icon-box").style(f"background: {bg};"):
-                                    ui.icon(icon).style(f"font-size: 20px; color: {accent};")
+                                    ui.icon(icon).style(f"font-size: 22px; color: {accent};")
                                 ui.label(label).classes("text-xs font-semibold text-center")
 
         with ui.card().classes("my-card p-5 mt-3"):
@@ -6629,28 +6790,14 @@ def cards_page() -> None:
                                 ui.label('Available').classes('mf-stat-label')
                                 ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '—').classes('text-sm font-bold').style('color: var(--mf-good); font-feature-settings: "tnum";')
 
-                    # Mini trend chart: balance since last payoff (resets after fully repaid)
-                    try:
-                        sx = c.get('spark_x') or []
-                        sy = c.get('spark_y') or []
-                        if len(sx) >= 2 and len(sy) == len(sx):
-                            import plotly.graph_objects as go
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatter(x=sx, y=sy, mode='lines', line=dict(width=2)))
-                            fig.update_layout(
-                                height=90,
-                                margin=dict(l=0, r=0, t=6, b=0),
-                                paper_bgcolor='rgba(0,0,0,0)',
-                                plot_bgcolor='rgba(0,0,0,0)',
-                                showlegend=False,
-                                xaxis=dict(visible=False),
-                                yaxis=dict(visible=False),
-                            )
-                            ui.plotly(fig).classes('w-full mt-2')
-                        else:
-                            ui.label('No recent activity').classes('text-xs mt-2').style('color: var(--mf-muted);')
-                    except Exception:
-                        ui.label('No recent activity').classes('text-xs mt-2').style('color: var(--mf-muted);')
+                    # Status badge (premium, no chart)
+                    _status_color = '#22c55e' if pct_val < 0.30 else ('#3b82f6' if pct_val < 0.50 else ('#eab308' if pct_val < 0.80 else '#ef4444'))
+                    _status_text = 'Excellent' if pct_val < 0.30 else ('Good' if pct_val < 0.50 else ('Watch' if pct_val < 0.80 else 'High'))
+                    with ui.row().classes('items-center gap-2 mt-1').style(
+                        f'background: {_status_color}12; border-radius: 8px; padding: 6px 12px;'
+                    ):
+                        ui.icon('circle').style(f'font-size: 8px; color: {_status_color};')
+                        ui.label(_status_text).classes('text-xs font-semibold').style(f'color: {_status_color};')
 
         def _two_row(items):
             # Responsive grid (prevents large empty right space on wide desktops)
@@ -7592,11 +7739,27 @@ def bootstrap() -> None:
 
 bootstrap()
 
+# Premium SVG favicon – rounded-square wallet icon with gradient
+_FAVICON_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5B8CFF"/>
+      <stop offset="100%" stop-color="#46E6A6"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <rect x="100" y="150" width="312" height="220" rx="32" fill="none" stroke="#fff" stroke-width="28"/>
+  <rect x="280" y="220" width="132" height="72" rx="18" fill="#fff" opacity="0.92"/>
+  <circle cx="330" cy="256" r="14" fill="#5B8CFF"/>
+  <rect x="140" y="128" width="160" height="36" rx="14" fill="#fff" opacity="0.75"/>
+</svg>'''
+
 ui.run(
     host="0.0.0.0",
     port=PORT,
     storage_secret=STORAGE_SECRET or "PLEASE_SET_NICEGUI_STORAGE_SECRET",
     title=APP_TITLE,
+    favicon=_FAVICON_SVG,
 )
 
 # Release: FinTrackr Phase 6.7.1 (Google Vision OCR optional + stable 6.5 logic)
