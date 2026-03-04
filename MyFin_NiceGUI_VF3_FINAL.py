@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '7.0.0'
+APP_VERSION = '7.2.0'
 
 
 def log(message: str) -> None:
@@ -3131,24 +3131,30 @@ html.mf-light .q-btn__content {
   transform: translateY(-1px) scale(0.99);
 }
 
-/* Glassy dialogs (used for Add sub-flows like receipt scan) */
+/* Premium dialogs — fast open, no heavy blur for performance */
 .q-dialog__backdrop {
-  backdrop-filter: blur(16px) !important;
-  background: rgba(0,0,0,0.50) !important;
+  background: rgba(0,0,0,0.55) !important;
+  backdrop-filter: blur(4px) !important;
+  -webkit-backdrop-filter: blur(4px) !important;
 }
 .q-dialog__inner > div {
-  background: rgba(16, 23, 40, 0.82) !important;
-  border: 1px solid rgba(255,255,255,0.12) !important;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.45) !important;
-  border-radius: 20px !important;
+  background: var(--mf-bg) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  box-shadow: 0 24px 48px rgba(0,0,0,0.35) !important;
+  border-radius: 22px !important;
+  animation: mf-dialogIn 0.18s ease-out !important;
+}
+@keyframes mf-dialogIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 html.mf-light .q-dialog__backdrop {
-  background: rgba(255,255,255,0.45) !important;
+  background: rgba(100,100,120,0.35) !important;
 }
 html.mf-light .q-dialog__inner > div {
-  background: rgba(255,255,255,0.92) !important;
-  border: 1px solid rgba(17,24,39,0.10) !important;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.12) !important;
+  background: #fff !important;
+  border: 1px solid rgba(17,24,39,0.08) !important;
+  box-shadow: 0 24px 48px rgba(0,0,0,0.10) !important;
 }
 .q-dialog__inner > div .q-card {
   background: transparent !important;
@@ -3446,7 +3452,7 @@ html.mf-light ::-webkit-scrollbar-thumb:hover { background: rgba(17,24,39,0.22);
 
 /* Premium login page */
 .mf-login-hero {
-  min-height: 100dvh;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3454,6 +3460,8 @@ html.mf-light ::-webkit-scrollbar-thumb:hover { background: rgba(17,24,39,0.22);
   background: radial-gradient(ellipse 1200px 700px at 30% 20%, var(--mf-g1), transparent 50%),
               radial-gradient(ellipse 800px 500px at 70% 80%, var(--mf-g2), transparent 50%),
               var(--mf-bg);
+  z-index: 9999;
+  overflow: auto;
 }
 /* Login: show left brand panel + hide mobile logo on desktop (>768px) */
 @media (min-width: 769px) {
@@ -3462,6 +3470,7 @@ html.mf-light ::-webkit-scrollbar-thumb:hover { background: rgba(17,24,39,0.22);
 }
 /* Login: on small screens, remove outer shadow/rounding so it fills nicely */
 @media (max-width: 768px) {
+  .mf-login-hero { padding: 0; }
   .mf-login-hero > div { border-radius: 0 !important; box-shadow: none !important; min-height: 100dvh; }
 }
 
@@ -4564,6 +4573,142 @@ def dashboard_page():
                     ui.label(currency(val)).classes("text-xl font-extrabold mt-2").style(f"color: {accent_color}; letter-spacing: -0.02em; font-feature-settings: 'tnum';")
                     ui.label(mkey).classes("text-xs mt-1").style("color: var(--mf-muted)")
 
+        # ──── Financial Health Score ────
+        try:
+            # Compute a 0-100 score from multiple financial signals
+            _fh_scores = []
+
+            # 1. Savings Rate (income - expenses - invest) / income — target > 20%
+            if income > 0:
+                _savings_rate = max(0.0, (income - expense - invest) / income)
+                # 0% → 0pts, 10% → 15pts, 20% → 25pts, 30%+ → 30pts
+                _fh_scores.append(min(30.0, _savings_rate * 100))
+            else:
+                _fh_scores.append(0.0)
+
+            # 2. Expense-to-Income Ratio — target < 70%
+            if income > 0:
+                _ei_ratio = expense / income
+                # <50% → 25pts, 70% → 15pts, 100%+ → 0pts
+                _fh_scores.append(max(0.0, 25.0 * (1.0 - max(0.0, _ei_ratio - 0.5) / 0.5)))
+            else:
+                _fh_scores.append(0.0)
+
+            # 3. Budget adherence (if budgets exist)
+            _budget_pts = 15.0  # default if no budgets set
+            try:
+                _b = read_df_optional('budgets')
+                if _b is not None and not _b.empty and not spend.empty and 'category' in spend.columns:
+                    _bcols = {str(c).strip().lower(): c for c in _b.columns}
+                    _bc = _bcols.get('category') or _bcols.get('cat')
+                    _bb = _bcols.get('budget_monthly') or _bcols.get('monthly_budget') or _bcols.get('budget')
+                    if _bc and _bb:
+                        _over = 0
+                        _total_b = 0
+                        for _, _br in _b.iterrows():
+                            _bk = str(_br.get(_bc, '')).strip()
+                            _bv = float(_br.get(_bb, 0) or 0)
+                            if _bk and _bv > 0:
+                                _total_b += 1
+                                _cat_spend = float(spend[spend['category'] == _bk]['amount_num'].sum()) if _bk in spend['category'].values else 0.0
+                                if _cat_spend > _bv:
+                                    _over += 1
+                        if _total_b > 0:
+                            _budget_pts = 20.0 * (1.0 - _over / _total_b)
+                        else:
+                            _budget_pts = 15.0
+            except Exception:
+                pass
+            _fh_scores.append(_budget_pts)
+
+            # 4. Spending consistency (low variance in daily spend = more disciplined)
+            try:
+                if not spend.empty and 'date_parsed' in spend.columns:
+                    _daily_s = spend.groupby(spend['date_parsed'].astype(str))['amount_num'].sum()
+                    if len(_daily_s) >= 3:
+                        _cv = float(_daily_s.std() / _daily_s.mean()) if _daily_s.mean() > 0 else 2.0
+                        # CV < 0.5 = very consistent (25pts), CV > 2 = erratic (5pts)
+                        _fh_scores.append(max(5.0, 25.0 * (1.0 - min(1.0, (_cv - 0.5) / 1.5))))
+                    else:
+                        _fh_scores.append(15.0)
+                else:
+                    _fh_scores.append(15.0)
+            except Exception:
+                _fh_scores.append(15.0)
+
+            _fh_total = min(100.0, max(0.0, sum(_fh_scores)))
+            _fh_score = int(round(_fh_total))
+
+            # Grade
+            if _fh_score >= 90: _fh_grade, _fh_color = 'A+', '#22c55e'
+            elif _fh_score >= 80: _fh_grade, _fh_color = 'A', '#22c55e'
+            elif _fh_score >= 70: _fh_grade, _fh_color = 'B+', '#10b981'
+            elif _fh_score >= 60: _fh_grade, _fh_color = 'B', '#3b82f6'
+            elif _fh_score >= 50: _fh_grade, _fh_color = 'C', '#eab308'
+            elif _fh_score >= 40: _fh_grade, _fh_color = 'D', '#f97316'
+            else: _fh_grade, _fh_color = 'F', '#ef4444'
+
+            # Tip based on weakest area
+            _fh_tips = []
+            if _fh_scores[0] < 15: _fh_tips.append('Try to save at least 20% of your income')
+            if _fh_scores[1] < 15: _fh_tips.append('Your expenses are high relative to income')
+            if _budget_pts < 10: _fh_tips.append('Several budget categories are over limit')
+            if len(_fh_scores) > 3 and _fh_scores[3] < 10: _fh_tips.append('Your daily spending is very inconsistent')
+            if not _fh_tips:
+                if _fh_score >= 80: _fh_tips.append('Excellent financial discipline!')
+                elif _fh_score >= 60: _fh_tips.append('Good progress — keep it up!')
+                else: _fh_tips.append('Room for improvement this month')
+
+            # SVG circular gauge
+            _radius = 54
+            _circumf = 2 * 3.14159 * _radius
+            _dash = _circumf * (_fh_score / 100.0)
+            _gap = _circumf - _dash
+
+            with ui.card().classes('my-card p-5'):
+                with ui.row().classes('w-full items-center gap-5').style('flex-wrap: wrap;'):
+                    # Circular gauge via inline SVG
+                    ui.html(f'''
+                        <div style="position: relative; width: 130px; height: 130px; flex-shrink: 0;">
+                            <svg viewBox="0 0 128 128" style="transform: rotate(-90deg); width: 100%; height: 100%;">
+                                <circle cx="64" cy="64" r="{_radius}" fill="none" stroke="var(--mf-border)" stroke-width="10" opacity="0.3"/>
+                                <circle cx="64" cy="64" r="{_radius}" fill="none" stroke="{_fh_color}" stroke-width="10"
+                                    stroke-dasharray="{_dash:.1f} {_gap:.1f}"
+                                    stroke-linecap="round"
+                                    style="transition: stroke-dasharray 1.2s cubic-bezier(0.22,1,0.36,1);"/>
+                            </svg>
+                            <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                                <span style="font-size: 28px; font-weight: 800; color: {_fh_color}; letter-spacing: -0.03em; font-feature-settings: 'tnum';">{_fh_score}</span>
+                                <span style="font-size: 11px; font-weight: 600; color: var(--mf-muted); margin-top: -2px;">/ 100</span>
+                            </div>
+                        </div>
+                    ''')
+                    with ui.column().classes('gap-1 flex-1').style('min-width: 180px;'):
+                        with ui.row().classes('items-center gap-2'):
+                            ui.label('Financial Health').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                            with ui.element('span').style(
+                                f'background: {_fh_color}18; color: {_fh_color}; font-weight: 700; font-size: 13px;'
+                                f'padding: 2px 10px; border-radius: 8px;'
+                            ):
+                                ui.label(_fh_grade)
+                        ui.label(_fh_tips[0]).classes('text-sm').style('color: var(--mf-muted); line-height: 1.5;')
+                        # Score breakdown pills
+                        _pill_labels = ['Savings', 'Expense Ratio', 'Budget', 'Consistency']
+                        _pill_maxes = [30, 25, 20, 25]
+                        with ui.row().classes('gap-2 mt-1').style('flex-wrap: wrap;'):
+                            for _pi, (_pl, _pm) in enumerate(zip(_pill_labels, _pill_maxes)):
+                                if _pi < len(_fh_scores):
+                                    _pv = _fh_scores[_pi]
+                                    _ppct = _pv / _pm if _pm > 0 else 0
+                                    _pc = '#22c55e' if _ppct >= 0.7 else ('#eab308' if _ppct >= 0.4 else '#ef4444')
+                                    with ui.element('span').style(
+                                        f'font-size: 11px; padding: 3px 8px; border-radius: 6px;'
+                                        f'background: {_pc}14; color: {_pc}; font-weight: 600;'
+                                    ):
+                                        ui.label(f'{_pl}: {int(round(_pv))}/{_pm}')
+        except Exception:
+            pass  # Health score is optional
+
         # Pay period breakdown
         with ui.card().classes('my-card p-5'):
             ui.label('Pay Period Breakdown').classes('mf-section-title')
@@ -4887,10 +5032,34 @@ def add_page():
         last_debit_method = str(app.storage.user.get('last_debit_method', '') or '').strip()
         last_debit_account = str(app.storage.user.get('last_debit_account', '') or '').strip()
 
-        dlg = ui.dialog()
-        with dlg, ui.card().classes("my-card mf-add-dialog p-5 w-[620px] max-w-[95vw]").style("max-height: 88vh; overflow-y: auto; padding-bottom: 18px;"):
+        # Map entry types to accent colors and icons
+        _dlg_accents = {
+            'debit': ('#ef4444', 'shopping_cart', 'Expense'),
+            'credit': ('#22c55e', 'trending_up', 'Income'),
+            'income': ('#22c55e', 'trending_up', 'Income'),
+            'investment': ('#a855f7', 'show_chart', 'Investment'),
+            'cc repay': ('#eab308', 'credit_card', 'CC Repay'),
+            'cc_repay': ('#eab308', 'credit_card', 'CC Repay'),
+            'loc draw': ('#60a5fa', 'account_balance', 'LOC Draw'),
+            'loc repay': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
+        }
+        _accent, _dicon, _dlabel = _dlg_accents.get(entry_type.lower(), ('#6366f1', 'add_circle', entry_type))
 
-            ui.label(f"Add: {entry_type}").classes("text-lg font-bold")
+        dlg = ui.dialog()
+        with dlg, ui.card().classes("my-card mf-add-dialog w-[580px] max-w-[95vw]").style("max-height: 88vh; overflow-y: auto; padding: 0 24px 16px 24px;"):
+            # Premium dialog header — accent strip edge-to-edge
+            ui.element('div').style(f'height: 3px; background: linear-gradient(90deg, {_accent}, {_accent}88); margin: 0 -24px; border-radius: 0;')
+            with ui.row().classes('items-center gap-3 pt-5 pb-3'):
+                with ui.element('div').style(
+                    f'width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
+                    f'background: {_accent}18;'
+                ):
+                    ui.icon(_dicon).style(f'font-size: 20px; color: {_accent};')
+                with ui.column().classes('gap-0'):
+                    ui.label(f"Add {_dlabel}").classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                    ui.label('Fill in the details below').classes('text-xs').style('color: var(--mf-muted);')
+                ui.element('div').style('flex: 1;')
+                ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.5;')
 
             d_date = ui.input("Date", value=today().isoformat()).props("type=date").classes("w-full")
             d_amount = ui.number("Amount", value=0.0, format="%.2f").classes("w-full")
@@ -5881,11 +6050,15 @@ def add_page():
 
 
             # Sticky footer so Save/Cancel never get pushed off-screen on mobile
-            with ui.row().classes("w-full justify-end gap-2 sticky bottom-0").style(
-                "padding: 10px; background: var(--mf-card-top); backdrop-filter: blur(10px); border-top: 1px solid var(--mf-border);"
+            with ui.row().classes("w-full justify-end gap-3 sticky bottom-0").style(
+                "padding: 14px 0 4px 0; margin: 8px -24px 0 -24px; padding-left: 24px; padding-right: 24px;"
+                "background: var(--mf-card-top); border-top: 1px solid var(--mf-border);"
             ):
-                ui.button("Cancel", on_click=dlg.close).props("flat")
-                ui.button("Save", on_click=save).props("unelevated")
+                ui.button("Cancel", on_click=dlg.close).props("flat").style("border-radius: 10px;")
+                ui.button("Save", on_click=save, icon="check").props("unelevated").style(
+                    f"background: {_accent} !important; color: #fff !important;"
+                    "font-weight: 600; border-radius: 10px; padding: 8px 28px;"
+                )
 
         ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
         dlg.open()
