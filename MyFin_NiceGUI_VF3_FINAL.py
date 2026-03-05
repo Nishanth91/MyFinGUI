@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '7.2.0'
+APP_VERSION = '7.3.0'
 
 
 def log(message: str) -> None:
@@ -156,8 +156,8 @@ try:
         def _patched_init(self, content: str = '', *args, sanitize: bool = True, **kwargs):
             return _orig_init(self, content, *args, sanitize=sanitize, **kwargs)
         _NiceHtml.__init__ = _patched_init  # type: ignore
-except Exception:
-    pass
+except Exception as e:
+    log(f"[FinTrackr] Html sanitize patch skipped: {e}")
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -175,15 +175,15 @@ def nav_to(path: str) -> None:
         if hasattr(ui, 'navigate') and hasattr(ui.navigate, 'to'):
             ui.navigate.to(path)
             return
-    except Exception:
-        pass
+    except Exception as e:
+        log(f"[FinTrackr] nav_to v2 failed: {e}")
     try:
         # Older style (if present)
         if hasattr(ui, 'open'):
             ui.open(path)  # type: ignore[attr-defined]
             return
-    except Exception:
-        pass
+    except Exception as e:
+        log(f"[FinTrackr] nav_to open failed: {e}")
     # Last resort: browser redirect
     ui.run_javascript(f"window.location.href='{path}'")
 
@@ -1651,8 +1651,8 @@ def get_spreadsheet():
     try:
         titles = [w.title for w in _ss.worksheets()]
         print(f"[FinTrackr] Opened spreadsheet: '{_ss.title}' | worksheets={titles}")
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.warning("Could not list worksheets for diagnostics: %s", e)
     return _ss
 
 def ensure_tabs() -> None:
@@ -1696,13 +1696,14 @@ def ensure_tabs() -> None:
             # Only read the header row once and cache it.
             try:
                 cur = [c.strip() for c in (w.row_values(1) or [])]
-            except Exception:
+            except Exception as e:
+                _logger.warning("Could not read header row for tab '%s': %s", tab, e)
                 cur = []
             if not cur:
                 try:
                     w.append_row(headers)
-                except Exception:
-                    pass
+                except Exception as e:
+                    _logger.error("Failed to write header row for tab '%s': %s", tab, e)
                 _header_cache[tab] = headers
             else:
                 _header_cache[tab] = cur
@@ -1739,15 +1740,16 @@ def sheet_headers(tab: str) -> list[str]:
     w = ws(tab)
     try:
         headers = [c.strip() for c in (w.row_values(1) or [])]
-    except Exception:
+    except Exception as e:
+        _logger.warning("Could not read headers for tab '%s': %s", tab, e)
         headers = []
 
     if not headers:
         headers = TABS[tab]
         try:
             w.append_row(headers)
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.error("Failed to write default headers for tab '%s': %s", tab, e)
     _header_cache[tab] = headers
     return headers
 
@@ -1781,7 +1783,8 @@ def read_df_optional(sheet_title: str) -> pd.DataFrame:
         df = pd.DataFrame(rows, columns=headers)
         df.columns = [c.strip() for c in df.columns]
         return df
-    except Exception:
+    except Exception as e:
+        log(f"[FinTrackr] read_df_optional({sheet_title}) failed: {e}")
         return pd.DataFrame()
 
 
@@ -1953,13 +1956,13 @@ def update_row_by_id(tab: str, id_col: str, id_val: str, updates: dict[str, Any]
     if row_idx is None:
         return False
     lower_map = {h.lower(): (i, h) for i, h in enumerate(headers)}
-    # build updates per cell
+    # build batch updates
+    batch = []
     for k, v in updates.items():
         key = str(k).lower()
         if key not in lower_map:
             continue
         col_i, _ = lower_map[key]
-        # A1 notation: row_idx, col_i+1
         cell = gspread.utils.rowcol_to_a1(row_idx, col_i + 1)
         if isinstance(v, (int, float)) and not isinstance(v, bool):
             vv = str(v)
@@ -1967,7 +1970,9 @@ def update_row_by_id(tab: str, id_col: str, id_val: str, updates: dict[str, Any]
             vv = v.isoformat()
         else:
             vv = '' if v is None else str(v)
-        w.update_acell(cell, vv)
+        batch.append({'range': cell, 'values': [[vv]]})
+    if batch:
+        gs_retry(lambda: w.batch_update(batch, value_input_option='USER_ENTERED'))
     return True
 
 
@@ -2033,13 +2038,13 @@ def cached_df(tab: str, force: bool = False) -> pd.DataFrame:
         if tab in _cache:
             try:
                 ui.notify(f'Google Sheets temporarily unavailable for {tab}. Showing cached data.', type='warning')
-            except Exception:
-                pass
+            except Exception as e2:
+                log(f"[FinTrackr] ui.notify failed: {e2}")
             return _cache[tab][1].copy()
         try:
             ui.notify(f'Google Sheets read failed for {tab}: {e}', type='negative')
-        except Exception:
-            pass
+        except Exception as e2:
+            log(f"[FinTrackr] ui.notify failed: {e2}")
         df = pd.DataFrame(columns=TABS.get(tab, []))
 
     _cache[tab] = (now, df.copy())
@@ -2335,8 +2340,8 @@ def _save_passkeys(data: Dict[str, Any]) -> None:
     try:
         with open(_PASSKEYS_PATH, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.error("Failed to save passkeys data: %s", e)
 
 # ---- Minimal CBOR decoder (enough for WebAuthn attestationObject + COSE keys) ----
 class _CBOR:
@@ -4003,8 +4008,8 @@ def open_search_dialog() -> None:
                     return
                 try:
                     app.storage.user["tx_search_prefill"] = query
-                except Exception:
-                    pass
+                except Exception as e:
+                    _logger.debug("Could not set search prefill: %s", e)
                 d.close()
                 nav_to("/tx")
             ui.button("Search", icon="search", on_click=_go).props("unelevated")
@@ -4013,7 +4018,12 @@ def open_search_dialog() -> None:
 def topbar():
     with ui.row().classes("w-full items-center justify-between px-3 py-2"):
         with ui.row().classes("items-center gap-3"):
-            ui.label("💳").classes("text-2xl")
+            with ui.element('div').style(
+                'width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;'
+                'background: linear-gradient(135deg, #4F46E5, #7C3AED, #06B6D4);'
+                'box-shadow: 0 2px 8px rgba(79,70,229,0.3);'
+            ):
+                ui.icon('insights').style('font-size: 20px; color: #fff;')
             with ui.column().classes("gap-0"):
                 ui.label(APP_TITLE).classes("text-lg font-bold")
                 ui.label(APP_SUBTITLE).classes("text-xs").style("color: var(--mf-muted)")
@@ -4057,7 +4067,13 @@ def shell(content_fn, *, active_path: str = ""):
         # Left rail
         with ui.element("div").classes("mf-rail"):
             with ui.element("div").classes("mf-rail-card"):
-                ui.label("FinTrackr").classes("mf-brand")
+                with ui.row().classes('items-center gap-2 mb-1'):
+                    with ui.element('div').style(
+                        'width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;'
+                        'background: linear-gradient(135deg, #4F46E5, #06B6D4); flex-shrink: 0;'
+                    ):
+                        ui.icon('insights').style('font-size: 16px; color: #fff;')
+                    ui.label("FinTrackr").classes("mf-brand")
                 ui.separator().props("dark").classes("opacity-20 my-1")
 
                 nav_btn("Home", "dashboard", "/")
@@ -4080,7 +4096,13 @@ def shell(content_fn, *, active_path: str = ""):
                             "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
                         ).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-nav-open')"))
                         with ui.element("div").classes("mf-title"):
-                            ui.link("FinTrackr", "/").classes("t1 text-xl md:text-2xl font-extrabold").style("color: inherit; text-decoration: none; letter-spacing: -0.03em;")
+                            with ui.row().classes('items-center gap-2'):
+                                with ui.element('div').style(
+                                    'width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center;'
+                                    'background: linear-gradient(135deg, #4F46E5, #7C3AED, #06B6D4);'
+                                ):
+                                    ui.icon('insights').style('font-size: 17px; color: #fff;')
+                                ui.link("FinTrackr", "/").classes("t1 text-xl md:text-2xl font-extrabold").style("color: inherit; text-decoration: none; letter-spacing: -0.03em;")
                             
                     # RIGHT: theme + actions
                     with ui.row().classes("items-center gap-2"):
@@ -4261,11 +4283,16 @@ def login_page():
             # Left panel - branding (hidden on mobile, visible on desktop)
             with ui.element('div').style(
                 'flex: 1; display: none; flex-direction: column; align-items: center; justify-content: center;'
-                'background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2));'
+                'background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 50%, #06B6D4 100%);'
                 'padding: 48px 40px; gap: 24px; min-height: 520px;'
             ).classes('mf-login-left'):
-                ui.icon('account_balance_wallet').style('font-size: 64px; color: rgba(255,255,255,0.95);')
-                ui.label('FinTrackr').style('font-size: 32px; font-weight: 800; color: #fff; letter-spacing: -0.03em;')
+                with ui.element('div').style(
+                    'width: 80px; height: 80px; border-radius: 22px; display: flex; align-items: center; justify-content: center;'
+                    'background: rgba(255,255,255,0.18); backdrop-filter: blur(8px);'
+                    'box-shadow: 0 8px 32px rgba(0,0,0,0.12);'
+                ):
+                    ui.icon('insights').style('font-size: 42px; color: #fff;')
+                ui.label('FinTrackr').style('font-size: 34px; font-weight: 800; color: #fff; letter-spacing: -0.04em;')
                 ui.label('Your premium personal finance dashboard').style(
                     'color: rgba(255,255,255,0.85); font-size: 15px; text-align: center; max-width: 260px; line-height: 1.6;'
                 )
@@ -4292,12 +4319,12 @@ def login_page():
                 # Mobile-only logo (hidden on desktop where left panel shows it)
                 with ui.column().classes('items-center gap-1 mb-6 mf-login-mobile-logo'):
                     with ui.element('div').style(
-                        'width: 56px; height: 56px; border-radius: 16px; display: flex; align-items: center; justify-content: center;'
-                        'background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2));'
-                        'box-shadow: 0 6px 20px rgba(91,140,255,0.25);'
+                        'width: 60px; height: 60px; border-radius: 18px; display: flex; align-items: center; justify-content: center;'
+                        'background: linear-gradient(135deg, #4F46E5, #7C3AED, #06B6D4);'
+                        'box-shadow: 0 8px 24px rgba(79,70,229,0.35);'
                     ):
-                        ui.icon('account_balance_wallet').style('font-size: 28px; color: #fff;')
-                    ui.label('FinTrackr').classes('text-xl font-extrabold mt-2').style('letter-spacing: -0.02em;')
+                        ui.icon('insights').style('font-size: 30px; color: #fff;')
+                    ui.label('FinTrackr').classes('text-xl font-extrabold mt-2').style('letter-spacing: -0.03em; background: linear-gradient(135deg, #4F46E5, #06B6D4); -webkit-background-clip: text; -webkit-text-fill-color: transparent;')
 
                 with ui.column().classes('w-full gap-0').style('max-width: 380px;'):
                     ui.label('Welcome back').classes('text-2xl font-extrabold').style('letter-spacing: -0.02em;')
@@ -4342,8 +4369,8 @@ def dashboard_page():
             created = generate_recurring_for_date(today())
             if created:
                 ui.notify(f"Auto-added {created} recurring entries for {today().isoformat()}", type="positive")
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.error("Failed to generate recurring transactions: %s", e)
 
         tx = cached_df("transactions")
         if tx.empty:
@@ -4728,6 +4755,88 @@ def dashboard_page():
                         ui.label(f"{pp_start.strftime('%b %d')} — {pp_end.strftime('%b %d')}").classes('text-xs mt-1').style('color: var(--mf-muted)')
 
 
+        # ──── Smart Alerts ────
+        try:
+            _alerts: list[tuple[str, str, str, str]] = []  # (icon, message, severity, action_path)
+
+            # 1. Uncategorized transactions this month
+            if not spend.empty and 'category' in spend.columns:
+                _uncat = spend[spend['category'].astype(str).str.strip().isin(['', 'Uncategorized', 'nan'])]
+                if len(_uncat) > 0:
+                    _alerts.append(('label_off', f'{len(_uncat)} uncategorized transaction{"s" if len(_uncat) != 1 else ""} this month', 'warning', '/tx'))
+
+            # 2. Unusually large transactions (>3x average daily spend)
+            if not spend.empty:
+                _avg_txn = float(spend['amount_num'].mean())
+                _large = spend[spend['amount_num'] > (_avg_txn * 3)]
+                if len(_large) > 0:
+                    _top = _large.sort_values('amount_num', ascending=False).iloc[0]
+                    _alerts.append(('priority_high', f'Large transaction: {currency(float(_top["amount_num"]))} on {_top.get("date","")}', 'info', '/tx'))
+
+            # 3. Spending pace alert (on track to exceed last month?)
+            try:
+                _today_d = today()
+                _day_of_month = _today_d.day
+                _days_in_month = calendar.monthrange(_today_d.year, _today_d.month)[1]
+                _projected = float(expense) / max(_day_of_month, 1) * _days_in_month if expense > 0 else 0
+                # Compare against last month
+                _last_mk = month_key(_today_d.replace(day=1) - dt.timedelta(days=1)) if _today_d.month > 1 else month_key(dt.date(_today_d.year - 1, 12, 1))
+                _last_spend = tx[tx['type_l'].isin(['debit', 'expense']) & (tx['month'] == _last_mk)]
+                _last_total = float(_last_spend['amount_num'].sum()) if not _last_spend.empty else 0
+                if _last_total > 0 and _projected > _last_total * 1.2:
+                    _pct_over = int(round((_projected / _last_total - 1) * 100))
+                    _alerts.append(('speed', f'Spending pace {_pct_over}% above last month (projected {currency(_projected)})', 'warning', '/reports'))
+            except Exception:
+                pass
+
+            # 4. No income recorded this month
+            if income == 0:
+                _alerts.append(('info', 'No income recorded this month yet', 'info', '/add'))
+
+            # 5. Duplicate transactions warning
+            if not spend.empty and 'notes' in spend.columns:
+                _dup_keys = spend.apply(lambda r: f"{r.get('date','')}|{r['amount_num']}|{str(r.get('notes','')).strip()}", axis=1)
+                _dup_count = int(_dup_keys.duplicated(keep=False).sum())
+                if _dup_count >= 4:
+                    _alerts.append(('difference', f'{_dup_count // 2}+ possible duplicate transactions', 'warning', '/tx'))
+
+            # 6. Credit card near limit
+            try:
+                cards_df = cached_df('cards')
+                if not cards_df.empty:
+                    for _, _cd in cards_df.iterrows():
+                        _limit = parse_money(_cd.get('max_limit'), default=0)
+                        _method = str(_cd.get('method_name', '')).strip()
+                        if _limit > 0 and _method and not spend.empty:
+                            _card_spend = float(spend[spend.get('method', pd.Series(dtype=str)).astype(str).str.strip() == _method]['amount_num'].sum())
+                            if _card_spend >= _limit * 0.85:
+                                _pct_used = int(round(_card_spend / _limit * 100))
+                                _alerts.append(('credit_card', f'{_cd.get("card_name", _method)}: {_pct_used}% of limit used', 'warning' if _pct_used < 100 else 'error', '/cards'))
+            except Exception:
+                pass
+
+            if _alerts:
+                with ui.card().classes('my-card p-5'):
+                    with ui.row().classes('items-center gap-2 mb-3'):
+                        with ui.element("div").classes("mf-icon-box").style("background: rgba(245,158,11,0.12);"):
+                            ui.icon("notifications_active").style("font-size: 20px; color: #f59e0b;")
+                        ui.label('Smart Alerts').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                        ui.badge(str(len(_alerts))).props('color=amber-8').classes('ml-1')
+
+                    for _a_icon, _a_msg, _a_sev, _a_path in _alerts[:8]:
+                        _sev_colors = {'error': '#ef4444', 'warning': '#f59e0b', 'info': '#3b82f6'}
+                        _c = _sev_colors.get(_a_sev, '#3b82f6')
+                        with ui.element("div").style(
+                            f"padding: 10px 14px; border-radius: 12px; border-left: 3px solid {_c};"
+                            "background: rgba(255,255,255,0.03); margin-bottom: 6px; cursor: pointer;"
+                        ).on('click', lambda path=_a_path: nav_to(path)):
+                            with ui.row().classes('items-center gap-3'):
+                                ui.icon(_a_icon).style(f'font-size: 18px; color: {_c};')
+                                ui.label(_a_msg).classes('text-sm').style('color: var(--mf-text);')
+                                ui.icon('chevron_right').style('font-size: 16px; color: var(--mf-muted); margin-left: auto;')
+        except Exception as e:
+            _logger.warning("Smart Alerts rendering error: %s", e)
+
         # Quick actions + data quality
         # Phase 4.6A: Quick actions moved into the Overview card to reduce clutter
         # Budgets (Phase 4)
@@ -4993,6 +5102,63 @@ def dashboard_page():
         except Exception:
             pass  # Insights are optional; never break the dashboard
 
+        # ──── Smart Alerts ────
+        try:
+            _alerts = []
+            # 1. Budget overspend alerts (80% threshold)
+            try:
+                _ab = read_df_optional('budgets')
+                if _ab is not None and not _ab.empty and not spend.empty and 'category' in spend.columns:
+                    _abcols = {str(c).strip().lower(): c for c in _ab.columns}
+                    _abc = _abcols.get('category') or _abcols.get('cat')
+                    _abb = _abcols.get('budget_monthly') or _abcols.get('monthly_budget') or _abcols.get('budget')
+                    if _abc and _abb:
+                        for _, _abr in _ab.iterrows():
+                            _abk = str(_abr.get(_abc, '')).strip()
+                            _abv = float(_abr.get(_abb, 0) or 0)
+                            if _abk and _abv > 0:
+                                _cat_spent = float(spend[spend['category'] == _abk]['amount_num'].sum()) if _abk in spend['category'].values else 0.0
+                                _pct_used = _cat_spent / _abv
+                                if _pct_used >= 1.0:
+                                    _alerts.append(('error', 'warning', f'{_abk}: Over budget! {currency(_cat_spent)} / {currency(_abv)} ({int(_pct_used*100)}%)'))
+                                elif _pct_used >= 0.8:
+                                    _alerts.append(('warning', 'trending_up', f'{_abk}: Nearing limit \u2014 {currency(_cat_spent)} / {currency(_abv)} ({int(_pct_used*100)}%)'))
+            except Exception:
+                pass
+
+            # 2. Large transaction alerts (> $200 single transaction this month)
+            try:
+                if not spend.empty:
+                    _large = spend[spend['amount_num'] > 200.0]
+                    for _, _lr in _large.head(3).iterrows():
+                        _ln = str(_lr.get('notes', '') or '')[:30] or str(_lr.get('category', ''))
+                        _alerts.append(('info', 'payments', f'Large expense: {currency(float(_lr["amount_num"]))} \u2014 {_ln}'))
+            except Exception:
+                pass
+
+            # 3. Uncategorized transactions alert
+            try:
+                if not spend.empty and 'category' in spend.columns:
+                    _uncat = spend[spend['category'].astype(str).str.strip().isin(['', 'Uncategorized'])]
+                    if len(_uncat) > 0:
+                        _alerts.append(('warning', 'label_off', f'{len(_uncat)} uncategorized transaction{"s" if len(_uncat) > 1 else ""} this month'))
+            except Exception:
+                pass
+
+            if _alerts:
+                with ui.card().classes('my-card p-5'):
+                    with ui.row().classes('items-center gap-2 mb-3'):
+                        with ui.element("div").classes("mf-icon-box").style("background: rgba(239,68,68,0.12);"):
+                            ui.icon("notifications_active").style("font-size: 20px; color: #ef4444;")
+                        ui.label("Smart Alerts").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
+                    for _a_type, _a_icon, _a_msg in _alerts[:8]:
+                        _a_color = '#ef4444' if _a_type == 'error' else ('#f59e0b' if _a_type == 'warning' else '#3b82f6')
+                        with ui.row().classes('w-full items-center gap-3 py-2').style(f'border-left: 3px solid {_a_color}; padding-left: 12px; border-radius: 2px;'):
+                            ui.icon(_a_icon).style(f'font-size: 18px; color: {_a_color};')
+                            ui.label(_a_msg).classes('text-sm').style('color: var(--mf-text);')
+        except Exception:
+            pass
+
         # Trend
         with ui.card().classes("my-card p-5"):
             ui.label("Cashflow Trend").classes("mf-section-title")
@@ -5061,7 +5227,7 @@ def add_page():
                 ui.element('div').style('flex: 1;')
                 ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.5;')
 
-            d_date = ui.input("Date", value=today().isoformat()).props("type=date").classes("w-full")
+            d_date = ui.input("Date", value=today().isoformat()).props("type=date autofocus").classes("w-full")
             d_amount = ui.number("Amount", value=0.0, format="%.2f").classes("w-full")
 
             is_debit = entry_type.lower() == 'debit'
@@ -6150,6 +6316,7 @@ def admin_page() -> None:
                     ("Transactions", "receipt_long", "/tx", "rgba(239,68,68,0.10)", "#ef4444"),
                     ("Budgets", "account_balance_wallet", "/budgets", "rgba(251,191,36,0.10)", "#eab308"),
                     ("Data Tools", "cloud_download", "/data_tools", "rgba(96,165,250,0.10)", "#60a5fa"),
+                    ("Reports", "assessment", "/reports", "rgba(99,102,241,0.10)", "#6366f1"),
                 ]
                 with ui.element("div").style(
                     "display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%;"
@@ -6359,8 +6526,135 @@ def transactions_page():
                     app.storage.user.pop('tx_quick_filter', None)
             except Exception:
                 pass
+            _all_cats = sorted({str(c).strip() for c in tx.get('category', pd.Series([])).tolist() if str(c).strip()})
+            _all_accts = sorted({str(a).strip() for a in tx.get('account', pd.Series([])).tolist() if str(a).strip()})
+            _all_methods = sorted({str(m).strip() for m in tx.get('method', pd.Series([])).tolist() if str(m).strip()})
+            f_category = ui.select(['All'] + _all_cats, value='All', label='Category').classes('w-full')
+            f_account = ui.select(['All'] + _all_accts, value='All', label='Account').classes('w-full')
+            f_method = ui.select(['All'] + _all_methods, value='All', label='Method').classes('w-full')
+            with ui.row().classes('w-full items-center gap-2'):
+                f_min_amt = ui.number('Min $', value=None, format='%.2f').props('dense outlined clearable').classes('w-40')
+                f_max_amt = ui.number('Max $', value=None, format='%.2f').props('dense outlined clearable').classes('w-40')
             sort_opts = ["Date (new → old)", "Date (old → new)", "Amount (high → low)", "Amount (low → high)"]
             f_sort = ui.select(sort_opts, value=sort_opts[0], label="Sort").classes("w-full")
+
+            # Quick filter presets
+            _filter_state = {'min_amt': 0}
+            _presets = [
+                ('All', {}),
+                ('Uncategorized', {'text': 'Uncategorized'}),
+                ('Large (>$100)', {'text': '', '_min_amt': 100}),
+                ('Groceries', {'cat': 'Groceries'}),
+                ('Health', {'cat': 'Health'}),
+            ]
+            with ui.row().classes('w-full gap-1 mt-1 mb-2').style('flex-wrap: wrap;'):
+                for _preset_name, _preset_vals in _presets:
+                    def _apply_preset(pv=_preset_vals, pn=_preset_name):
+                        if pv.get('text') is not None:
+                            f_text.value = pv['text']
+                        if pv.get('cat'):
+                            f_category.value = pv['cat']
+                        else:
+                            f_category.value = 'All'
+                        if pv.get('_min_amt'):
+                            _filter_state['min_amt'] = pv['_min_amt']
+                        else:
+                            _filter_state['min_amt'] = 0
+                        if not pv:
+                            f_text.value = ''
+                            f_type.value = 'All'
+                            f_category.value = 'All'
+                            f_account.value = 'All'
+                            f_method.value = 'All'
+                            f_min_amt.value = None
+                            f_max_amt.value = None
+                            _filter_state['min_amt'] = 0
+                        refresh_table()
+                    ui.button(_preset_name, on_click=_apply_preset).props('flat dense').style(
+                        'border-radius: 8px; font-size: 11px; padding: 4px 12px; border: 1px solid var(--mf-border);'
+                    )
+
+            # ── Saved Filter Presets ──
+            _PRESETS_KEY = 'tx_saved_presets'
+
+            def _get_saved_presets() -> list:
+                try:
+                    return app.storage.user.get(_PRESETS_KEY) or []
+                except Exception:
+                    return []
+
+            def _save_current_as_preset():
+                with ui.dialog() as sdlg, ui.card().classes('my-card p-5 w-80'):
+                    ui.label('Save Filter Preset').classes('text-lg font-bold')
+                    pname = ui.input('Preset name', placeholder='e.g. Grocery expenses').classes('w-full')
+                    def _do_save():
+                        name = (pname.value or '').strip()
+                        if not name:
+                            ui.notify('Enter a name', type='warning')
+                            return
+                        preset = {
+                            'name': name,
+                            'type': f_type.value or 'All',
+                            'category': f_category.value or 'All',
+                            'account': f_account.value or 'All',
+                            'method': f_method.value or 'All',
+                            'text': f_text.value or '',
+                            'min_amt': f_min_amt.value,
+                            'max_amt': f_max_amt.value,
+                        }
+                        presets = _get_saved_presets()
+                        # Replace if same name exists
+                        presets = [p for p in presets if p.get('name') != name]
+                        presets.append(preset)
+                        try:
+                            app.storage.user[_PRESETS_KEY] = presets
+                        except Exception as e:
+                            _logger.warning("Failed to save preset: %s", e)
+                        ui.notify(f'Saved preset "{name}"', type='positive')
+                        sdlg.close()
+                        nav_to('/tx')
+                    with ui.row().classes('w-full justify-end gap-2 mt-3'):
+                        ui.button('Cancel', on_click=sdlg.close).props('flat')
+                        ui.button('Save', on_click=_do_save).props('unelevated')
+                sdlg.open()
+
+            def _delete_saved_preset(name: str):
+                presets = _get_saved_presets()
+                presets = [p for p in presets if p.get('name') != name]
+                try:
+                    app.storage.user[_PRESETS_KEY] = presets
+                except Exception as e:
+                    _logger.warning("Failed to delete preset: %s", e)
+                ui.notify(f'Deleted preset "{name}"', type='info')
+                nav_to('/tx')
+
+            saved_presets = _get_saved_presets()
+            if saved_presets:
+                with ui.row().classes('w-full gap-1 mb-2').style('flex-wrap: wrap;'):
+                    for sp in saved_presets:
+                        _sp_name = sp.get('name', '?')
+                        def _apply_saved(s=sp):
+                            f_type.value = s.get('type', 'All')
+                            f_category.value = s.get('category', 'All')
+                            f_account.value = s.get('account', 'All')
+                            f_method.value = s.get('method', 'All')
+                            f_text.value = s.get('text', '')
+                            f_min_amt.value = s.get('min_amt')
+                            f_max_amt.value = s.get('max_amt')
+                            _filter_state['min_amt'] = 0
+                            refresh_table()
+                        with ui.element('div').style('display: inline-flex; align-items: center; gap: 2px;'):
+                            ui.button(_sp_name, icon='bookmark', on_click=_apply_saved).props('flat dense').style(
+                                'border-radius: 8px; font-size: 11px; padding: 4px 10px; border: 1px solid var(--mf-accent); color: var(--mf-accent);'
+                            )
+                            ui.button('', icon='close', on_click=lambda n=_sp_name: _delete_saved_preset(n)).props('flat round dense size=xs').style(
+                                'font-size: 10px; color: var(--mf-muted); min-width: 20px; padding: 0;'
+                            )
+
+            ui.button('Save current filters', icon='bookmark_add', on_click=_save_current_as_preset).props('flat dense').style(
+                'border-radius: 8px; font-size: 11px; padding: 4px 12px; color: var(--mf-muted);'
+            )
+
             # Date range filter (defaults to last 30 days)
             try:
                 _today = datetime.date.today()
@@ -6379,6 +6673,9 @@ def transactions_page():
             last_view: Dict[str, Any] = {'df': None}
 
             # Table: show compact columns by default (mobile-friendly). Use Details to view/edit full row.
+            _page_size = 30
+            _page_state = {'current': 0}
+
             with ui.element('div').classes('w-full overflow-x-auto'):
                 table = ui.table(columns=[
                     {"name": "date", "label": "Date", "field": "date"},
@@ -6417,6 +6714,19 @@ def transactions_page():
 
             table.on('rowClick', _on_row_click)
 
+            with ui.row().classes('w-full items-center justify-between mt-2'):
+                _page_info = ui.label('').classes('text-xs').style('color: var(--mf-muted);')
+                with ui.row().classes('gap-1'):
+                    def _prev_page():
+                        if _page_state['current'] > 0:
+                            _page_state['current'] -= 1
+                            refresh_table()
+                    def _next_page():
+                        _page_state['current'] += 1
+                        refresh_table()
+                    ui.button('', icon='chevron_left', on_click=_prev_page).props('flat round dense')
+                    ui.button('', icon='chevron_right', on_click=_next_page).props('flat round dense')
+
             # Category quick-apply (useful for fixing Uncategorized)
             try:
                 rules_df = cached_df('rules')
@@ -6444,6 +6754,7 @@ def transactions_page():
                     lock_sw.value = is_month_locked(mk)
                 except Exception:
                     pass
+                _page_state['current'] = 0
                 refresh_table()
 
             f_month.on('update:model-value', lambda e: _on_month_changed())
@@ -6462,6 +6773,28 @@ def transactions_page():
                     df = df[df["date_parsed"].apply(lambda d: month_key(d) if pd.notna(d) else "") == mk]
                 if f_type.value != "All":
                     df = df[df["type"].astype(str) == f_type.value]
+                if f_category.value and f_category.value != 'All':
+                    df = df[df.get('category', pd.Series(dtype=str)).astype(str).str.strip() == f_category.value]
+                if f_account.value and f_account.value != 'All':
+                    df = df[df.get('account', pd.Series(dtype=str)).astype(str).str.strip() == f_account.value]
+                if f_method.value and f_method.value != 'All':
+                    df = df[df.get('method', pd.Series(dtype=str)).astype(str).str.strip() == f_method.value]
+                # Amount range filter
+                try:
+                    _amt_min = float(f_min_amt.value) if f_min_amt.value is not None else None
+                except (TypeError, ValueError):
+                    _amt_min = None
+                try:
+                    _amt_max = float(f_max_amt.value) if f_max_amt.value is not None else None
+                except (TypeError, ValueError):
+                    _amt_max = None
+                if _amt_min is not None or _amt_max is not None:
+                    df['_amt_rng'] = df['amount'].apply(to_float)
+                    if _amt_min is not None:
+                        df = df[df['_amt_rng'] >= _amt_min]
+                    if _amt_max is not None:
+                        df = df[df['_amt_rng'] <= _amt_max]
+                    df = df.drop(columns=['_amt_rng'], errors='ignore')
                 # Date filter (inclusive)
                 try:
                     d_from = parse_date(f_from.value) if f_from.value else None
@@ -6503,6 +6836,11 @@ def transactions_page():
                         mask_amt = (amt - q_num).abs() < 0.01
 
                     df = df[mask_text | mask_amt]
+                if _filter_state.get('min_amt', 0) > 0:
+                    _min = float(_filter_state['min_amt'])
+                    df['_amt_f'] = df['amount'].apply(to_float)
+                    df = df[df['_amt_f'] >= _min]
+                    df = df.drop(columns=['_amt_f'], errors='ignore')
                 # Sorting
                 try:
                     sort_choice = f_sort.value or "Date (new → old)"
@@ -6527,16 +6865,31 @@ def transactions_page():
                 except Exception:
                     last_view['df'] = None
 
-                df = df.head(250)
-                df["amount"] = df["amount"].apply(lambda x: currency(to_float(x)))
-                table.rows = df.to_dict(orient="records")
+                _total_rows = len(df)
+                _start = _page_state['current'] * _page_size
+                df_page = df.iloc[_start:_start + _page_size].copy()
+                df_page["amount"] = df_page["amount"].apply(lambda x: currency(to_float(x)))
+                table.rows = df_page.to_dict(orient="records")
                 table.update()
+                # Update pagination info
+                try:
+                    _page_info.set_text(f"Showing {_start+1}\u2013{min(_start+_page_size, _total_rows)} of {_total_rows}")
+                except Exception:
+                    pass
 
-            f_type.on("update:model-value", lambda e: refresh_table())
-            f_text.on("update:model-value", lambda e: refresh_table())
-            f_sort.on("update:model-value", lambda e: refresh_table())
-            f_from.on("update:model-value", lambda e: refresh_table())
-            f_to.on("update:model-value", lambda e: refresh_table())
+            def _reset_page_and_refresh():
+                _page_state['current'] = 0
+                refresh_table()
+            f_type.on("update:model-value", lambda e: _reset_page_and_refresh())
+            f_text.on("update:model-value", lambda e: _reset_page_and_refresh())
+            f_category.on("update:model-value", lambda e: _reset_page_and_refresh())
+            f_account.on("update:model-value", lambda e: _reset_page_and_refresh())
+            f_method.on("update:model-value", lambda e: _reset_page_and_refresh())
+            f_min_amt.on("update:model-value", lambda e: _reset_page_and_refresh())
+            f_max_amt.on("update:model-value", lambda e: _reset_page_and_refresh())
+            f_sort.on("update:model-value", lambda e: _reset_page_and_refresh())
+            f_from.on("update:model-value", lambda e: _reset_page_and_refresh())
+            f_to.on("update:model-value", lambda e: _reset_page_and_refresh())
 
             refresh_table()
 
@@ -6550,7 +6903,7 @@ def transactions_page():
                     ui.label("Edit transaction").classes("text-lg font-bold")
                     tid = str(row.get("id", "")).strip()
 
-                    e_date = ui.input("Date", value=str(row.get("date", ""))).props("type=date").classes("w-full")
+                    e_date = ui.input("Date", value=str(row.get("date", ""))).props("type=date autofocus").classes("w-full")
                     e_type = ui.input("Type", value=str(row.get("type", ""))).classes("w-full")
                     e_amount = ui.number("Amount", value=to_float(row.get("amount", 0))).classes("w-full")
                     e_method = ui.input("Method", value=str(row.get("method", ""))).classes("w-full")
@@ -6585,12 +6938,26 @@ def transactions_page():
 
             def open_delete(row: Dict[str, Any]):
                 tid = str(row.get("id", "")).strip()
-                if delete_row_by_id("transactions", "id", tid):
-                    invalidate("transactions")
-                    ui.notify("Deleted", type="positive")
-                    nav_to("/tx")
-                else:
-                    ui.notify("Delete failed", type="negative")
+                rec_id = str(row.get("recurring_id", "")).strip()
+                with ui.dialog() as confirm_dlg, ui.card().classes("my-card p-5 max-w-sm"):
+                    ui.label("Delete Transaction?").classes("text-lg font-bold")
+                    if rec_id:
+                        with ui.row().classes("items-center gap-2 mt-2"):
+                            ui.icon("warning").style("color: #f59e0b; font-size: 20px;")
+                            ui.label("This transaction is linked to a recurring template.").classes("text-sm").style("color: #f59e0b;")
+                    ui.label(f"Date: {row.get('date','')}  |  Amount: {row.get('amount','')}").classes("text-sm mt-2").style("color: var(--mf-muted);")
+                    def _confirm():
+                        if delete_row_by_id("transactions", "id", tid):
+                            invalidate("transactions")
+                            ui.notify("Deleted", type="positive")
+                            confirm_dlg.close()
+                            nav_to("/tx")
+                        else:
+                            ui.notify("Delete failed", type="negative")
+                    with ui.row().classes("w-full justify-end gap-2 mt-4"):
+                        ui.button("Cancel", on_click=confirm_dlg.close).props("flat")
+                        ui.button("Delete", on_click=_confirm).props("unelevated").style("background: #ef4444 !important; color: #fff !important;")
+                confirm_dlg.open()
 
             with ui.row().classes("gap-2 mt-3"):
                 def _current_row() -> Optional[Dict[str, Any]]:
@@ -7888,6 +8255,123 @@ def data_tools_page() -> None:
     shell(content)
 
 
+@ui.page('/reports')
+def reports_page() -> None:
+    if not require_login():
+        nav_to('/login')
+        return
+
+    def content() -> None:
+        # Premium header
+        with ui.card().classes('my-card p-0 mb-4').style('overflow: hidden;'):
+            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
+            with ui.row().classes('items-center gap-3 p-5'):
+                with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
+                    ui.icon("assessment").style("font-size: 22px; color: #6366f1;")
+                with ui.column().classes('gap-0'):
+                    ui.label('Reports & Analytics').classes('text-xl font-extrabold').style('letter-spacing: -0.02em;')
+                    ui.label('Year-over-year trends, category analysis & savings').classes('text-xs').style('color: var(--mf-muted);')
+
+        tx = cached_df('transactions')
+        if tx.empty:
+            ui.label('No transaction data available.').style('color: var(--mf-muted);')
+            return
+
+        tx['date_parsed'] = tx['date'].apply(parse_date)
+        tx = tx[tx['date_parsed'].notna()].copy()
+        tx['amount_num'] = tx['amount'].apply(to_float)
+        tx['type_l'] = tx.get('type', pd.Series(dtype=str)).astype(str).str.lower().str.strip()
+        tx['month'] = tx['date_parsed'].apply(lambda d: d.strftime('%Y-%m'))
+
+        spend = tx[tx['type_l'].isin(['debit', 'expense'])].copy()
+        inc = tx[tx['type_l'].isin(['credit', 'income'])].copy()
+
+        # 1. Monthly Spending Trend (last 12 months)
+        with ui.card().classes('my-card p-5'):
+            ui.label('Monthly Spending Trend').classes('mf-section-title')
+            try:
+                monthly = spend.groupby('month', as_index=False)['amount_num'].sum().sort_values('month').tail(12)
+                if not monthly.empty:
+                    import plotly.express as px
+                    fig = px.bar(monthly, x='month', y='amount_num', template=plotly_template(),
+                                 labels={'month': 'Month', 'amount_num': 'Spending'})
+                    fig.update_traces(marker_color='#ef4444')
+                    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)',
+                                      font_color=plotly_font_color(), showlegend=False)
+                    ui.plotly(fig).classes('w-full')
+                else:
+                    ui.label('Not enough data.').style('color: var(--mf-muted);')
+            except Exception as e:
+                ui.label(f'Chart error: {e}').style('color: var(--mf-muted);')
+
+        # 2. Category Breakdown Over Time (stacked bar)
+        with ui.card().classes('my-card p-5'):
+            ui.label('Category Breakdown by Month').classes('mf-section-title')
+            try:
+                if not spend.empty and 'category' in spend.columns:
+                    cat_month = spend.groupby(['month', 'category'], as_index=False)['amount_num'].sum()
+                    cat_month = cat_month.sort_values('month')
+                    # Keep top 6 categories, group rest as "Other"
+                    top_cats = spend.groupby('category')['amount_num'].sum().nlargest(6).index.tolist()
+                    cat_month['category'] = cat_month['category'].apply(lambda c: c if c in top_cats else 'Other')
+                    cat_month = cat_month.groupby(['month', 'category'], as_index=False)['amount_num'].sum()
+                    import plotly.express as px
+                    fig2 = px.bar(cat_month, x='month', y='amount_num', color='category', template=plotly_template(),
+                                  labels={'month': 'Month', 'amount_num': 'Amount', 'category': 'Category'})
+                    fig2.update_layout(margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)',
+                                       font_color=plotly_font_color(), barmode='stack')
+                    ui.plotly(fig2).classes('w-full')
+                else:
+                    ui.label('No category data.').style('color: var(--mf-muted);')
+            except Exception as e:
+                ui.label(f'Chart error: {e}').style('color: var(--mf-muted);')
+
+        # 3. Savings Rate Over Time
+        with ui.card().classes('my-card p-5'):
+            ui.label('Monthly Savings Rate').classes('mf-section-title')
+            try:
+                m_inc = inc.groupby('month', as_index=False)['amount_num'].sum().rename(columns={'amount_num': 'income'})
+                m_exp = spend.groupby('month', as_index=False)['amount_num'].sum().rename(columns={'amount_num': 'expenses'})
+                merged = pd.merge(m_inc, m_exp, on='month', how='outer').fillna(0).sort_values('month').tail(12)
+                merged['savings_rate'] = ((merged['income'] - merged['expenses']) / merged['income'].replace(0, 1) * 100).clip(-100, 100)
+                if not merged.empty:
+                    import plotly.express as px
+                    fig3 = px.line(merged, x='month', y='savings_rate', template=plotly_template(),
+                                   labels={'month': 'Month', 'savings_rate': 'Savings Rate (%)'}, markers=True)
+                    fig3.update_traces(line_color='#22c55e')
+                    fig3.add_hline(y=20, line_dash="dash", line_color="#eab308", annotation_text="20% target")
+                    fig3.update_layout(margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)',
+                                       font_color=plotly_font_color())
+                    ui.plotly(fig3).classes('w-full')
+                else:
+                    ui.label('Not enough data.').style('color: var(--mf-muted);')
+            except Exception as e:
+                ui.label(f'Chart error: {e}').style('color: var(--mf-muted);')
+
+        # 4. Income vs Expenses Summary Table
+        with ui.card().classes('my-card p-5'):
+            ui.label('Income vs Expenses Summary').classes('mf-section-title')
+            try:
+                m_inc2 = inc.groupby('month', as_index=False)['amount_num'].sum().rename(columns={'amount_num': 'Income'})
+                m_exp2 = spend.groupby('month', as_index=False)['amount_num'].sum().rename(columns={'amount_num': 'Expenses'})
+                summary = pd.merge(m_inc2, m_exp2, on='month', how='outer').fillna(0).sort_values('month', ascending=False).head(12)
+                summary['Net'] = summary['Income'] - summary['Expenses']
+                summary['Income'] = summary['Income'].apply(lambda v: currency(v))
+                summary['Expenses'] = summary['Expenses'].apply(lambda v: currency(v))
+                summary['Net'] = summary['Net'].apply(lambda v: currency(v))
+                rows = summary.to_dict(orient='records')
+                ui.table(columns=[
+                    {'name': 'month', 'label': 'Month', 'field': 'month'},
+                    {'name': 'Income', 'label': 'Income', 'field': 'Income', 'align': 'right'},
+                    {'name': 'Expenses', 'label': 'Expenses', 'field': 'Expenses', 'align': 'right'},
+                    {'name': 'Net', 'label': 'Net', 'field': 'Net', 'align': 'right'},
+                ], rows=rows, row_key='month').classes('w-full')
+            except Exception as e:
+                ui.label(f'Table error: {e}').style('color: var(--mf-muted);')
+
+    shell(content)
+
+
 # -----------------------------
 # Boot
 # -----------------------------
@@ -7912,19 +8396,35 @@ def bootstrap() -> None:
 
 bootstrap()
 
-# Premium SVG favicon – rounded-square wallet icon with gradient
+# Premium SVG favicon – modern finance chart icon with gradient
 _FAVICON_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#5B8CFF"/>
-      <stop offset="100%" stop-color="#46E6A6"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4F46E5"/>
+      <stop offset="50%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#06B6D4"/>
     </linearGradient>
+    <linearGradient id="bar" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.6)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0.95)"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#g)"/>
-  <rect x="100" y="150" width="312" height="220" rx="32" fill="none" stroke="#fff" stroke-width="28"/>
-  <rect x="280" y="220" width="132" height="72" rx="18" fill="#fff" opacity="0.92"/>
-  <circle cx="330" cy="256" r="14" fill="#5B8CFF"/>
-  <rect x="140" y="128" width="160" height="36" rx="14" fill="#fff" opacity="0.75"/>
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+  <rect x="90" y="300" width="60" height="110" rx="12" fill="url(#bar)" opacity="0.75"/>
+  <rect x="175" y="230" width="60" height="180" rx="12" fill="url(#bar)" opacity="0.82"/>
+  <rect x="260" y="170" width="60" height="240" rx="12" fill="url(#bar)" opacity="0.90"/>
+  <rect x="345" y="130" width="60" height="280" rx="12" fill="url(#bar)" opacity="0.95"/>
+  <polyline points="110,280 195,210 280,150 375,110" fill="none" stroke="#34D399" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <circle cx="110" cy="280" r="10" fill="#34D399"/>
+  <circle cx="195" cy="210" r="10" fill="#34D399"/>
+  <circle cx="280" cy="150" r="10" fill="#34D399"/>
+  <circle cx="375" cy="110" r="10" fill="#34D399"/>
+  <circle cx="375" cy="110" r="18" fill="none" stroke="#34D399" stroke-width="4" opacity="0.5"/>
+  <text x="256" y="465" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="800" font-size="72" fill="rgba(255,255,255,0.9)" letter-spacing="-2">FT</text>
 </svg>'''
 
 ui.run(
@@ -7935,47 +8435,4 @@ ui.run(
     favicon=_FAVICON_SVG,
 )
 
-# Release: FinTrackr Phase 6.7.1 (Google Vision OCR optional + stable 6.5 logic)
-
-# RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR)
-# RELEASE_VERSION: 6.7.1 (Google Vision OCR optional; falls back to existing OCR                            scan_spinner.style('display:none')
-# Release: 6.7.3 (HF2 - Scan button event binding + immediate popup)
-
-
-# ======================
-# P6.9 PATCH NOTES
-# ======================
-# - Reworked receipt item parsing to support Walmart-style multi-line item blocks
-# - Amount regex now supports suffix letters (D/E/H)
-# - Subtotal-aware termination (items parsed before stopping)
-# - Single-item fallback for pharmacy/clothing receipts
-#
-# NOTE: This section replaces the old line-based parser.
-#
-import re
-
-AMOUNT_RE = re.compile(r"\$(\d+\.\d{2})\s*[A-Z]?")
-
-def extract_items_from_lines(lines):
-    items = []
-    pending_name = None
-
-    for line in lines:
-        amt_match = AMOUNT_RE.search(line)
-        if amt_match:
-            amount = float(amt_match.group(1))
-            if pending_name:
-                items.append({"name": pending_name.strip(), "amount": amount})
-                pending_name = None
-            else:
-                # orphan amount, attach generic name
-                items.append({"name": "UNLABELED ITEM", "amount": amount})
-        else:
-            # candidate item line
-            if any(k in line.upper() for k in ["SUBTOTAL", "TOTAL", "GST", "PST"]):
-                if items:
-                    break
-                continue
-            pending_name = line
-
-    return items
+# Release: FinTrackr Phase 7.3.0
