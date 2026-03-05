@@ -173,84 +173,169 @@ _apple_touch_icon_cache: Optional[bytes] = None
 async def _apple_touch_icon():
     """Serve a 180x180 PNG for iOS home screen bookmarks.
 
-    Renders the app icon as a pure-Python PNG (no PIL needed).
-    Uses a gradient background with a simple chart motif.
+    Premium icon: deep gradient background, frosted glass card,
+    ascending bar chart with glowing trend line. Pure Python, no PIL.
     """
     global _apple_touch_icon_cache
     if _apple_touch_icon_cache is not None:
         return Response(content=_apple_touch_icon_cache, media_type='image/png')
 
-    import struct, zlib
+    import struct, zlib, math
     W = H = 180
+    cx, cy = W / 2, H / 2
 
-    # Pre-compute pixel rows
+    def _lerp(a, b, t):
+        return a + (b - a) * t
+
+    def _lerp3(c1, c2, t):
+        return (int(_lerp(c1[0], c2[0], t)), int(_lerp(c1[1], c2[1], t)), int(_lerp(c1[2], c2[2], t)))
+
+    def _blend(bg, fg, a):
+        return (int(bg[0] * (1 - a) + fg[0] * a), int(bg[1] * (1 - a) + fg[1] * a), int(bg[2] * (1 - a) + fg[2] * a))
+
+    def _sdf_roundrect(px, py, rx, ry, rw, rh, rad):
+        dx = max(abs(px - (rx + rw / 2)) - rw / 2 + rad, 0)
+        dy = max(abs(py - (ry + rh / 2)) - rh / 2 + rad, 0)
+        return math.sqrt(dx * dx + dy * dy) - rad
+
+    def _sdf_circle(px, py, ccx, ccy, rad):
+        return math.sqrt((px - ccx) ** 2 + (py - ccy) ** 2) - rad
+
+    def _smoothstep(edge0, edge1, x):
+        t = max(0.0, min(1.0, (x - edge0) / (edge1 - edge0)))
+        return t * t * (3 - 2 * t)
+
+    # Bar chart geometry (4 ascending bars inside a frosted card)
+    card_x, card_y, card_w, card_h, card_r = 24, 32, 132, 116, 18
+    bar_w = 20
+    bar_gap = 10
+    bars_total = 4 * bar_w + 3 * bar_gap  # 110
+    bx0 = card_x + (card_w - bars_total) / 2
+    bar_bottom = card_y + card_h - 16
+    bar_heights = [32, 50, 68, 88]
+    bar_tops = [bar_bottom - h for h in bar_heights]
+    bar_centers_x = [bx0 + i * (bar_w + bar_gap) + bar_w / 2 for i in range(4)]
+    bar_centers_y = [bt + 8 for bt in bar_tops]  # trend line hits near top of each bar
+
+    # RGBA pixel buffer
     pixels = bytearray()
     for y in range(H):
-        pixels.append(0)  # PNG filter: None
+        pixels.append(0)  # PNG filter byte
         for x in range(W):
-            # Gradient background: indigo(79,70,229) -> purple(124,58,237) -> cyan(6,182,212)
-            t = (x + y) / (W + H)
-            if t < 0.5:
-                s = t * 2
-                r = int(79 + (124 - 79) * s)
-                g = int(70 + (58 - 70) * s)
-                b = int(229 + (237 - 229) * s)
+            # --- 1. Deep radial gradient background ---
+            dist = math.sqrt((x - cx) ** 2 + (y - cy) ** 2) / (W * 0.75)
+            dist = min(dist, 1.0)
+            # Core: rich indigo, edge: deep navy
+            col_core = (88, 60, 220)
+            col_mid = (55, 40, 180)
+            col_edge = (16, 12, 60)
+            if dist < 0.5:
+                bg = _lerp3(col_core, col_mid, dist * 2)
             else:
-                s = (t - 0.5) * 2
-                r = int(124 + (6 - 124) * s)
-                g = int(58 + (182 - 58) * s)
-                b = int(237 + (212 - 237) * s)
+                bg = _lerp3(col_mid, col_edge, (dist - 0.5) * 2)
 
-            # Draw 4 rising bars (simplified chart icon)
-            bar_w = 18
-            gap = 8
-            total_w = 4 * bar_w + 3 * gap  # 98
-            x0 = (W - total_w) // 2
-            bars = [
-                (x0, 120, 70),                       # bar 1: short
-                (x0 + bar_w + gap, 95, 95),           # bar 2: medium
-                (x0 + 2 * (bar_w + gap), 70, 120),    # bar 3: tall
-                (x0 + 3 * (bar_w + gap), 48, 142),    # bar 4: tallest
-            ]
-            in_bar = False
-            for bx, by, bh in bars:
-                if bx <= x < bx + bar_w and by <= y < by + bh:
-                    in_bar = True
-                    break
+            # Subtle top-right highlight (simulates light source)
+            highlight_d = math.sqrt((x - W * 0.8) ** 2 + (y - H * 0.15) ** 2) / W
+            if highlight_d < 0.45:
+                ha = (1 - highlight_d / 0.45) * 0.12
+                bg = _blend(bg, (160, 140, 255), ha)
 
-            if in_bar:
-                # White bar with slight transparency effect
-                r, g, b = 255, 255, 255
+            r, g, b = bg
 
-            # Draw "FT" text area (bottom center) - simple pixel block letters
-            # F: x=62..78, y=148..170 | T: x=84..106, y=148..170
-            in_text = False
-            # Letter F
-            fx, fy = 62, 148
-            if fx <= x < fx + 16 and fy <= y < fy + 3:  # F top bar
-                in_text = True
-            elif fx <= x < fx + 3 and fy <= y < fy + 22:  # F vertical
-                in_text = True
-            elif fx <= x < fx + 12 and fy + 9 <= y < fy + 12:  # F middle bar
-                in_text = True
-            # Letter T
-            tx = 84
-            if tx <= x < tx + 22 and fy <= y < fy + 3:  # T top bar
-                in_text = True
-            elif tx + 9 <= x < tx + 13 and fy <= y < fy + 22:  # T vertical
-                in_text = True
+            # --- 2. Frosted glass card ---
+            card_sdf = _sdf_roundrect(x, y, card_x, card_y, card_w, card_h, card_r)
+            if card_sdf < 1.5:
+                card_a = 1.0 - _smoothstep(-1.0, 1.5, card_sdf)
+                # Glass: semi-transparent white
+                glass = (255, 255, 255)
+                glass_opacity = 0.10 + 0.03 * (1 - y / H)  # slightly brighter at top
+                r, g, b = _blend((r, g, b), glass, card_a * glass_opacity)
+                # Thin bright border
+                border_a = _smoothstep(-1.5, -0.5, card_sdf) * (1 - _smoothstep(-0.5, 0.5, card_sdf))
+                r, g, b = _blend((r, g, b), (255, 255, 255), border_a * 0.20)
 
-            if in_text:
-                r, g, b = 255, 255, 255
+            # --- 3. Ascending bars (rounded tops, gradient fill) ---
+            for i in range(4):
+                bxi = bx0 + i * (bar_w + bar_gap)
+                byi = bar_tops[i]
+                bhi = bar_heights[i]
+                bar_rad = bar_w / 2  # fully rounded top
+                bar_sdf = _sdf_roundrect(x, y, bxi, byi, bar_w, bhi, bar_rad)
+                if bar_sdf < 1.5:
+                    bar_a = 1.0 - _smoothstep(-0.5, 1.5, bar_sdf)
+                    # Vertical gradient: cyan top -> teal bottom
+                    bt = max(0, min(1, (y - byi) / max(bhi, 1)))
+                    bar_col_top = (34, 211, 238)    # cyan-400
+                    bar_col_bot = (20, 184, 166)     # teal-500
+                    bar_col = _lerp3(bar_col_top, bar_col_bot, bt)
+                    # Subtle inner shine on left edge
+                    inner_t = max(0, min(1, (x - bxi) / max(bar_w, 1)))
+                    if inner_t < 0.25:
+                        shine = (1 - inner_t / 0.25) * 0.15
+                        bar_col = _blend(bar_col, (255, 255, 255), shine)
+                    r, g, b = _blend((r, g, b), bar_col, bar_a * 0.92)
 
+            # --- 4. Glowing trend line (connects bar tops) ---
+            # Use line segments between bar center tops
+            min_line_dist = 999.0
+            for i in range(3):
+                x1, y1 = bar_centers_x[i], bar_centers_y[i]
+                x2, y2 = bar_centers_x[i + 1], bar_centers_y[i + 1]
+                # Distance from point to line segment
+                dx, dy = x2 - x1, y2 - y1
+                seg_len_sq = dx * dx + dy * dy
+                if seg_len_sq > 0:
+                    t_proj = max(0, min(1, ((x - x1) * dx + (y - y1) * dy) / seg_len_sq))
+                    proj_x = x1 + t_proj * dx
+                    proj_y = y1 + t_proj * dy
+                    d = math.sqrt((x - proj_x) ** 2 + (y - proj_y) ** 2)
+                    min_line_dist = min(min_line_dist, d)
+
+            # Line core (bright green, ~2.5px)
+            if min_line_dist < 5.0:
+                line_a = 1.0 - _smoothstep(0.0, 2.5, min_line_dist)
+                line_col = (52, 211, 153)  # emerald-400
+                r, g, b = _blend((r, g, b), line_col, line_a * 0.95)
+            # Outer glow
+            if min_line_dist < 10.0:
+                glow_a = (1.0 - _smoothstep(2.0, 10.0, min_line_dist)) * 0.25
+                r, g, b = _blend((r, g, b), (52, 211, 153), glow_a)
+
+            # --- 5. Dots at trend line peaks ---
+            for i in range(4):
+                dot_d = _sdf_circle(x, y, bar_centers_x[i], bar_centers_y[i], 4.5)
+                if dot_d < 3.0:
+                    # White filled dot
+                    dot_a = 1.0 - _smoothstep(-1.0, 1.5, dot_d)
+                    r, g, b = _blend((r, g, b), (255, 255, 255), dot_a * 0.95)
+                # Outer ring glow
+                ring_d = abs(_sdf_circle(x, y, bar_centers_x[i], bar_centers_y[i], 7.5))
+                if ring_d < 2.5:
+                    ring_a = (1.0 - ring_d / 2.5) * 0.3
+                    r, g, b = _blend((r, g, b), (52, 211, 153), ring_a)
+
+            # --- 6. "FinTrackr" label bar at bottom ---
+            label_y = card_y + card_h + 12
+            label_h = 20
+            label_sdf = _sdf_roundrect(x, y, 40, label_y, 100, label_h, 10)
+            if label_sdf < 1.5:
+                la = 1.0 - _smoothstep(-0.5, 1.5, label_sdf)
+                # Soft gradient pill
+                lt = max(0, min(1, (x - 40) / 100))
+                pill_col = _lerp3((79, 70, 229), (6, 182, 212), lt)
+                r, g, b = _blend((r, g, b), pill_col, la * 0.7)
+
+            # Clamp
+            r = max(0, min(255, r))
+            g = max(0, min(255, g))
+            b = max(0, min(255, b))
             pixels.extend((r, g, b))
 
     # Encode as PNG
-    def _make_png(width: int, height: int, raw: bytes) -> bytes:
-        def _chunk(ctype: bytes, data: bytes) -> bytes:
+    def _make_png(width, height, raw):
+        def _chunk(ctype, data):
             c = ctype + data
             return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
-
         sig = b'\x89PNG\r\n\x1a\n'
         ihdr = struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)
         idat = zlib.compress(bytes(raw), 9)
