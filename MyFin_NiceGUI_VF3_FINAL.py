@@ -159,8 +159,105 @@ try:
 except Exception as e:
     log(f"[FinTrackr] Html sanitize patch skipped: {e}")
 from fastapi import Request, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
+# ---------------------------
+# Apple Touch Icon (iOS home screen bookmark)
+# ---------------------------
+_apple_touch_icon_cache: Optional[bytes] = None
+
+@app.get('/apple-touch-icon.png')
+@app.get('/apple-touch-icon-precomposed.png')
+@app.get('/apple-touch-icon-180x180.png')
+@app.get('/apple-touch-icon-152x152.png')
+async def _apple_touch_icon():
+    """Serve a 180x180 PNG for iOS home screen bookmarks.
+
+    Renders the app icon as a pure-Python PNG (no PIL needed).
+    Uses a gradient background with a simple chart motif.
+    """
+    global _apple_touch_icon_cache
+    if _apple_touch_icon_cache is not None:
+        return Response(content=_apple_touch_icon_cache, media_type='image/png')
+
+    import struct, zlib
+    W = H = 180
+
+    # Pre-compute pixel rows
+    pixels = bytearray()
+    for y in range(H):
+        pixels.append(0)  # PNG filter: None
+        for x in range(W):
+            # Gradient background: indigo(79,70,229) -> purple(124,58,237) -> cyan(6,182,212)
+            t = (x + y) / (W + H)
+            if t < 0.5:
+                s = t * 2
+                r = int(79 + (124 - 79) * s)
+                g = int(70 + (58 - 70) * s)
+                b = int(229 + (237 - 229) * s)
+            else:
+                s = (t - 0.5) * 2
+                r = int(124 + (6 - 124) * s)
+                g = int(58 + (182 - 58) * s)
+                b = int(237 + (212 - 237) * s)
+
+            # Draw 4 rising bars (simplified chart icon)
+            bar_w = 18
+            gap = 8
+            total_w = 4 * bar_w + 3 * gap  # 98
+            x0 = (W - total_w) // 2
+            bars = [
+                (x0, 120, 70),                       # bar 1: short
+                (x0 + bar_w + gap, 95, 95),           # bar 2: medium
+                (x0 + 2 * (bar_w + gap), 70, 120),    # bar 3: tall
+                (x0 + 3 * (bar_w + gap), 48, 142),    # bar 4: tallest
+            ]
+            in_bar = False
+            for bx, by, bh in bars:
+                if bx <= x < bx + bar_w and by <= y < by + bh:
+                    in_bar = True
+                    break
+
+            if in_bar:
+                # White bar with slight transparency effect
+                r, g, b = 255, 255, 255
+
+            # Draw "FT" text area (bottom center) - simple pixel block letters
+            # F: x=62..78, y=148..170 | T: x=84..106, y=148..170
+            in_text = False
+            # Letter F
+            fx, fy = 62, 148
+            if fx <= x < fx + 16 and fy <= y < fy + 3:  # F top bar
+                in_text = True
+            elif fx <= x < fx + 3 and fy <= y < fy + 22:  # F vertical
+                in_text = True
+            elif fx <= x < fx + 12 and fy + 9 <= y < fy + 12:  # F middle bar
+                in_text = True
+            # Letter T
+            tx = 84
+            if tx <= x < tx + 22 and fy <= y < fy + 3:  # T top bar
+                in_text = True
+            elif tx + 9 <= x < tx + 13 and fy <= y < fy + 22:  # T vertical
+                in_text = True
+
+            if in_text:
+                r, g, b = 255, 255, 255
+
+            pixels.extend((r, g, b))
+
+    # Encode as PNG
+    def _make_png(width: int, height: int, raw: bytes) -> bytes:
+        def _chunk(ctype: bytes, data: bytes) -> bytes:
+            c = ctype + data
+            return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
+
+        sig = b'\x89PNG\r\n\x1a\n'
+        ihdr = struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)
+        idat = zlib.compress(bytes(raw), 9)
+        return sig + _chunk(b'IHDR', ihdr) + _chunk(b'IDAT', idat) + _chunk(b'IEND', b'')
+
+    _apple_touch_icon_cache = _make_png(W, H, pixels)
+    return Response(content=_apple_touch_icon_cache, media_type='image/png')
 
 
 # -----------------------------
@@ -3623,7 +3720,12 @@ html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
 ui.add_head_html('<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap">', shared=True)
 
 ui.add_head_html(r'''
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%0A%3Cstop%20offset%3D%220%22%20stop-color%3D%22%235B8CFF%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%2346E6A6%22/%3E%0A%3C/linearGradient%3E%3C/defs%3E%0A%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2214%22%20fill%3D%22%23070A12%22/%3E%0A%3Cpath%20d%3D%22M18%2044V20h10c9%200%2016%205%2016%2012s-7%2012-16%2012H18zm6-6h4c6%200%2010-3%2010-6s-4-6-10-6h-4v12z%22%20fill%3D%22url%28%23g%29%22/%3E%0A%3C/svg%3E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FinTrackr">
+<meta name="theme-color" content="#4F46E5">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png">
 <style>
 /* Remove ugly yellow background on browser autofill (Safari/Chrome) */
 input:-webkit-autofill,
@@ -5027,77 +5129,124 @@ def dashboard_page():
 
             with ui.card().classes("my-card p-0").style("overflow: hidden;"):
                 ui.element('div').style('height: 3px; background: linear-gradient(90deg, #f59e0b, #f97316); border-radius: 0;')
-                with ui.column().classes("p-5 gap-4"):
-                    with ui.row().classes("items-center gap-2"):
+                with ui.column().classes("p-5 gap-0"):
+                    with ui.row().classes("items-center gap-2 mb-4"):
                         with ui.element("div").classes("mf-icon-box").style("background: rgba(245,158,11,0.12);"):
-                            ui.icon("insights").style("font-size: 20px; color: #f59e0b;")
+                            ui.icon("auto_graph").style("font-size: 20px; color: #f59e0b;")
                         ui.label("Monthly Insights").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
 
-                    # Insight tiles in a responsive grid
-                    with ui.element("div").style("display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;"):
+                    # 1) Daily avg spend + projected month-end
+                    _daily_avg = round(expense / max(_dom, 1), 2) if expense > 0 else 0.0
+                    _projected = round(_daily_avg * _days_in_month, 2)
+                    _burn_pct = min(_dom / max(_days_in_month, 1), 1.0)
 
-                        # 1) Daily avg spend + projected month-end
-                        _daily_avg = round(expense / max(_dom, 1), 2) if expense > 0 else 0.0
-                        _projected = round(_daily_avg * _days_in_month, 2)
+                    # --- Row 1: Daily Average with burn-rate progress ---
+                    with ui.element("div").style(
+                        "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
+                        "border-bottom: 1px solid rgba(128,128,128,0.1);"
+                    ):
                         with ui.element("div").style(
-                            "padding: 16px; border-radius: 14px; border: 1px solid var(--mf-border);"
-                            "background: rgba(255,255,255,0.02);"
+                            "width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
+                            "background: rgba(239,68,68,0.08); flex-shrink: 0;"
                         ):
-                            ui.label("Daily Average").classes("mf-stat-label")
-                            ui.label(currency(_daily_avg)).classes("text-lg font-bold mt-1").style("color: #ef4444; font-feature-settings: 'tnum';")
-                            ui.label(f"Projected: {currency(_projected)} by month-end").classes("text-xs mt-1").style("color: var(--mf-muted);")
+                            ui.icon("local_fire_department").style("font-size: 20px; color: #ef4444;")
+                        with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
+                            with ui.row().classes("items-baseline justify-between w-full"):
+                                ui.label("Daily Average").classes("text-sm font-semibold").style("color: var(--mf-text);")
+                                ui.label(currency(_daily_avg)).classes("text-base font-extrabold").style("color: #ef4444; font-feature-settings: 'tnum'; letter-spacing: -0.02em;")
+                            with ui.element("div").style(
+                                "width: 100%; height: 4px; border-radius: 2px; margin-top: 6px;"
+                                "background: rgba(128,128,128,0.12); overflow: hidden;"
+                            ):
+                                ui.element("div").style(
+                                    f"width: {_burn_pct * 100:.0f}%; height: 100%; border-radius: 2px;"
+                                    "background: linear-gradient(90deg, #f59e0b, #ef4444);"
+                                    "transition: width 0.8s ease;"
+                                )
+                            with ui.row().classes("items-center justify-between w-full mt-1"):
+                                ui.label(f"Day {_dom} of {_days_in_month}").classes("text-xs").style("color: var(--mf-muted);")
+                                ui.label(f"Projected: {currency(_projected)}").classes("text-xs").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
 
-                        # 2) vs Last Month comparison
-                        if _prev_expense_total > 0:
-                            _pct_change = ((expense - _prev_expense_total) / _prev_expense_total) * 100
-                        else:
-                            _pct_change = 0.0
-                        _change_color = "#ef4444" if _pct_change > 0 else "#22c55e"
-                        _change_icon = "trending_up" if _pct_change > 0 else "trending_down"
-                        _change_sign = "+" if _pct_change > 0 else ""
-                        with ui.element("div").style(
-                            "padding: 16px; border-radius: 14px; border: 1px solid var(--mf-border);"
-                            "background: rgba(255,255,255,0.02);"
-                        ):
-                            ui.label("vs Last Month").classes("mf-stat-label")
-                            with ui.row().classes("items-center gap-2 mt-1"):
-                                ui.icon(_change_icon).style(f"font-size: 20px; color: {_change_color};")
-                                ui.label(f"{_change_sign}{_pct_change:.1f}%").classes("text-lg font-bold").style(f"color: {_change_color}; font-feature-settings: 'tnum';")
-                            ui.label(f"Last month: {currency(_prev_expense_total)}").classes("text-xs mt-1").style("color: var(--mf-muted);")
+                    # --- Row 2: vs Last Month ---
+                    if _prev_expense_total > 0:
+                        _pct_change = ((expense - _prev_expense_total) / _prev_expense_total) * 100
+                    else:
+                        _pct_change = 0.0
+                    _change_color = "#ef4444" if _pct_change > 0 else "#22c55e"
+                    _change_icon = "trending_up" if _pct_change > 0 else "trending_down"
+                    _change_sign = "+" if _pct_change > 0 else ""
 
-                        # 3) Largest single transaction this month
-                        if not spend.empty:
-                            _largest_row = spend.loc[spend["amount_num"].idxmax()]
-                            _largest_amt = float(_largest_row["amount_num"])
-                            _largest_note = str(_largest_row.get("notes", "") or "")[:24]
-                            _largest_cat = str(_largest_row.get("category", "") or "")
-                        else:
-                            _largest_amt = 0.0
-                            _largest_note = "—"
-                            _largest_cat = ""
+                    with ui.element("div").style(
+                        "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
+                        "border-bottom: 1px solid rgba(128,128,128,0.1);"
+                    ):
                         with ui.element("div").style(
-                            "padding: 16px; border-radius: 14px; border: 1px solid var(--mf-border);"
-                            "background: rgba(255,255,255,0.02);"
+                            f"width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
+                            f"background: {_change_color}14; flex-shrink: 0;"
                         ):
-                            ui.label("Biggest Expense").classes("mf-stat-label")
-                            ui.label(currency(_largest_amt)).classes("text-lg font-bold mt-1").style("color: #a855f7; font-feature-settings: 'tnum';")
+                            ui.icon(_change_icon).style(f"font-size: 20px; color: {_change_color};")
+                        with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
+                            with ui.row().classes("items-baseline justify-between w-full"):
+                                ui.label("vs Last Month").classes("text-sm font-semibold").style("color: var(--mf-text);")
+                                with ui.element("span").style(
+                                    f"background: {_change_color}18; color: {_change_color}; font-weight: 800; font-size: 14px;"
+                                    f"padding: 2px 10px; border-radius: 20px; font-feature-settings: 'tnum';"
+                                ):
+                                    ui.label(f"{_change_sign}{_pct_change:.1f}%")
+                            ui.label(f"Last month total: {currency(_prev_expense_total)}").classes("text-xs mt-1").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
+
+                    # --- Row 3: Biggest Expense ---
+                    if not spend.empty:
+                        _largest_row = spend.loc[spend["amount_num"].idxmax()]
+                        _largest_amt = float(_largest_row["amount_num"])
+                        _largest_note = str(_largest_row.get("notes", "") or "")[:28]
+                        _largest_cat = str(_largest_row.get("category", "") or "")
+                    else:
+                        _largest_amt = 0.0
+                        _largest_note = "—"
+                        _largest_cat = ""
+
+                    with ui.element("div").style(
+                        "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
+                        "border-bottom: 1px solid rgba(128,128,128,0.1);"
+                    ):
+                        with ui.element("div").style(
+                            "width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
+                            "background: rgba(168,85,247,0.08); flex-shrink: 0;"
+                        ):
+                            ui.icon("diamond").style("font-size: 20px; color: #a855f7;")
+                        with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
+                            with ui.row().classes("items-baseline justify-between w-full"):
+                                ui.label("Biggest Expense").classes("text-sm font-semibold").style("color: var(--mf-text);")
+                                ui.label(currency(_largest_amt)).classes("text-base font-extrabold").style("color: #a855f7; font-feature-settings: 'tnum'; letter-spacing: -0.02em;")
                             _hint = _largest_note or _largest_cat or "—"
-                            ui.label(_hint).classes("text-xs mt-1").style("color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;")
+                            ui.label(_hint).classes("text-xs mt-1").style("color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;")
 
-                        # 4) Top spending category shift (this month vs last month)
-                        if not spend.empty and "category" in spend.columns:
-                            _top_cat_this = spend.groupby("category")["amount_num"].sum().idxmax()
-                            _top_cat_amt = float(spend.groupby("category")["amount_num"].sum().max())
-                        else:
-                            _top_cat_this = "—"
-                            _top_cat_amt = 0.0
+                    # --- Row 4: Top Category ---
+                    if not spend.empty and "category" in spend.columns:
+                        _top_cat_this = spend.groupby("category")["amount_num"].sum().idxmax()
+                        _top_cat_amt = float(spend.groupby("category")["amount_num"].sum().max())
+                        _top_cat_pct = (_top_cat_amt / expense * 100) if expense > 0 else 0
+                    else:
+                        _top_cat_this = "—"
+                        _top_cat_amt = 0.0
+                        _top_cat_pct = 0.0
+
+                    with ui.element("div").style(
+                        "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
+                    ):
                         with ui.element("div").style(
-                            "padding: 16px; border-radius: 14px; border: 1px solid var(--mf-border);"
-                            "background: rgba(255,255,255,0.02);"
+                            "width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
+                            "background: rgba(59,130,246,0.08); flex-shrink: 0;"
                         ):
-                            ui.label("Top Category").classes("mf-stat-label")
-                            ui.label(str(_top_cat_this)).classes("text-lg font-bold mt-1").style("color: #3b82f6;")
-                            ui.label(currency(_top_cat_amt)).classes("text-xs mt-1").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
+                            ui.icon("category").style("font-size: 20px; color: #3b82f6;")
+                        with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
+                            with ui.row().classes("items-baseline justify-between w-full"):
+                                ui.label("Top Category").classes("text-sm font-semibold").style("color: var(--mf-text);")
+                                ui.label(str(_top_cat_this)).classes("text-base font-extrabold").style("color: #3b82f6; letter-spacing: -0.02em;")
+                            with ui.row().classes("items-center gap-3 mt-1"):
+                                ui.label(currency(_top_cat_amt)).classes("text-xs").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
+                                ui.label(f"{_top_cat_pct:.0f}% of total spend").classes("text-xs").style("color: var(--mf-muted);")
 
         except Exception:
             pass  # Insights are optional; never break the dashboard
