@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '7.4.0'
+APP_VERSION = '7.5.0'
 
 
 def log(message: str) -> None:
@@ -173,8 +173,9 @@ _apple_touch_icon_cache: Optional[bytes] = None
 async def _apple_touch_icon():
     """Serve a 180x180 PNG for iOS home screen bookmarks.
 
-    Premium dark finance icon: charcoal background, emerald+gold chart,
-    ascending bars with golden trend line. Pure Python, no PIL.
+    Matches the app header icon: dark-to-emerald gradient background
+    with the Material 'insights' icon shape rendered in gold.
+    Pure Python PNG generator, no PIL needed.
     """
     global _apple_touch_icon_cache
     if _apple_touch_icon_cache is not None:
@@ -182,155 +183,112 @@ async def _apple_touch_icon():
 
     import struct, zlib, math
     W = H = 180
-    cx, cy = W / 2, H / 2
 
     def _lerp(a, b, t):
         return a + (b - a) * t
-
     def _lerp3(c1, c2, t):
         return (int(_lerp(c1[0], c2[0], t)), int(_lerp(c1[1], c2[1], t)), int(_lerp(c1[2], c2[2], t)))
-
     def _blend(bg, fg, a):
-        return (int(bg[0] * (1 - a) + fg[0] * a), int(bg[1] * (1 - a) + fg[1] * a), int(bg[2] * (1 - a) + fg[2] * a))
-
-    def _sdf_roundrect(px, py, rx, ry, rw, rh, rad):
-        dx = max(abs(px - (rx + rw / 2)) - rw / 2 + rad, 0)
-        dy = max(abs(py - (ry + rh / 2)) - rh / 2 + rad, 0)
-        return math.sqrt(dx * dx + dy * dy) - rad
-
+        return (int(bg[0]*(1-a)+fg[0]*a), int(bg[1]*(1-a)+fg[1]*a), int(bg[2]*(1-a)+fg[2]*a))
     def _sdf_circle(px, py, ccx, ccy, rad):
-        return math.sqrt((px - ccx) ** 2 + (py - ccy) ** 2) - rad
+        return math.sqrt((px-ccx)**2+(py-ccy)**2) - rad
+    def _smoothstep(e0, e1, x):
+        t = max(0.0, min(1.0, (x-e0)/(e1-e0)))
+        return t*t*(3-2*t)
+    def _dist_to_segment(px, py, x1, y1, x2, y2):
+        dx, dy = x2-x1, y2-y1
+        l2 = dx*dx+dy*dy
+        if l2 == 0: return math.sqrt((px-x1)**2+(py-y1)**2)
+        t = max(0, min(1, ((px-x1)*dx+(py-y1)*dy)/l2))
+        return math.sqrt((px-x1-t*dx)**2+(py-y1-t*dy)**2)
 
-    def _smoothstep(edge0, edge1, x):
-        t = max(0.0, min(1.0, (x - edge0) / (edge1 - edge0)))
-        return t * t * (3 - 2 * t)
+    # "Insights" icon geometry: zigzag trend line with dots, plus a sparkle
+    # All coords in 180x180 space, centered
+    # Main zigzag line (the core of the Material insights icon)
+    # 4 nodes going up-down-up pattern, scaled to fill nicely
+    nodes = [
+        (38, 130),   # bottom-left
+        (72, 72),    # up
+        (108, 108),  # down
+        (142, 50),   # top-right
+    ]
+    dot_r = 9.0       # radius of the node dots
+    line_w = 5.0       # line half-width
+    # Sparkle star at top-right (like the insights icon has)
+    star_cx, star_cy = 148, 40
+    # Small sparkle bottom-left
+    star2_cx, star2_cy = 30, 130
 
-    # Layout: 4 ascending bars, wider and more prominent
-    bar_w = 24
-    bar_gap = 10
-    bars_total = 4 * bar_w + 3 * bar_gap
-    bx0 = (W - bars_total) / 2
-    bar_bottom = 146
-    bar_heights = [38, 56, 76, 100]
-    bar_tops = [bar_bottom - h for h in bar_heights]
-    bar_cx = [bx0 + i * (bar_w + bar_gap) + bar_w / 2 for i in range(4)]
-    bar_cy = [bt + 6 for bt in bar_tops]
-
-    # Colors
-    COL_EMERALD = (16, 185, 129)      # emerald-500
-    COL_EMERALD_LT = (52, 211, 153)   # emerald-400
-    COL_GOLD = (251, 191, 36)         # amber-400
-    COL_GOLD_DK = (217, 119, 6)       # amber-600
+    GOLD = (251, 191, 36)
+    GOLD_LT = (253, 224, 120)
 
     pixels = bytearray()
     for y in range(H):
-        pixels.append(0)
+        pixels.append(0)  # PNG filter byte
         for x in range(W):
-            # --- 1. Dark gradient background (charcoal center, near-black edges) ---
-            dist = math.sqrt((x - cx) ** 2 + (y - cy) ** 2) / (W * 0.72)
-            dist = min(dist, 1.0)
-            bg_core = (30, 34, 42)
-            bg_mid = (20, 22, 30)
-            bg_edge = (8, 9, 14)
-            if dist < 0.5:
-                bg = _lerp3(bg_core, bg_mid, dist * 2)
-            else:
-                bg = _lerp3(bg_mid, bg_edge, (dist - 0.5) * 2)
+            # --- 1. Background: dark-to-emerald diagonal gradient (matching header badge) ---
+            t_diag = (x / W * 0.6 + y / H * 0.4)  # diagonal blend factor
+            bg_dark = (15, 25, 35)      # #0F1923
+            bg_emerald = (20, 90, 60)   # dark emerald
+            bg = _lerp3(bg_dark, bg_emerald, t_diag)
 
-            # Top-left warm highlight (gold tint)
-            hl_d = math.sqrt((x - W * 0.2) ** 2 + (y - H * 0.12) ** 2) / W
-            if hl_d < 0.5:
-                ha = (1 - hl_d / 0.5) * 0.06
-                bg = _blend(bg, (180, 140, 50), ha)
-            # Bottom-right cool highlight (emerald tint)
-            hl2_d = math.sqrt((x - W * 0.85) ** 2 + (y - H * 0.88) ** 2) / W
-            if hl2_d < 0.4:
-                ha2 = (1 - hl2_d / 0.4) * 0.05
-                bg = _blend(bg, (16, 185, 129), ha2)
+            # Subtle radial highlight near center
+            cd = math.sqrt((x-90)**2+(y-90)**2) / 130
+            if cd < 1.0:
+                bg = _blend(bg, (25, 50, 42), (1-cd)*0.15)
 
             r, g, b = bg
 
-            # --- 2. Bars (emerald gradient, rounded tops, left-edge shine) ---
-            for i in range(4):
-                bxi = bx0 + i * (bar_w + bar_gap)
-                byi = bar_tops[i]
-                bhi = bar_heights[i]
-                bar_rad = bar_w / 2
-                bar_sdf = _sdf_roundrect(x, y, bxi, byi, bar_w, bhi, bar_rad)
-                if bar_sdf < 1.5:
-                    ba = 1.0 - _smoothstep(-0.5, 1.5, bar_sdf)
-                    # Vertical gradient: bright emerald top -> darker teal bottom
-                    vt = max(0, min(1, (y - byi) / max(bhi, 1)))
-                    bar_top_col = (52, 211, 153)
-                    bar_bot_col = (13, 148, 100)
-                    bc = _lerp3(bar_top_col, bar_bot_col, vt)
-                    # Left-edge shine
-                    lt = max(0, min(1, (x - bxi) / max(bar_w, 1)))
-                    if lt < 0.2:
-                        bc = _blend(bc, (255, 255, 255), (1 - lt / 0.2) * 0.18)
-                    # Right-edge shadow
-                    if lt > 0.8:
-                        bc = _blend(bc, (0, 0, 0), (lt - 0.8) / 0.2 * 0.12)
-                    r, g, b = _blend((r, g, b), bc, ba * 0.93)
+            # --- 2. Trend line segments (gold, anti-aliased) ---
+            min_seg_d = 999.0
+            for i in range(len(nodes)-1):
+                d = _dist_to_segment(x, y, nodes[i][0], nodes[i][1], nodes[i+1][0], nodes[i+1][1])
+                min_seg_d = min(min_seg_d, d)
 
-            # --- 3. Golden trend line (connects bar tops) ---
-            min_ld = 999.0
-            for i in range(3):
-                x1, y1 = bar_cx[i], bar_cy[i]
-                x2, y2 = bar_cx[i + 1], bar_cy[i + 1]
-                ddx, ddy = x2 - x1, y2 - y1
-                sl2 = ddx * ddx + ddy * ddy
-                if sl2 > 0:
-                    tp = max(0, min(1, ((x - x1) * ddx + (y - y1) * ddy) / sl2))
-                    px2, py2 = x1 + tp * ddx, y1 + tp * ddy
-                    d = math.sqrt((x - px2) ** 2 + (y - py2) ** 2)
-                    min_ld = min(min_ld, d)
+            # Outer glow
+            if min_seg_d < 16.0:
+                ga = (1.0 - _smoothstep(line_w+1, 16.0, min_seg_d)) * 0.15
+                r, g, b = _blend((r,g,b), GOLD, ga)
+            # Core line
+            if min_seg_d < line_w + 1.5:
+                la = 1.0 - _smoothstep(line_w - 0.5, line_w + 1.5, min_seg_d)
+                r, g, b = _blend((r,g,b), GOLD, la * 0.95)
 
-            # Outer glow (warm gold)
-            if min_ld < 12.0:
-                ga = (1.0 - _smoothstep(2.5, 12.0, min_ld)) * 0.18
-                r, g, b = _blend((r, g, b), COL_GOLD, ga)
-            # Line core (bright gold, 2.5px)
-            if min_ld < 4.0:
-                la = 1.0 - _smoothstep(0.0, 2.5, min_ld)
-                r, g, b = _blend((r, g, b), COL_GOLD, la * 0.95)
+            # --- 3. Node dots (filled gold circles with white center highlight) ---
+            for nx, ny in nodes:
+                dd = _sdf_circle(x, y, nx, ny, dot_r)
+                # Outer glow ring
+                if dd < 6.0 and dd > -dot_r:
+                    rga = (1.0 - _smoothstep(0.0, 6.0, dd)) * 0.12
+                    r, g, b = _blend((r,g,b), GOLD, rga)
+                # Filled circle
+                if dd < 1.5:
+                    fa = 1.0 - _smoothstep(-0.5, 1.5, dd)
+                    r, g, b = _blend((r,g,b), GOLD, fa * 0.95)
+                # White center highlight
+                inner_d = _sdf_circle(x, y, nx-1.5, ny-1.5, dot_r*0.35)
+                if inner_d < 1.0:
+                    ha = (1.0 - _smoothstep(-0.5, 1.0, inner_d)) * 0.35
+                    r, g, b = _blend((r,g,b), (255,255,255), ha)
 
-            # --- 4. Gold dots at peaks + ring glow ---
-            for i in range(4):
-                dd = _sdf_circle(x, y, bar_cx[i], bar_cy[i], 5.0)
-                # Outer ring
-                ring_d = abs(_sdf_circle(x, y, bar_cx[i], bar_cy[i], 9.0))
-                if ring_d < 2.5:
-                    ra = (1.0 - ring_d / 2.5) * 0.22
-                    r, g, b = _blend((r, g, b), COL_GOLD, ra)
-                # Filled dot
-                if dd < 2.0:
-                    da = 1.0 - _smoothstep(-1.5, 1.5, dd)
-                    r, g, b = _blend((r, g, b), (255, 255, 255), da * 0.95)
-
-            # --- 5. Small dollar sign ($) accent at top-right ---
-            # Simple $ shape using circles + lines
-            dollar_cx, dollar_cy = 145, 30
-            # Outer circle (coin)
-            coin_d = _sdf_circle(x, y, dollar_cx, dollar_cy, 14)
-            if coin_d < 2.0:
-                coin_a = 1.0 - _smoothstep(-0.5, 2.0, coin_d)
-                # Filled gold coin
-                r, g, b = _blend((r, g, b), COL_GOLD_DK, coin_a * 0.55)
-            # Coin border
-            coin_ring = abs(coin_d + 1)
-            if coin_ring < 2.0:
-                cra = (1 - coin_ring / 2.0) * 0.6
-                r, g, b = _blend((r, g, b), COL_GOLD, cra)
-            # Vertical stroke of $
-            if abs(x - dollar_cx) < 1.5 and abs(y - dollar_cy) < 10:
-                sa = 1.0 - abs(x - dollar_cx) / 1.5
-                r, g, b = _blend((r, g, b), COL_GOLD, sa * 0.8)
+            # --- 4. Sparkle (4-point star) at top-right ---
+            for scx, scy, sr in [(star_cx, star_cy, 11), (star2_cx, star2_cy, 6)]:
+                sdx, sdy = abs(x-scx), abs(y-scy)
+                # 4-point star: thin cross shape with falloff
+                cross_d = min(sdx + sdy*3.5, sdx*3.5 + sdy)
+                if cross_d < sr * 2.5:
+                    sa = (1.0 - cross_d / (sr * 2.5)) ** 1.8
+                    r, g, b = _blend((r,g,b), GOLD_LT, sa * 0.75)
+                # Center bright dot
+                cd2 = math.sqrt(sdx**2+sdy**2)
+                if cd2 < sr*0.45:
+                    ca = (1.0 - cd2 / (sr*0.45)) * 0.9
+                    r, g, b = _blend((r,g,b), (255,255,255), ca)
 
             # Clamp
-            r = max(0, min(255, r))
-            g = max(0, min(255, g))
-            b = max(0, min(255, b))
+            r = max(0, min(255, int(r)))
+            g = max(0, min(255, int(g)))
+            b = max(0, min(255, int(b)))
             pixels.extend((r, g, b))
 
     def _make_png(width, height, raw):
@@ -3813,6 +3771,8 @@ ui.add_head_html(r'''
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png">
 <style>
+/* CRITICAL: Paint dark background IMMEDIATELY — prevents iOS white flash */
+html,body{ background:#0F1923 !important; }
 /* Remove ugly yellow background on browser autofill (Safari/Chrome) */
 input:-webkit-autofill,
 textarea:-webkit-autofill,
@@ -3823,56 +3783,53 @@ select:-webkit-autofill{
   caret-color: var(--mf-text) !important;
   background-color: var(--mf-bg-2) !important;
 }
-/* iOS launch splash overlay — covers blank white flash */
+/* iOS launch splash overlay — covers blank page while NiceGUI hydrates */
 #mf-splash{
   position:fixed; inset:0; z-index:999999;
-  background: linear-gradient(145deg, #0F1923 0%, #1A2332 60%, #0D3320 100%);
-  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;
-  transition: opacity 0.45s ease;
+  background: #0F1923;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+  transition: opacity 0.4s ease;
 }
 #mf-splash.mf-splash-hide{ opacity:0; pointer-events:none; }
 #mf-splash .mf-sp-icon{
-  width:72px; height:72px; border-radius:20px;
-  background: linear-gradient(135deg, rgba(34,197,94,0.25), rgba(251,191,36,0.18));
+  width:64px; height:64px; border-radius:16px;
+  background: linear-gradient(135deg, #0F1923, #22C55E);
   display:flex; align-items:center; justify-content:center;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-  animation: mf-sp-pulse 1.8s ease-in-out infinite;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+  animation: mf-sp-pulse 1.6s ease-in-out infinite;
 }
 @keyframes mf-sp-pulse{
-  0%,100%{ transform: scale(1); opacity:1; }
-  50%{ transform: scale(1.06); opacity:0.85; }
+  0%,100%{ transform: scale(1); }
+  50%{ transform: scale(1.05); opacity:0.85; }
 }
 #mf-splash .mf-sp-title{
-  font-family: Inter, system-ui, sans-serif; font-weight:800; font-size:28px;
-  color: #FBBF24; letter-spacing:-0.04em;
+  font-family: Inter, system-ui, sans-serif; font-weight:800; font-size:26px;
+  color: rgba(255,255,255,0.92); letter-spacing:-0.04em; margin-top:4px;
 }
-#mf-splash .mf-sp-sub{
-  font-family: Inter, system-ui, sans-serif; font-size:13px;
-  color: rgba(255,255,255,0.5); letter-spacing:0.04em;
-}
-#mf-splash .mf-sp-dots{ display:flex; gap:6px; margin-top:6px; }
+#mf-splash .mf-sp-dots{ display:flex; gap:5px; margin-top:10px; }
 #mf-splash .mf-sp-dot{
-  width:6px; height:6px; border-radius:50%; background:#22C55E; opacity:0.4;
+  width:5px; height:5px; border-radius:50%; background:#22C55E; opacity:0.3;
   animation: mf-sp-blink 1.2s ease-in-out infinite;
 }
 #mf-splash .mf-sp-dot:nth-child(2){ animation-delay:0.2s; }
 #mf-splash .mf-sp-dot:nth-child(3){ animation-delay:0.4s; }
-@keyframes mf-sp-blink{ 0%,100%{ opacity:0.3; } 50%{ opacity:1; } }
+@keyframes mf-sp-blink{ 0%,100%{ opacity:0.25; } 50%{ opacity:1; } }
 </style>
 <script>
-// Inject splash DOM immediately (before NiceGUI renders)
+// Inject splash overlay ASAP — matches the app header icon (insights icon in emerald+gold badge)
 (function(){
   if(document.getElementById('mf-splash')) return;
   var s=document.createElement('div'); s.id='mf-splash';
-  s.innerHTML='<div class="mf-sp-icon"><svg width="38" height="38" viewBox="0 0 24 24" fill="none"><path d="M3 13h2v8H3zm5-4h2v12H8zm5-3h2v15h-2zm5-2h2v17h-2z" fill="#22C55E" opacity="0.9"/><polyline points="3,12 8,8 13,5 18,3" stroke="#FBBF24" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div><div class="mf-sp-title">FinTrackr</div><div class="mf-sp-sub">LOADING</div><div class="mf-sp-dots"><div class="mf-sp-dot"></div><div class="mf-sp-dot"></div><div class="mf-sp-dot"></div></div>';
+  // The icon SVG replicates the Material "insights" icon in gold (#FBBF24)
+  s.innerHTML='<div class="mf-sp-icon"><svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="#FBBF24"><path d="M21 8c-1.45 0-2.26 1.44-1.93 2.51l-3.55 3.56c-.3-.09-.74-.09-1.04 0l-2.55-2.55C12.27 10.45 11.46 9 10 9c-1.45 0-2.27 1.44-1.93 2.52l-4.56 4.55C2.44 15.74 1 16.55 1 18c0 1.1.9 2 2 2 1.45 0 2.26-1.44 1.93-2.51l4.55-4.56c.3.09.74.09 1.04 0l2.55 2.55C12.73 16.55 13.54 18 15 18c1.45 0 2.27-1.44 1.93-2.52l3.56-3.55C21.56 12.26 23 11.45 23 10c0-1.1-.9-2-2-2z"/><path d="M15 9l.94-2.07L18 6l-2.06-.93L15 3l-.92 2.07L12 6l2.08.93z"/><path d="M3.5 11L4 9l2-.5L4 8l-.5-2L3 8l-2 .5L3 9z"/></svg></div><div class="mf-sp-title">FinTrackr</div><div class="mf-sp-dots"><div class="mf-sp-dot"></div><div class="mf-sp-dot"></div><div class="mf-sp-dot"></div></div>';
   document.body.prepend(s);
-  // Auto-hide after NiceGUI mounts (or after 6s fallback)
-  var hide=function(){ var el=document.getElementById('mf-splash'); if(el){el.classList.add('mf-splash-hide'); setTimeout(function(){el.remove();},500);} };
-  var ob=new MutationObserver(function(muts){
-    if(document.querySelector('.mf-shell,.mf-login-hero,.nicegui-content')){ob.disconnect(); setTimeout(hide,300);}
+  // Auto-hide once NiceGUI content appears (or 5s timeout)
+  var hide=function(){ var el=document.getElementById('mf-splash'); if(el){el.classList.add('mf-splash-hide'); setTimeout(function(){try{el.remove();}catch(e){}},450);} };
+  var ob=new MutationObserver(function(){
+    if(document.querySelector('.mf-shell,.mf-login-hero,.nicegui-content')){ob.disconnect(); setTimeout(hide,200);}
   });
   ob.observe(document.body,{childList:true,subtree:true});
-  setTimeout(hide,6000); // fallback
+  setTimeout(hide,5000);
 })();
 </script>
 ''', shared=True)
@@ -4321,6 +4278,7 @@ def shell(content_fn, *, active_path: str = ""):
                 nav_btn("Cards", "credit_card", "/cards")
                 nav_btn("Rules", "rule", "/rules")
                 nav_btn("Admin", "settings", "/admin")
+                nav_btn("About", "info", "/about")
 
                 ui.separator().props("dark").classes("opacity-20 my-1")
                 ui.label(f"v{APP_VERSION}").classes("text-xs").style("color: var(--mf-muted); text-align:center; opacity: 0.5;")
@@ -6237,7 +6195,8 @@ def add_page():
                         pass
                     scan_dlg.open()
 
-                btn_scan_receipt = ui.button('Scan receipt', on_click=_open_scan_dialog).props('outline').classes('w-full')
+                with ui.element('div').style('padding: 0 24px;'):
+                    btn_scan_receipt = ui.button('Scan receipt', on_click=_open_scan_dialog).props('outline').classes('w-full')
 
                 # Auto-open scan dialog if requested (from "Scan Now" hero button)
                 if auto_scan:
@@ -6245,11 +6204,12 @@ def add_page():
 
 
                 # Phase 6.5: Multi-category split UI — shown only after OCR Apply for Walmart/Costco/Superstore
-                split_banner = ui.element('div').style(
-                    'display:none; background: linear-gradient(135deg, rgba(34,197,94,0.10), rgba(251,191,36,0.08));'
-                    'border: 1px solid rgba(34,197,94,0.25); border-radius: 14px; padding: 14px 16px;'
-                    'margin: 4px 0;'
-                )
+                with ui.element('div').style('padding: 0 24px;'):
+                    split_banner = ui.element('div').style(
+                        'display:none; background: linear-gradient(135deg, rgba(34,197,94,0.10), rgba(251,191,36,0.08));'
+                        'border: 1px solid rgba(34,197,94,0.25); border-radius: 14px; padding: 14px 16px;'
+                        'margin: 4px 0;'
+                    )
                 with split_banner:
                     with ui.row().classes('items-center gap-2 mb-2'):
                         ui.icon('call_split').style('font-size: 18px; color: #22c55e;')
@@ -6421,9 +6381,10 @@ def add_page():
             _debounce_task = {"t": None}
 
             # Small chip-style feedback (shown only when auto is active and suggestion is meaningful)
-            suggest_chip = ui.chip("").classes("q-mt-xs").style(
-                "background: rgba(120,160,255,0.14); border: 1px solid var(--mf-border); color: var(--mf-text);"
-            )
+            with ui.element('div').style('padding: 0 24px;'):
+                suggest_chip = ui.chip("").classes("q-mt-xs").style(
+                    "background: rgba(120,160,255,0.14); border: 1px solid var(--mf-border); color: var(--mf-text);"
+                )
             try:
                 suggest_chip.set_visibility(False)
             except Exception:
@@ -6511,7 +6472,8 @@ def add_page():
                 d_category.value = infer_category(d_notes.value or "", fresh_rules) or "Uncategorized"
                 ui.notify("Category updated", type="positive")
 
-            ui.button("Auto-category", on_click=autofill).props("flat")
+            with ui.element('div').style('padding: 0 24px;'):
+                ui.button("Auto-category", on_click=autofill).props("flat")
 
             def save():
 
@@ -8823,8 +8785,141 @@ def reports_page() -> None:
 
 
 # -----------------------------
-# Boot
+# About / Author
 # -----------------------------
+@ui.page('/about')
+def about_page() -> None:
+    if not require_login():
+        nav_to('/login')
+        return
+
+    def content() -> None:
+        # ── App Info Card ──
+        with ui.card().classes('my-card p-0').style('overflow: hidden;'):
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #22C55E, #FBBF24); border-radius: 0;')
+            with ui.column().classes('p-6 gap-4 items-center'):
+                with ui.element('div').style(
+                    'width: 80px; height: 80px; border-radius: 22px; display: flex; align-items: center; justify-content: center;'
+                    'background: linear-gradient(135deg, #0F1923, #22C55E);'
+                    'box-shadow: 0 8px 32px rgba(34,197,94,0.25);'
+                ):
+                    ui.icon('insights').style('font-size: 40px; color: #FBBF24;')
+                ui.label('FinTrackr').style('font-size: 32px; font-weight: 800; letter-spacing: -0.04em; color: var(--mf-text);')
+                ui.label(f'Version {APP_VERSION}').classes('text-sm').style('color: var(--mf-muted); margin-top: -8px;')
+                ui.separator().classes('w-full opacity-20')
+                ui.label(
+                    'FinTrackr is a premium personal finance dashboard built to help you take control '
+                    'of your money. Track every expense, scan receipts with AI-powered OCR, monitor '
+                    'credit card utilization, set budgets, and visualize your spending patterns — all '
+                    'from a single elegant interface.'
+                ).classes('text-sm text-center').style('color: var(--mf-muted); line-height: 1.7; max-width: 520px;')
+
+                # Feature highlights
+                _features = [
+                    ('document_scanner', 'AI Receipt Scanning', 'Snap a photo and let OCR extract amounts, merchants & categories automatically.'),
+                    ('palette', '8 Premium Themes', 'From dark Midnight Blue to light Sand Gold — pick the look that suits you.'),
+                    ('show_chart', 'Smart Analytics', 'Weekly cashflow charts, category breakdowns, budget alerts and monthly insights.'),
+                    ('security', 'Passkey Auth', 'Biometric login with WebAuthn passkeys for secure, passwordless access.'),
+                    ('call_split', 'Receipt Splitting', 'Multi-category split for Walmart, Costco & Superstore receipts.'),
+                    ('autorenew', 'Recurring Templates', 'Set it and forget it — automatic transaction creation on due dates.'),
+                ]
+                with ui.element('div').style(
+                    'display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; width: 100%; max-width: 600px; margin-top: 8px;'
+                ):
+                    for f_icon, f_title, f_desc in _features:
+                        with ui.element('div').style(
+                            'display: flex; align-items: flex-start; gap: 12px; padding: 12px;'
+                            'border-radius: 12px; border: 1px solid var(--mf-border);'
+                            'background: var(--mf-surface);'
+                        ):
+                            ui.icon(f_icon).style('font-size: 20px; color: var(--mf-accent); margin-top: 2px; flex-shrink: 0;')
+                            with ui.column().classes('gap-0'):
+                                ui.label(f_title).classes('text-sm font-bold').style('color: var(--mf-text);')
+                                ui.label(f_desc).classes('text-xs').style('color: var(--mf-muted); line-height: 1.5;')
+
+        # ── Author Card ──
+        with ui.card().classes('my-card p-0 mt-3').style('overflow: hidden;'):
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
+            with ui.column().classes('p-6 gap-4'):
+                with ui.row().classes('items-center gap-2 mb-1'):
+                    with ui.element('div').classes('mf-icon-box').style('background: rgba(99,102,241,0.12);'):
+                        ui.icon('person').style('font-size: 20px; color: #6366f1;')
+                    ui.label('About the Author').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+
+                with ui.element('div').style(
+                    'display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;'
+                ):
+                    # Avatar placeholder
+                    with ui.element('div').style(
+                        'width: 90px; height: 90px; border-radius: 50%; flex-shrink: 0;'
+                        'background: linear-gradient(135deg, #6366f1, #a855f7);'
+                        'display: flex; align-items: center; justify-content: center;'
+                        'box-shadow: 0 6px 20px rgba(99,102,241,0.25);'
+                    ):
+                        ui.label('NR').style('font-size: 32px; font-weight: 800; color: #fff; letter-spacing: -0.03em;')
+
+                    with ui.column().classes('gap-2 flex-1').style('min-width: 200px;'):
+                        ui.label('Nishanth R').style('font-size: 22px; font-weight: 800; letter-spacing: -0.03em; color: var(--mf-text);')
+                        ui.label('Oracle DBA & Full-Stack Developer').classes('text-sm font-medium').style('color: var(--mf-accent);')
+                        ui.label(
+                            'An experienced Oracle Database Administrator with a passion for building '
+                            'elegant, data-driven applications. FinTrackr was born from a personal need '
+                            'to track finances with the same precision and reliability that goes into '
+                            'managing enterprise databases — clean architecture, robust error handling, '
+                            'and a beautiful interface that makes financial management effortless.'
+                        ).classes('text-sm').style('color: var(--mf-muted); line-height: 1.7;')
+
+                ui.separator().classes('w-full opacity-20')
+
+                # Contact links
+                with ui.row().classes('items-center gap-4 flex-wrap'):
+                    # Email
+                    with ui.element('a').style(
+                        'display: flex; align-items: center; gap: 8px; text-decoration: none;'
+                        'padding: 8px 16px; border-radius: 10px; border: 1px solid var(--mf-border);'
+                        'background: var(--mf-surface); color: var(--mf-text); cursor: pointer;'
+                        'transition: background 0.2s ease;'
+                    ).props('href="mailto:nishanth91.dba@gmail.com"'):
+                        ui.icon('email').style('font-size: 18px; color: #ef4444;')
+                        ui.label('nishanth91.dba@gmail.com').classes('text-sm font-medium')
+
+                    # Instagram
+                    with ui.element('a').style(
+                        'display: flex; align-items: center; gap: 8px; text-decoration: none;'
+                        'padding: 8px 16px; border-radius: 10px; border: 1px solid var(--mf-border);'
+                        'background: var(--mf-surface); color: var(--mf-text); cursor: pointer;'
+                        'transition: background 0.2s ease;'
+                    ).props('href="https://www.instagram.com/n_1_5_h_/" target="_blank"'):
+                        ui.icon('photo_camera').style('font-size: 18px; color: #E1306C;')
+                        ui.label('@n_1_5_h_').classes('text-sm font-medium')
+
+        # ── Tech Stack Card ──
+        with ui.card().classes('my-card p-0 mt-3').style('overflow: hidden;'):
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #22c55e, #3b82f6); border-radius: 0;')
+            with ui.column().classes('p-6 gap-3'):
+                with ui.row().classes('items-center gap-2 mb-1'):
+                    with ui.element('div').classes('mf-icon-box').style('background: rgba(34,197,94,0.12);'):
+                        ui.icon('code').style('font-size: 20px; color: #22c55e;')
+                    ui.label('Tech Stack').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+
+                _stack = [
+                    ('Python + NiceGUI', 'Full-stack web framework with Quasar/Vue.js frontend'),
+                    ('Google Sheets API', 'Zero-cost cloud database via gspread'),
+                    ('Tesseract.js + Google Vision', 'Client-side & server-side OCR for receipt scanning'),
+                    ('Plotly', 'Interactive charts for spending analytics'),
+                    ('WebAuthn', 'Passwordless biometric authentication'),
+                    ('Render', 'Cloud hosting with automatic deployments'),
+                ]
+                for tech, desc in _stack:
+                    with ui.row().classes('items-center gap-3').style('padding: 8px 0; border-bottom: 1px solid rgba(128,128,128,0.06);'):
+                        ui.element('div').style('width: 6px; height: 6px; border-radius: 50%; background: var(--mf-accent); flex-shrink: 0;')
+                        with ui.column().classes('gap-0'):
+                            ui.label(tech).classes('text-sm font-bold').style('color: var(--mf-text);')
+                            ui.label(desc).classes('text-xs').style('color: var(--mf-muted);')
+
+    shell(content)
+
+
 # -----------------------------
 # Boot
 # -----------------------------
@@ -8846,34 +8941,49 @@ def bootstrap() -> None:
 
 bootstrap()
 
-# Premium SVG favicon – dark finance icon with emerald+gold palette
+# Premium SVG favicon – "insights" style: zigzag trend + sparkle on dark-emerald bg
 _FAVICON_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#0F1923"/>
-      <stop offset="100%" stop-color="#1A2332"/>
-    </linearGradient>
-    <linearGradient id="bar" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0%" stop-color="#22C55E"/>
-      <stop offset="100%" stop-color="#4ADE80"/>
+      <stop offset="100%" stop-color="#145038"/>
     </linearGradient>
     <filter id="glow">
-      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="sparkglow">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
       <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
   <rect width="512" height="512" rx="108" fill="url(#bg)"/>
-  <rect x="90" y="300" width="60" height="110" rx="12" fill="url(#bar)" opacity="0.55"/>
-  <rect x="175" y="230" width="60" height="180" rx="12" fill="url(#bar)" opacity="0.68"/>
-  <rect x="260" y="170" width="60" height="240" rx="12" fill="url(#bar)" opacity="0.82"/>
-  <rect x="345" y="130" width="60" height="280" rx="12" fill="url(#bar)" opacity="0.95"/>
-  <polyline points="110,280 195,210 280,150 375,110" fill="none" stroke="#FBBF24" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
-  <circle cx="110" cy="280" r="10" fill="#FBBF24"/>
-  <circle cx="195" cy="210" r="10" fill="#FBBF24"/>
-  <circle cx="280" cy="150" r="10" fill="#FBBF24"/>
-  <circle cx="375" cy="110" r="10" fill="#FBBF24"/>
-  <circle cx="375" cy="110" r="18" fill="none" stroke="#FBBF24" stroke-width="4" opacity="0.5"/>
-  <text x="256" y="465" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="800" font-size="72" fill="#FBBF24" letter-spacing="-2">FT</text>
+  <!-- Trend zigzag line (gold) — the "insights" signature shape -->
+  <polyline points="90,340 175,180 280,280 395,110" fill="none" stroke="#FBBF24" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <!-- Node dots -->
+  <circle cx="90" cy="340" r="18" fill="#FBBF24"/>
+  <circle cx="175" cy="180" r="18" fill="#FBBF24"/>
+  <circle cx="280" cy="280" r="18" fill="#FBBF24"/>
+  <circle cx="395" cy="110" r="18" fill="#FBBF24"/>
+  <!-- White center highlights on dots -->
+  <circle cx="87" cy="337" r="6" fill="rgba(255,255,255,0.45)"/>
+  <circle cx="172" cy="177" r="6" fill="rgba(255,255,255,0.45)"/>
+  <circle cx="277" cy="277" r="6" fill="rgba(255,255,255,0.45)"/>
+  <circle cx="392" cy="107" r="6" fill="rgba(255,255,255,0.45)"/>
+  <!-- Sparkle star top-right -->
+  <g transform="translate(410,70)" filter="url(#sparkglow)">
+    <line x1="0" y1="-22" x2="0" y2="22" stroke="#FBBF24" stroke-width="5" stroke-linecap="round"/>
+    <line x1="-22" y1="0" x2="22" y2="0" stroke="#FBBF24" stroke-width="5" stroke-linecap="round"/>
+    <line x1="-12" y1="-12" x2="12" y2="12" stroke="#FBBF24" stroke-width="3" stroke-linecap="round" opacity="0.6"/>
+    <line x1="12" y1="-12" x2="-12" y2="12" stroke="#FBBF24" stroke-width="3" stroke-linecap="round" opacity="0.6"/>
+    <circle cx="0" cy="0" r="5" fill="#fff" opacity="0.7"/>
+  </g>
+  <!-- Small sparkle bottom-left -->
+  <g transform="translate(80,400)" filter="url(#sparkglow)" opacity="0.5">
+    <line x1="0" y1="-12" x2="0" y2="12" stroke="#FBBF24" stroke-width="3" stroke-linecap="round"/>
+    <line x1="-12" y1="0" x2="12" y2="0" stroke="#FBBF24" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="0" cy="0" r="3" fill="#fff" opacity="0.6"/>
+  </g>
 </svg>'''
 
 # ---------------------------
@@ -8917,4 +9027,4 @@ ui.run(
     favicon=_FAVICON_SVG,
 )
 
-# Release: FinTrackr Phase 7.4.0
+# Release: FinTrackr Phase 7.5.0
