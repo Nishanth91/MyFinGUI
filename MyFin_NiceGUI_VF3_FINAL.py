@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '7.3.0'
+APP_VERSION = '7.4.0'
 
 
 def log(message: str) -> None:
@@ -173,8 +173,8 @@ _apple_touch_icon_cache: Optional[bytes] = None
 async def _apple_touch_icon():
     """Serve a 180x180 PNG for iOS home screen bookmarks.
 
-    Premium icon: deep gradient background, frosted glass card,
-    ascending bar chart with glowing trend line. Pure Python, no PIL.
+    Premium dark finance icon: charcoal background, emerald+gold chart,
+    ascending bars with golden trend line. Pure Python, no PIL.
     """
     global _apple_touch_icon_cache
     if _apple_touch_icon_cache is not None:
@@ -205,125 +205,127 @@ async def _apple_touch_icon():
         t = max(0.0, min(1.0, (x - edge0) / (edge1 - edge0)))
         return t * t * (3 - 2 * t)
 
-    # Bar chart geometry (4 ascending bars inside a frosted card)
-    card_x, card_y, card_w, card_h, card_r = 24, 32, 132, 116, 18
-    bar_w = 20
+    # Layout: 4 ascending bars, wider and more prominent
+    bar_w = 24
     bar_gap = 10
-    bars_total = 4 * bar_w + 3 * bar_gap  # 110
-    bx0 = card_x + (card_w - bars_total) / 2
-    bar_bottom = card_y + card_h - 16
-    bar_heights = [32, 50, 68, 88]
+    bars_total = 4 * bar_w + 3 * bar_gap
+    bx0 = (W - bars_total) / 2
+    bar_bottom = 146
+    bar_heights = [38, 56, 76, 100]
     bar_tops = [bar_bottom - h for h in bar_heights]
-    bar_centers_x = [bx0 + i * (bar_w + bar_gap) + bar_w / 2 for i in range(4)]
-    bar_centers_y = [bt + 8 for bt in bar_tops]  # trend line hits near top of each bar
+    bar_cx = [bx0 + i * (bar_w + bar_gap) + bar_w / 2 for i in range(4)]
+    bar_cy = [bt + 6 for bt in bar_tops]
 
-    # RGBA pixel buffer
+    # Colors
+    COL_EMERALD = (16, 185, 129)      # emerald-500
+    COL_EMERALD_LT = (52, 211, 153)   # emerald-400
+    COL_GOLD = (251, 191, 36)         # amber-400
+    COL_GOLD_DK = (217, 119, 6)       # amber-600
+
     pixels = bytearray()
     for y in range(H):
-        pixels.append(0)  # PNG filter byte
+        pixels.append(0)
         for x in range(W):
-            # --- 1. Deep radial gradient background ---
-            dist = math.sqrt((x - cx) ** 2 + (y - cy) ** 2) / (W * 0.75)
+            # --- 1. Dark gradient background (charcoal center, near-black edges) ---
+            dist = math.sqrt((x - cx) ** 2 + (y - cy) ** 2) / (W * 0.72)
             dist = min(dist, 1.0)
-            # Core: rich indigo, edge: deep navy
-            col_core = (88, 60, 220)
-            col_mid = (55, 40, 180)
-            col_edge = (16, 12, 60)
+            bg_core = (30, 34, 42)
+            bg_mid = (20, 22, 30)
+            bg_edge = (8, 9, 14)
             if dist < 0.5:
-                bg = _lerp3(col_core, col_mid, dist * 2)
+                bg = _lerp3(bg_core, bg_mid, dist * 2)
             else:
-                bg = _lerp3(col_mid, col_edge, (dist - 0.5) * 2)
+                bg = _lerp3(bg_mid, bg_edge, (dist - 0.5) * 2)
 
-            # Subtle top-right highlight (simulates light source)
-            highlight_d = math.sqrt((x - W * 0.8) ** 2 + (y - H * 0.15) ** 2) / W
-            if highlight_d < 0.45:
-                ha = (1 - highlight_d / 0.45) * 0.12
-                bg = _blend(bg, (160, 140, 255), ha)
+            # Top-left warm highlight (gold tint)
+            hl_d = math.sqrt((x - W * 0.2) ** 2 + (y - H * 0.12) ** 2) / W
+            if hl_d < 0.5:
+                ha = (1 - hl_d / 0.5) * 0.06
+                bg = _blend(bg, (180, 140, 50), ha)
+            # Bottom-right cool highlight (emerald tint)
+            hl2_d = math.sqrt((x - W * 0.85) ** 2 + (y - H * 0.88) ** 2) / W
+            if hl2_d < 0.4:
+                ha2 = (1 - hl2_d / 0.4) * 0.05
+                bg = _blend(bg, (16, 185, 129), ha2)
 
             r, g, b = bg
 
-            # --- 2. Frosted glass card ---
-            card_sdf = _sdf_roundrect(x, y, card_x, card_y, card_w, card_h, card_r)
-            if card_sdf < 1.5:
-                card_a = 1.0 - _smoothstep(-1.0, 1.5, card_sdf)
-                # Glass: semi-transparent white
-                glass = (255, 255, 255)
-                glass_opacity = 0.10 + 0.03 * (1 - y / H)  # slightly brighter at top
-                r, g, b = _blend((r, g, b), glass, card_a * glass_opacity)
-                # Thin bright border
-                border_a = _smoothstep(-1.5, -0.5, card_sdf) * (1 - _smoothstep(-0.5, 0.5, card_sdf))
-                r, g, b = _blend((r, g, b), (255, 255, 255), border_a * 0.20)
-
-            # --- 3. Ascending bars (rounded tops, gradient fill) ---
+            # --- 2. Bars (emerald gradient, rounded tops, left-edge shine) ---
             for i in range(4):
                 bxi = bx0 + i * (bar_w + bar_gap)
                 byi = bar_tops[i]
                 bhi = bar_heights[i]
-                bar_rad = bar_w / 2  # fully rounded top
+                bar_rad = bar_w / 2
                 bar_sdf = _sdf_roundrect(x, y, bxi, byi, bar_w, bhi, bar_rad)
                 if bar_sdf < 1.5:
-                    bar_a = 1.0 - _smoothstep(-0.5, 1.5, bar_sdf)
-                    # Vertical gradient: cyan top -> teal bottom
-                    bt = max(0, min(1, (y - byi) / max(bhi, 1)))
-                    bar_col_top = (34, 211, 238)    # cyan-400
-                    bar_col_bot = (20, 184, 166)     # teal-500
-                    bar_col = _lerp3(bar_col_top, bar_col_bot, bt)
-                    # Subtle inner shine on left edge
-                    inner_t = max(0, min(1, (x - bxi) / max(bar_w, 1)))
-                    if inner_t < 0.25:
-                        shine = (1 - inner_t / 0.25) * 0.15
-                        bar_col = _blend(bar_col, (255, 255, 255), shine)
-                    r, g, b = _blend((r, g, b), bar_col, bar_a * 0.92)
+                    ba = 1.0 - _smoothstep(-0.5, 1.5, bar_sdf)
+                    # Vertical gradient: bright emerald top -> darker teal bottom
+                    vt = max(0, min(1, (y - byi) / max(bhi, 1)))
+                    bar_top_col = (52, 211, 153)
+                    bar_bot_col = (13, 148, 100)
+                    bc = _lerp3(bar_top_col, bar_bot_col, vt)
+                    # Left-edge shine
+                    lt = max(0, min(1, (x - bxi) / max(bar_w, 1)))
+                    if lt < 0.2:
+                        bc = _blend(bc, (255, 255, 255), (1 - lt / 0.2) * 0.18)
+                    # Right-edge shadow
+                    if lt > 0.8:
+                        bc = _blend(bc, (0, 0, 0), (lt - 0.8) / 0.2 * 0.12)
+                    r, g, b = _blend((r, g, b), bc, ba * 0.93)
 
-            # --- 4. Glowing trend line (connects bar tops) ---
-            # Use line segments between bar center tops
-            min_line_dist = 999.0
+            # --- 3. Golden trend line (connects bar tops) ---
+            min_ld = 999.0
             for i in range(3):
-                x1, y1 = bar_centers_x[i], bar_centers_y[i]
-                x2, y2 = bar_centers_x[i + 1], bar_centers_y[i + 1]
-                # Distance from point to line segment
-                dx, dy = x2 - x1, y2 - y1
-                seg_len_sq = dx * dx + dy * dy
-                if seg_len_sq > 0:
-                    t_proj = max(0, min(1, ((x - x1) * dx + (y - y1) * dy) / seg_len_sq))
-                    proj_x = x1 + t_proj * dx
-                    proj_y = y1 + t_proj * dy
-                    d = math.sqrt((x - proj_x) ** 2 + (y - proj_y) ** 2)
-                    min_line_dist = min(min_line_dist, d)
+                x1, y1 = bar_cx[i], bar_cy[i]
+                x2, y2 = bar_cx[i + 1], bar_cy[i + 1]
+                ddx, ddy = x2 - x1, y2 - y1
+                sl2 = ddx * ddx + ddy * ddy
+                if sl2 > 0:
+                    tp = max(0, min(1, ((x - x1) * ddx + (y - y1) * ddy) / sl2))
+                    px2, py2 = x1 + tp * ddx, y1 + tp * ddy
+                    d = math.sqrt((x - px2) ** 2 + (y - py2) ** 2)
+                    min_ld = min(min_ld, d)
 
-            # Line core (bright green, ~2.5px)
-            if min_line_dist < 5.0:
-                line_a = 1.0 - _smoothstep(0.0, 2.5, min_line_dist)
-                line_col = (52, 211, 153)  # emerald-400
-                r, g, b = _blend((r, g, b), line_col, line_a * 0.95)
-            # Outer glow
-            if min_line_dist < 10.0:
-                glow_a = (1.0 - _smoothstep(2.0, 10.0, min_line_dist)) * 0.25
-                r, g, b = _blend((r, g, b), (52, 211, 153), glow_a)
+            # Outer glow (warm gold)
+            if min_ld < 12.0:
+                ga = (1.0 - _smoothstep(2.5, 12.0, min_ld)) * 0.18
+                r, g, b = _blend((r, g, b), COL_GOLD, ga)
+            # Line core (bright gold, 2.5px)
+            if min_ld < 4.0:
+                la = 1.0 - _smoothstep(0.0, 2.5, min_ld)
+                r, g, b = _blend((r, g, b), COL_GOLD, la * 0.95)
 
-            # --- 5. Dots at trend line peaks ---
+            # --- 4. Gold dots at peaks + ring glow ---
             for i in range(4):
-                dot_d = _sdf_circle(x, y, bar_centers_x[i], bar_centers_y[i], 4.5)
-                if dot_d < 3.0:
-                    # White filled dot
-                    dot_a = 1.0 - _smoothstep(-1.0, 1.5, dot_d)
-                    r, g, b = _blend((r, g, b), (255, 255, 255), dot_a * 0.95)
-                # Outer ring glow
-                ring_d = abs(_sdf_circle(x, y, bar_centers_x[i], bar_centers_y[i], 7.5))
+                dd = _sdf_circle(x, y, bar_cx[i], bar_cy[i], 5.0)
+                # Outer ring
+                ring_d = abs(_sdf_circle(x, y, bar_cx[i], bar_cy[i], 9.0))
                 if ring_d < 2.5:
-                    ring_a = (1.0 - ring_d / 2.5) * 0.3
-                    r, g, b = _blend((r, g, b), (52, 211, 153), ring_a)
+                    ra = (1.0 - ring_d / 2.5) * 0.22
+                    r, g, b = _blend((r, g, b), COL_GOLD, ra)
+                # Filled dot
+                if dd < 2.0:
+                    da = 1.0 - _smoothstep(-1.5, 1.5, dd)
+                    r, g, b = _blend((r, g, b), (255, 255, 255), da * 0.95)
 
-            # --- 6. "FinTrackr" label bar at bottom ---
-            label_y = card_y + card_h + 12
-            label_h = 20
-            label_sdf = _sdf_roundrect(x, y, 40, label_y, 100, label_h, 10)
-            if label_sdf < 1.5:
-                la = 1.0 - _smoothstep(-0.5, 1.5, label_sdf)
-                # Soft gradient pill
-                lt = max(0, min(1, (x - 40) / 100))
-                pill_col = _lerp3((79, 70, 229), (6, 182, 212), lt)
-                r, g, b = _blend((r, g, b), pill_col, la * 0.7)
+            # --- 5. Small dollar sign ($) accent at top-right ---
+            # Simple $ shape using circles + lines
+            dollar_cx, dollar_cy = 145, 30
+            # Outer circle (coin)
+            coin_d = _sdf_circle(x, y, dollar_cx, dollar_cy, 14)
+            if coin_d < 2.0:
+                coin_a = 1.0 - _smoothstep(-0.5, 2.0, coin_d)
+                # Filled gold coin
+                r, g, b = _blend((r, g, b), COL_GOLD_DK, coin_a * 0.55)
+            # Coin border
+            coin_ring = abs(coin_d + 1)
+            if coin_ring < 2.0:
+                cra = (1 - coin_ring / 2.0) * 0.6
+                r, g, b = _blend((r, g, b), COL_GOLD, cra)
+            # Vertical stroke of $
+            if abs(x - dollar_cx) < 1.5 and abs(y - dollar_cy) < 10:
+                sa = 1.0 - abs(x - dollar_cx) / 1.5
+                r, g, b = _blend((r, g, b), COL_GOLD, sa * 0.8)
 
             # Clamp
             r = max(0, min(255, r))
@@ -331,7 +333,6 @@ async def _apple_touch_icon():
             b = max(0, min(255, b))
             pixels.extend((r, g, b))
 
-    # Encode as PNG
     def _make_png(width, height, raw):
         def _chunk(ctype, data):
             c = ctype + data
@@ -3808,7 +3809,7 @@ ui.add_head_html(r'''
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FinTrackr">
-<meta name="theme-color" content="#4F46E5">
+<meta name="theme-color" content="#0F1923">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png">
 <style>
@@ -3822,7 +3823,58 @@ select:-webkit-autofill{
   caret-color: var(--mf-text) !important;
   background-color: var(--mf-bg-2) !important;
 }
+/* iOS launch splash overlay — covers blank white flash */
+#mf-splash{
+  position:fixed; inset:0; z-index:999999;
+  background: linear-gradient(145deg, #0F1923 0%, #1A2332 60%, #0D3320 100%);
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;
+  transition: opacity 0.45s ease;
+}
+#mf-splash.mf-splash-hide{ opacity:0; pointer-events:none; }
+#mf-splash .mf-sp-icon{
+  width:72px; height:72px; border-radius:20px;
+  background: linear-gradient(135deg, rgba(34,197,94,0.25), rgba(251,191,36,0.18));
+  display:flex; align-items:center; justify-content:center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  animation: mf-sp-pulse 1.8s ease-in-out infinite;
+}
+@keyframes mf-sp-pulse{
+  0%,100%{ transform: scale(1); opacity:1; }
+  50%{ transform: scale(1.06); opacity:0.85; }
+}
+#mf-splash .mf-sp-title{
+  font-family: Inter, system-ui, sans-serif; font-weight:800; font-size:28px;
+  color: #FBBF24; letter-spacing:-0.04em;
+}
+#mf-splash .mf-sp-sub{
+  font-family: Inter, system-ui, sans-serif; font-size:13px;
+  color: rgba(255,255,255,0.5); letter-spacing:0.04em;
+}
+#mf-splash .mf-sp-dots{ display:flex; gap:6px; margin-top:6px; }
+#mf-splash .mf-sp-dot{
+  width:6px; height:6px; border-radius:50%; background:#22C55E; opacity:0.4;
+  animation: mf-sp-blink 1.2s ease-in-out infinite;
+}
+#mf-splash .mf-sp-dot:nth-child(2){ animation-delay:0.2s; }
+#mf-splash .mf-sp-dot:nth-child(3){ animation-delay:0.4s; }
+@keyframes mf-sp-blink{ 0%,100%{ opacity:0.3; } 50%{ opacity:1; } }
 </style>
+<script>
+// Inject splash DOM immediately (before NiceGUI renders)
+(function(){
+  if(document.getElementById('mf-splash')) return;
+  var s=document.createElement('div'); s.id='mf-splash';
+  s.innerHTML='<div class="mf-sp-icon"><svg width="38" height="38" viewBox="0 0 24 24" fill="none"><path d="M3 13h2v8H3zm5-4h2v12H8zm5-3h2v15h-2zm5-2h2v17h-2z" fill="#22C55E" opacity="0.9"/><polyline points="3,12 8,8 13,5 18,3" stroke="#FBBF24" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div><div class="mf-sp-title">FinTrackr</div><div class="mf-sp-sub">LOADING</div><div class="mf-sp-dots"><div class="mf-sp-dot"></div><div class="mf-sp-dot"></div><div class="mf-sp-dot"></div></div>';
+  document.body.prepend(s);
+  // Auto-hide after NiceGUI mounts (or after 6s fallback)
+  var hide=function(){ var el=document.getElementById('mf-splash'); if(el){el.classList.add('mf-splash-hide'); setTimeout(function(){el.remove();},500);} };
+  var ob=new MutationObserver(function(muts){
+    if(document.querySelector('.mf-shell,.mf-login-hero,.nicegui-content')){ob.disconnect(); setTimeout(hide,300);}
+  });
+  ob.observe(document.body,{childList:true,subtree:true});
+  setTimeout(hide,6000); // fallback
+})();
+</script>
 ''', shared=True)
 
 ui.add_head_html(
@@ -4207,10 +4259,10 @@ def topbar():
         with ui.row().classes("items-center gap-3"):
             with ui.element('div').style(
                 'width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;'
-                'background: linear-gradient(135deg, #4F46E5, #7C3AED, #06B6D4);'
-                'box-shadow: 0 2px 8px rgba(79,70,229,0.3);'
+                'background: linear-gradient(135deg, #0F1923, #22C55E);'
+                'box-shadow: 0 2px 8px rgba(34,197,94,0.25);'
             ):
-                ui.icon('insights').style('font-size: 20px; color: #fff;')
+                ui.icon('insights').style('font-size: 20px; color: #FBBF24;')
             with ui.column().classes("gap-0"):
                 ui.label(APP_TITLE).classes("text-lg font-bold")
                 ui.label(APP_SUBTITLE).classes("text-xs").style("color: var(--mf-muted)")
@@ -4257,9 +4309,9 @@ def shell(content_fn, *, active_path: str = ""):
                 with ui.row().classes('items-center gap-2 mb-1'):
                     with ui.element('div').style(
                         'width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;'
-                        'background: linear-gradient(135deg, #4F46E5, #06B6D4); flex-shrink: 0;'
+                        'background: linear-gradient(135deg, #0F1923, #22C55E); flex-shrink: 0;'
                     ):
-                        ui.icon('insights').style('font-size: 16px; color: #fff;')
+                        ui.icon('insights').style('font-size: 16px; color: #FBBF24;')
                     ui.label("FinTrackr").classes("mf-brand")
                 ui.separator().props("dark").classes("opacity-20 my-1")
 
@@ -4286,9 +4338,9 @@ def shell(content_fn, *, active_path: str = ""):
                             with ui.row().classes('items-center gap-2'):
                                 with ui.element('div').style(
                                     'width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center;'
-                                    'background: linear-gradient(135deg, #4F46E5, #7C3AED, #06B6D4);'
+                                    'background: linear-gradient(135deg, #0F1923, #22C55E);'
                                 ):
-                                    ui.icon('insights').style('font-size: 17px; color: #fff;')
+                                    ui.icon('insights').style('font-size: 17px; color: #FBBF24;')
                                 ui.link("FinTrackr", "/").classes("t1 text-xl md:text-2xl font-extrabold").style("color: inherit; text-decoration: none; letter-spacing: -0.03em;")
                             
                     # RIGHT: theme + actions
@@ -4470,7 +4522,7 @@ def login_page():
             # Left panel - branding (hidden on mobile, visible on desktop)
             with ui.element('div').style(
                 'flex: 1; display: none; flex-direction: column; align-items: center; justify-content: center;'
-                'background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 50%, #06B6D4 100%);'
+                'background: linear-gradient(135deg, #0F1923 0%, #1A2332 40%, #0D3320 100%);'
                 'padding: 48px 40px; gap: 24px; min-height: 520px;'
             ).classes('mf-login-left'):
                 with ui.element('div').style(
@@ -4478,8 +4530,8 @@ def login_page():
                     'background: rgba(255,255,255,0.18); backdrop-filter: blur(8px);'
                     'box-shadow: 0 8px 32px rgba(0,0,0,0.12);'
                 ):
-                    ui.icon('insights').style('font-size: 42px; color: #fff;')
-                ui.label('FinTrackr').style('font-size: 34px; font-weight: 800; color: #fff; letter-spacing: -0.04em;')
+                    ui.icon('insights').style('font-size: 42px; color: #FBBF24;')
+                ui.label('FinTrackr').style('font-size: 34px; font-weight: 800; color: #FBBF24; letter-spacing: -0.04em;')
                 ui.label('Your premium personal finance dashboard').style(
                     'color: rgba(255,255,255,0.85); font-size: 15px; text-align: center; max-width: 260px; line-height: 1.6;'
                 )
@@ -4507,10 +4559,10 @@ def login_page():
                 with ui.column().classes('items-center gap-1 mb-6 mf-login-mobile-logo'):
                     with ui.element('div').style(
                         'width: 60px; height: 60px; border-radius: 18px; display: flex; align-items: center; justify-content: center;'
-                        'background: linear-gradient(135deg, #4F46E5, #7C3AED, #06B6D4);'
-                        'box-shadow: 0 8px 24px rgba(79,70,229,0.35);'
+                        'background: linear-gradient(135deg, #0F1923, #22C55E);'
+                        'box-shadow: 0 8px 24px rgba(34,197,94,0.30);'
                     ):
-                        ui.icon('insights').style('font-size: 30px; color: #fff;')
+                        ui.icon('insights').style('font-size: 30px; color: #FBBF24;')
                     ui.label('FinTrackr').classes('text-xl font-extrabold mt-2').style('letter-spacing: -0.03em; background: linear-gradient(135deg, #4F46E5, #06B6D4); -webkit-background-clip: text; -webkit-text-fill-color: transparent;')
 
                 with ui.column().classes('w-full gap-0').style('max-width: 380px;'):
@@ -5393,24 +5445,139 @@ def dashboard_page():
         except Exception:
             pass
 
-        # Trend
-        with ui.card().classes("my-card p-5"):
-            ui.label("Cashflow Trend").classes("mf-section-title")
-            recent = tx[tx["date_parsed"] >= (today() - dt.timedelta(days=90))].copy()
-            recent["day"] = recent["date_parsed"].astype(str)
-            recent["sign"] = recent["type_l"].map(lambda t: 1 if t in ("credit", "income") else (-1 if t in ("debit", "expense", "investment") else 0))
-            recent["signed_amount"] = recent["amount_num"] * recent["sign"]
-            daily = recent.groupby("day", as_index=False)["signed_amount"].sum()
-            fig2 = px.area(daily, x="day", y="signed_amount", template=plotly_template())
-            fig2.update_traces(line=dict(color=None))
-            fig2.update_layout(
-                margin=dict(l=10, r=10, t=10, b=10),
-                paper_bgcolor="rgba(0,0,0,0)",
-                font_color=plotly_font_color(),
-                xaxis=dict(tickfont=dict(color=plotly_font_color()), title_font=dict(color=plotly_font_color())),
-                yaxis=dict(tickfont=dict(color=plotly_font_color()), title_font=dict(color=plotly_font_color())),
-            )
-            ui.plotly(fig2).classes("w-full")
+        # ──── Cashflow Trend (enhanced: weekly income vs expense bars + cumulative balance) ────
+        with ui.card().classes("my-card p-0").style("overflow: hidden;"):
+            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #22c55e, #3b82f6); border-radius: 0;')
+            with ui.column().classes("p-5 gap-3"):
+                with ui.row().classes("items-center gap-2 mb-1"):
+                    with ui.element("div").classes("mf-icon-box").style("background: rgba(34,197,94,0.12);"):
+                        ui.icon("show_chart").style("font-size: 20px; color: #22c55e;")
+                    ui.label("Cashflow Trend").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
+
+                recent = tx[tx["date_parsed"] >= (today() - dt.timedelta(days=90))].copy()
+                if not recent.empty:
+                    recent["week"] = recent["date_parsed"].apply(lambda d: (d - dt.timedelta(days=d.weekday())).isoformat())
+                    recent["is_income"] = recent["type_l"].isin(["credit", "income"])
+                    recent["is_expense"] = recent["type_l"].isin(["debit", "expense", "investment"])
+
+                    # Weekly income / expense aggregation
+                    weekly_in = recent[recent["is_income"]].groupby("week", as_index=False)["amount_num"].sum().rename(columns={"amount_num": "income"})
+                    weekly_out = recent[recent["is_expense"]].groupby("week", as_index=False)["amount_num"].sum().rename(columns={"amount_num": "expense"})
+
+                    # Merge into one DataFrame with all weeks
+                    all_weeks = sorted(set(recent["week"].tolist()))
+                    wdf = pd.DataFrame({"week": all_weeks})
+                    wdf = wdf.merge(weekly_in, on="week", how="left").merge(weekly_out, on="week", how="left").fillna(0)
+                    wdf["net"] = wdf["income"] - wdf["expense"]
+                    wdf["balance"] = wdf["net"].cumsum()
+
+                    # Shorten week labels (e.g., "Mar 3")
+                    wdf["label"] = wdf["week"].apply(lambda w: dt.date.fromisoformat(w).strftime("%b %d"))
+
+                    import plotly.graph_objects as go
+                    fig2 = go.Figure()
+                    # Income bars (green)
+                    fig2.add_trace(go.Bar(
+                        x=wdf["label"], y=wdf["income"], name="Income",
+                        marker_color="#22c55e", opacity=0.85,
+                    ))
+                    # Expense bars (red)
+                    fig2.add_trace(go.Bar(
+                        x=wdf["label"], y=wdf["expense"], name="Expense",
+                        marker_color="#ef4444", opacity=0.75,
+                    ))
+                    # Cumulative net balance line (gold)
+                    fig2.add_trace(go.Scatter(
+                        x=wdf["label"], y=wdf["balance"], name="Running Balance",
+                        mode="lines+markers", line=dict(color="#FBBF24", width=3),
+                        marker=dict(size=6, color="#FBBF24"),
+                        yaxis="y2",
+                    ))
+
+                    _fc = plotly_font_color()
+                    fig2.update_layout(
+                        template=plotly_template(),
+                        barmode="group",
+                        margin=dict(l=10, r=10, t=10, b=10),
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        font_color=_fc,
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=11, color=_fc)),
+                        xaxis=dict(tickfont=dict(color=_fc, size=10), showgrid=False),
+                        yaxis=dict(tickfont=dict(color=_fc, size=10), showgrid=True, gridcolor="rgba(128,128,128,0.10)", title=""),
+                        yaxis2=dict(tickfont=dict(color="#FBBF24", size=10), overlaying="y", side="right", showgrid=False, title=""),
+                        bargap=0.25, bargroupgap=0.08,
+                    )
+
+                    ui.plotly(fig2).classes("w-full").style("height: 280px;")
+
+                    # Summary stats row
+                    _total_in = float(wdf["income"].sum())
+                    _total_out = float(wdf["expense"].sum())
+                    _net_90 = _total_in - _total_out
+                    _net_color = "#22c55e" if _net_90 >= 0 else "#ef4444"
+                    with ui.row().classes("w-full justify-around mt-1"):
+                        with ui.column().classes("items-center gap-0"):
+                            ui.label("Income (90d)").classes("text-xs").style("color: var(--mf-muted);")
+                            ui.label(currency(_total_in)).classes("text-sm font-bold").style("color: #22c55e; font-feature-settings: 'tnum';")
+                        with ui.column().classes("items-center gap-0"):
+                            ui.label("Expense (90d)").classes("text-xs").style("color: var(--mf-muted);")
+                            ui.label(currency(_total_out)).classes("text-sm font-bold").style("color: #ef4444; font-feature-settings: 'tnum';")
+                        with ui.column().classes("items-center gap-0"):
+                            ui.label("Net").classes("text-xs").style("color: var(--mf-muted);")
+                            ui.label(f"{'+'if _net_90>=0 else ''}{currency(_net_90)}").classes("text-sm font-bold").style(f"color: {_net_color}; font-feature-settings: 'tnum';")
+                else:
+                    ui.label("No recent transactions to chart.").classes("text-sm").style("color: var(--mf-muted);")
+
+        # ──── Recent Transactions (quick overview) ────
+        try:
+            if not tx.empty and "date_parsed" in tx.columns:
+                _recent_tx = tx.sort_values("date_parsed", ascending=False).head(6)
+                if not _recent_tx.empty:
+                    with ui.card().classes("my-card p-0").style("overflow: hidden;"):
+                        ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
+                        with ui.column().classes("p-5 gap-0"):
+                            with ui.row().classes("items-center justify-between w-full mb-3"):
+                                with ui.row().classes("items-center gap-2"):
+                                    with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
+                                        ui.icon("receipt_long").style("font-size: 20px; color: #6366f1;")
+                                    ui.label("Recent Transactions").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
+                                ui.button("View All", on_click=lambda: nav_to("/tx")).props("flat dense").style("border-radius: 8px; font-size: 12px; color: var(--mf-accent);")
+
+                            for _, _rtx in _recent_tx.iterrows():
+                                _rt_type = str(_rtx.get("type", "") or "").strip().lower()
+                                _rt_is_income = _rt_type in ("credit", "income")
+                                _rt_color = "#22c55e" if _rt_is_income else "#ef4444"
+                                _rt_sign = "+" if _rt_is_income else "-"
+                                _rt_icon = "trending_up" if _rt_is_income else "shopping_cart"
+                                _rt_amt = float(_rtx.get("amount_num", 0) or 0)
+                                _rt_note = str(_rtx.get("notes", "") or "")[:32] or str(_rtx.get("category", "") or "")
+                                _rt_cat = str(_rtx.get("category", "") or "")
+                                _rt_date = ""
+                                try:
+                                    _rt_date = _rtx["date_parsed"].strftime("%b %d")
+                                except Exception:
+                                    _rt_date = str(_rtx.get("date", ""))[:10]
+
+                                with ui.element("div").style(
+                                    "display: flex; align-items: center; gap: 12px; padding: 10px 0;"
+                                    "border-bottom: 1px solid rgba(128,128,128,0.07);"
+                                ):
+                                    with ui.element("div").style(
+                                        f"width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;"
+                                        f"background: {_rt_color}12; flex-shrink: 0;"
+                                    ):
+                                        ui.icon(_rt_icon).style(f"font-size: 18px; color: {_rt_color};")
+                                    with ui.column().classes("gap-0 flex-1").style("min-width: 0; overflow: hidden;"):
+                                        ui.label(_rt_note).classes("text-sm font-medium").style("white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mf-text);")
+                                        with ui.row().classes("items-center gap-2"):
+                                            ui.label(_rt_cat).classes("text-xs").style("color: var(--mf-muted);")
+                                            ui.label(f"· {_rt_date}").classes("text-xs").style("color: var(--mf-muted);")
+                                    ui.label(f"{_rt_sign}{currency(_rt_amt)}").classes("text-sm font-bold").style(
+                                        f"color: {_rt_color}; font-feature-settings: 'tnum'; white-space: nowrap; letter-spacing: -0.02em;"
+                                    )
+        except Exception:
+            pass
 
     shell(content)
 
@@ -5446,23 +5613,33 @@ def add_page():
         _accent, _dicon, _dlabel = _dlg_accents.get(entry_type.lower(), ('#6366f1', 'add_circle', entry_type))
 
         dlg = ui.dialog()
-        with dlg, ui.card().classes("my-card mf-add-dialog w-[580px] max-w-[95vw]").style("max-height: 88vh; overflow-y: auto; padding: 0 24px 16px 24px;"):
-            # Premium dialog header — accent strip edge-to-edge
-            ui.element('div').style(f'height: 3px; background: linear-gradient(90deg, {_accent}, {_accent}88); margin: 0 -24px; border-radius: 0;')
-            with ui.row().classes('items-center gap-3 pt-5 pb-3'):
-                with ui.element('div').style(
-                    f'width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
-                    f'background: {_accent}18;'
-                ):
-                    ui.icon(_dicon).style(f'font-size: 20px; color: {_accent};')
-                with ui.column().classes('gap-0'):
-                    ui.label(f"Add {_dlabel}").classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
-                    ui.label('Fill in the details below').classes('text-xs').style('color: var(--mf-muted);')
-                ui.element('div').style('flex: 1;')
-                ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.5;')
+        with dlg, ui.card().classes("my-card mf-add-dialog w-[580px] max-w-[95vw]").style("max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"):
+            # Premium dialog header — accent strip + header area with background
+            ui.element('div').style(f'height: 4px; background: linear-gradient(90deg, {_accent}, {_accent}66); border-radius: 24px 24px 0 0;')
+            with ui.element('div').style(
+                f'padding: 20px 24px 16px 24px;'
+                f'background: linear-gradient(180deg, {_accent}0A, transparent);'
+            ):
+                with ui.row().classes('items-center gap-3'):
+                    with ui.element('div').style(
+                        f'width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center;'
+                        f'background: {_accent}18; border: 1px solid {_accent}22;'
+                    ):
+                        ui.icon(_dicon).style(f'font-size: 22px; color: {_accent};')
+                    with ui.column().classes('gap-0'):
+                        ui.label(f"Add {_dlabel}").classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                        ui.label('Fill in the details below').classes('text-xs').style('color: var(--mf-muted);')
+                    ui.element('div').style('flex: 1;')
+                    ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.5;')
 
-            d_date = ui.input("Date", value=today().isoformat()).props("type=date autofocus").classes("w-full")
-            d_amount = ui.number("Amount", value=0.0, format="%.2f").classes("w-full")
+            # ── Section 1: Date & Amount ──
+            with ui.element('div').style('padding: 0 24px;'):
+                with ui.row().classes('items-center gap-2 mt-1 mb-2'):
+                    ui.icon('event').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
+                    ui.label('Date & Amount').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
+                with ui.row().classes('w-full gap-3'):
+                    d_date = ui.input("Date", value=today().isoformat()).props("type=date autofocus outlined dense").classes("flex-1")
+                    d_amount = ui.number("Amount", value=0.0, format="%.2f").props("outlined dense").classes("flex-1")
 
             is_debit = entry_type.lower() == 'debit'
             is_income = entry_type.lower() in ('credit', 'income')
@@ -5532,21 +5709,34 @@ def add_page():
             if account_default and account_default not in (accounts or []):
                 accounts = [account_default] + [a for a in (accounts or []) if a != account_default]
 
-            if hide_method:
-                d_method = None
-            else:
-                d_method = ui.select(methods or [""], value=(method_default if method_default in (methods or []) else ""), label="Method").classes("w-full")
+            # ── Section 2: Payment ──
+            with ui.element('div').style('padding: 0 24px;'):
+                with ui.row().classes('items-center gap-2 mt-3 mb-2'):
+                    ui.icon('account_balance_wallet').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
+                    ui.label('Payment').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
 
-            d_account = ui.select(accounts or [""], value=(account_default if account_default in (accounts or []) else ""), label="Account").classes("w-full")
-            d_account.props('popup-content-class="mf-menu-light"')
-            if disable_account:
-                d_account.props("disable")
+                if hide_method:
+                    d_method = None
+                else:
+                    d_method = ui.select(methods or [""], value=(method_default if method_default in (methods or []) else ""), label="Method").props("outlined dense").classes("w-full")
 
-            if hide_method and fixed_method:
-                ui.label(f"Method: {fixed_method}").classes("text-xs").style("color: var(--mf-muted); margin-top:-6px;")
-            d_category = ui.select(categories, value=(fixed_category or "Uncategorized"), label="Category").classes("w-full")
-            d_notes = ui.textarea("Notes", value="").classes("w-full")
-            d_rec = ui.checkbox("Mark as recurring (creates template for future cycles only)")
+                d_account = ui.select(accounts or [""], value=(account_default if account_default in (accounts or []) else ""), label="Account").props("outlined dense").classes("w-full")
+                d_account.props('popup-content-class="mf-menu-light"')
+                if disable_account:
+                    d_account.props("disable")
+
+                if hide_method and fixed_method:
+                    ui.label(f"Method: {fixed_method}").classes("text-xs").style("color: var(--mf-muted); margin-top:-6px;")
+
+            # ── Section 3: Category & Notes ──
+            with ui.element('div').style('padding: 0 24px;'):
+                with ui.row().classes('items-center gap-2 mt-3 mb-2'):
+                    ui.icon('category').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
+                    ui.label('Category & Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
+
+                d_category = ui.select(categories, value=(fixed_category or "Uncategorized"), label="Category").props("outlined dense").classes("w-full")
+                d_notes = ui.textarea("Notes / Merchant", value="").props("outlined dense rows=2").classes("w-full")
+                d_rec = ui.checkbox("Mark as recurring (template for future cycles)")
 
             # Receipt scan (Expense only): opens camera on mobile, runs free OCR in the browser (tesseract.js)
             if entry_type.lower() == 'debit':
@@ -6055,7 +6245,17 @@ def add_page():
 
 
                 # Phase 6.5: Multi-category split UI — shown only after OCR Apply for Walmart/Costco/Superstore
-                split_hint = ui.label("").classes("text-xs").style("color: var(--mf-muted)")
+                split_banner = ui.element('div').style(
+                    'display:none; background: linear-gradient(135deg, rgba(34,197,94,0.10), rgba(251,191,36,0.08));'
+                    'border: 1px solid rgba(34,197,94,0.25); border-radius: 14px; padding: 14px 16px;'
+                    'margin: 4px 0;'
+                )
+                with split_banner:
+                    with ui.row().classes('items-center gap-2 mb-2'):
+                        ui.icon('call_split').style('font-size: 18px; color: #22c55e;')
+                        ui.label('Split Active').classes('text-sm font-bold').style('color: #22c55e;')
+                    split_hint = ui.label("").classes("text-xs").style("color: var(--mf-text); line-height: 1.5;")
+                    split_item_list = ui.column().classes('gap-1 mt-1')
 
                 split_dlg = ui.dialog()
                 with split_dlg, ui.card().classes("my-card mf-split-card p-4 w-[600px] max-w-[95vw]").style("max-height: 78vh; overflow-y:auto;"):
@@ -6182,15 +6382,28 @@ def add_page():
                         # Store plan; actual save happens on Save click
                         split_plan['enabled'] = True
                         split_plan['amounts'] = plan
+                        n_cats = len(plan)
+
+                        # Show prominent split banner in main dialog
                         try:
-                            d_category.value = 'Groceries'
+                            split_banner.style('display: block;')
+                            parts = [f"{k}: ${v:.2f}" for k, v in plan.items()]
+                            split_hint.text = f"Will save as {n_cats} separate transactions:"
+                            split_item_list.clear()
+                            with split_item_list:
+                                for k, v in plan.items():
+                                    pct = int(round(100 * (v / total_amt))) if total_amt > 0 else 0
+                                    with ui.row().classes('items-center gap-2'):
+                                        ui.element('div').style(f'width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink: 0;')
+                                        ui.label(f"{k} — ${v:.2f} ({pct}%)").classes('text-xs font-medium')
+                            # Disable category selector (split overrides it)
+                            d_category.props('disable')
+                            d_category.value = f'Split ({n_cats} categories)'
                         except Exception:
                             pass
 
-                        # Hint summary
-                        parts = [f"{k}:{int(round(100* (v/total_amt))) if total_amt>0 else 0}%" for k, v in plan.items()]
-                        split_hint.text = "Split enabled: " + ", ".join(parts)
                         split_dlg.close()
+                        ui.notify(f'Split applied: {n_cats} categories will be saved separately.', type='positive')
 
                     with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
                         ui.button("Cancel", on_click=split_dlg.close).props("flat")
@@ -6367,7 +6580,8 @@ def add_page():
 
                         invalidate('transactions')
                         invalidate('recurring')
-                        ui.notify("Saved (split)", type="positive")
+                        cats_str = ', '.join(plan.keys())
+                        ui.notify(f"✓ Saved {n} separate transactions: {cats_str}", type="positive", timeout=5.0)
                         dlg.close()
                         return
                     except Exception as e:
@@ -6451,13 +6665,15 @@ def add_page():
 
             # Sticky footer so Save/Cancel never get pushed off-screen on mobile
             with ui.row().classes("w-full justify-end gap-3 sticky bottom-0").style(
-                "padding: 14px 0 4px 0; margin: 8px -24px 0 -24px; padding-left: 24px; padding-right: 24px;"
+                "padding: 14px 24px 12px 24px; margin: 8px 0 0 0;"
                 "background: var(--mf-card-top); border-top: 1px solid var(--mf-border);"
+                "border-radius: 0 0 24px 24px;"
             ):
                 ui.button("Cancel", on_click=dlg.close).props("flat").style("border-radius: 10px;")
                 ui.button("Save", on_click=save, icon="check").props("unelevated").style(
-                    f"background: {_accent} !important; color: #fff !important;"
-                    "font-weight: 600; border-radius: 10px; padding: 8px 28px;"
+                    f"background: linear-gradient(135deg, {_accent}, {_accent}cc) !important; color: #fff !important;"
+                    "font-weight: 700; border-radius: 12px; padding: 8px 32px;"
+                    "box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
                 )
 
         ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
@@ -8630,17 +8846,16 @@ def bootstrap() -> None:
 
 bootstrap()
 
-# Premium SVG favicon – modern finance chart icon with gradient
+# Premium SVG favicon – dark finance icon with emerald+gold palette
 _FAVICON_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#4F46E5"/>
-      <stop offset="50%" stop-color="#7C3AED"/>
-      <stop offset="100%" stop-color="#06B6D4"/>
+      <stop offset="0%" stop-color="#0F1923"/>
+      <stop offset="100%" stop-color="#1A2332"/>
     </linearGradient>
     <linearGradient id="bar" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0%" stop-color="rgba(255,255,255,0.6)"/>
-      <stop offset="100%" stop-color="rgba(255,255,255,0.95)"/>
+      <stop offset="0%" stop-color="#22C55E"/>
+      <stop offset="100%" stop-color="#4ADE80"/>
     </linearGradient>
     <filter id="glow">
       <feGaussianBlur stdDeviation="6" result="blur"/>
@@ -8648,18 +8863,51 @@ _FAVICON_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
     </filter>
   </defs>
   <rect width="512" height="512" rx="108" fill="url(#bg)"/>
-  <rect x="90" y="300" width="60" height="110" rx="12" fill="url(#bar)" opacity="0.75"/>
-  <rect x="175" y="230" width="60" height="180" rx="12" fill="url(#bar)" opacity="0.82"/>
-  <rect x="260" y="170" width="60" height="240" rx="12" fill="url(#bar)" opacity="0.90"/>
+  <rect x="90" y="300" width="60" height="110" rx="12" fill="url(#bar)" opacity="0.55"/>
+  <rect x="175" y="230" width="60" height="180" rx="12" fill="url(#bar)" opacity="0.68"/>
+  <rect x="260" y="170" width="60" height="240" rx="12" fill="url(#bar)" opacity="0.82"/>
   <rect x="345" y="130" width="60" height="280" rx="12" fill="url(#bar)" opacity="0.95"/>
-  <polyline points="110,280 195,210 280,150 375,110" fill="none" stroke="#34D399" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
-  <circle cx="110" cy="280" r="10" fill="#34D399"/>
-  <circle cx="195" cy="210" r="10" fill="#34D399"/>
-  <circle cx="280" cy="150" r="10" fill="#34D399"/>
-  <circle cx="375" cy="110" r="10" fill="#34D399"/>
-  <circle cx="375" cy="110" r="18" fill="none" stroke="#34D399" stroke-width="4" opacity="0.5"/>
-  <text x="256" y="465" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="800" font-size="72" fill="rgba(255,255,255,0.9)" letter-spacing="-2">FT</text>
+  <polyline points="110,280 195,210 280,150 375,110" fill="none" stroke="#FBBF24" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <circle cx="110" cy="280" r="10" fill="#FBBF24"/>
+  <circle cx="195" cy="210" r="10" fill="#FBBF24"/>
+  <circle cx="280" cy="150" r="10" fill="#FBBF24"/>
+  <circle cx="375" cy="110" r="10" fill="#FBBF24"/>
+  <circle cx="375" cy="110" r="18" fill="none" stroke="#FBBF24" stroke-width="4" opacity="0.5"/>
+  <text x="256" y="465" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="800" font-size="72" fill="#FBBF24" letter-spacing="-2">FT</text>
 </svg>'''
+
+# ---------------------------
+# Self-ping keepalive for Render free tier
+# Prevents the service from spinning down after 15 min of inactivity.
+# ---------------------------
+_RENDER_URL = os.environ.get('RENDER_EXTERNAL_URL', '').strip()
+
+async def _keepalive_loop():
+    """Ping our own health endpoint every 10 minutes to prevent Render spin-down."""
+    import aiohttp
+    target = _RENDER_URL or f'http://localhost:{PORT}'
+    ping_url = f'{target}/api/health'
+    _logger.info(f'[keepalive] starting self-ping loop → {ping_url}')
+    while True:
+        await asyncio.sleep(600)  # 10 minutes
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+                async with session.get(ping_url) as resp:
+                    _logger.info(f'[keepalive] ping {resp.status}')
+        except Exception as e:
+            # aiohttp may not be installed; fall back to urllib
+            try:
+                from urllib.request import urlopen
+                urlopen(ping_url, timeout=15).read()
+                _logger.info('[keepalive] ping ok (urllib)')
+            except Exception:
+                _logger.warning(f'[keepalive] ping failed: {e}')
+
+@app.get('/api/health')
+async def _health_check():
+    return {'status': 'ok', 'version': APP_VERSION}
+
+app.on_startup(lambda: asyncio.create_task(_keepalive_loop()))
 
 ui.run(
     host="0.0.0.0",
@@ -8669,4 +8917,4 @@ ui.run(
     favicon=_FAVICON_SVG,
 )
 
-# Release: FinTrackr Phase 7.3.0
+# Release: FinTrackr Phase 7.4.0
