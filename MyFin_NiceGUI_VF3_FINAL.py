@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '7.5.0'
+APP_VERSION = '7.5.1'
 
 
 def log(message: str) -> None:
@@ -3759,6 +3759,32 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 .mf-split-pill { border-radius: 999px; padding: 6px 10px; border: 1px solid var(--mf-border); background: rgba(255,255,255,0.06); }
 html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
 
+/* ── About Page Responsive ── */
+.mf-about-wrap { max-width: 640px; margin: 0 auto; }
+.mf-about-features {
+  display: grid; grid-template-columns: 1fr; gap: 14px; width: 100%; margin-top: 8px;
+}
+.mf-about-author {
+  display: flex; gap: 24px; align-items: flex-start; flex-direction: column;
+}
+@media (min-width: 768px) {
+  .mf-about-wrap { max-width: 900px; }
+  .mf-about-features { grid-template-columns: repeat(2, 1fr); }
+  .mf-about-author { flex-direction: row; }
+}
+@media (min-width: 1024px) {
+  .mf-about-features { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ── Home Page Dashboard Responsive Grid ── */
+.mf-dash-grid {
+  display: grid; grid-template-columns: 1fr; gap: 16px; width: 100%;
+}
+@media (min-width: 900px) {
+  .mf-dash-grid { grid-template-columns: repeat(2, 1fr); }
+  .mf-dash-grid > .mf-dash-full { grid-column: 1 / -1; }
+}
+
 </style>""", shared=True)
 
 ui.add_head_html('<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap">', shared=True)
@@ -3768,8 +3794,12 @@ ui.add_head_html(r'''
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FinTrackr">
 <meta name="theme-color" content="#0F1923">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" as="style">
 <style>
 /* CRITICAL: Paint dark background IMMEDIATELY — prevents iOS white flash */
 html,body{ background:#0F1923 !important; }
@@ -3823,13 +3853,15 @@ select:-webkit-autofill{
   // The icon SVG replicates the Material "insights" icon in gold (#FBBF24)
   s.innerHTML='<div class="mf-sp-icon"><svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="#FBBF24"><path d="M21 8c-1.45 0-2.26 1.44-1.93 2.51l-3.55 3.56c-.3-.09-.74-.09-1.04 0l-2.55-2.55C12.27 10.45 11.46 9 10 9c-1.45 0-2.27 1.44-1.93 2.52l-4.56 4.55C2.44 15.74 1 16.55 1 18c0 1.1.9 2 2 2 1.45 0 2.26-1.44 1.93-2.51l4.55-4.56c.3.09.74.09 1.04 0l2.55 2.55C12.73 16.55 13.54 18 15 18c1.45 0 2.27-1.44 1.93-2.52l3.56-3.55C21.56 12.26 23 11.45 23 10c0-1.1-.9-2-2-2z"/><path d="M15 9l.94-2.07L18 6l-2.06-.93L15 3l-.92 2.07L12 6l2.08.93z"/><path d="M3.5 11L4 9l2-.5L4 8l-.5-2L3 8l-2 .5L3 9z"/></svg></div><div class="mf-sp-title">FinTrackr</div><div class="mf-sp-dots"><div class="mf-sp-dot"></div><div class="mf-sp-dot"></div><div class="mf-sp-dot"></div></div>';
   document.body.prepend(s);
-  // Auto-hide once NiceGUI content appears (or 5s timeout)
-  var hide=function(){ var el=document.getElementById('mf-splash'); if(el){el.classList.add('mf-splash-hide'); setTimeout(function(){try{el.remove();}catch(e){}},450);} };
+  // Auto-hide once NiceGUI content appears (or 4s timeout)
+  var hide=function(){ var el=document.getElementById('mf-splash'); if(el){el.classList.add('mf-splash-hide'); setTimeout(function(){try{el.remove();}catch(e){}},400);} };
   var ob=new MutationObserver(function(){
-    if(document.querySelector('.mf-shell,.mf-login-hero,.nicegui-content')){ob.disconnect(); setTimeout(hide,200);}
+    if(document.querySelector('.mf-shell,.mf-login-hero,.nicegui-content')){ob.disconnect(); setTimeout(hide,80);}
   });
   ob.observe(document.body,{childList:true,subtree:true});
-  setTimeout(hide,5000);
+  setTimeout(hide,4000);
+  // Register service worker for caching fonts + static assets
+  if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(function(){}); }
 })();
 </script>
 ''', shared=True)
@@ -4125,12 +4157,16 @@ window.mfSetTheme = function(name){
     const saved = localStorage.getItem("mf_theme");
     if(saved){ window.mfSetTheme(saved); }
     else {
-      // Default to system preference: Dark -> Emerald Gold, Light -> Sand Gold
+      // Default to system preference: Dark/Night -> Graphite Rose, Light/Day -> Mint Light
       try{
         const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        window.mfSetTheme(prefersDark ? "Emerald Gold" : "Sand Gold");
+        // Also check time of day: 6 AM–6 PM = day, otherwise night
+        const hour = new Date().getHours();
+        const isNight = (hour < 6 || hour >= 18);
+        const useDark = prefersDark || isNight;
+        window.mfSetTheme(useDark ? "Graphite Rose" : "Mint Light");
       }catch(e){
-        window.mfSetTheme("Emerald Gold");
+        window.mfSetTheme("Graphite Rose");
       }
     }
     try{ setTimeout(()=>{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }, 120);}catch(e){}
@@ -4140,14 +4176,14 @@ window.mfSetTheme = function(name){
     try{
       if(!(localStorage.getItem("mf_theme_user")==="1") && window.matchMedia){
         const mq = window.matchMedia('(prefers-color-scheme: dark)');
-        const handler = (e)=>{ try{ window.mfSetTheme(e.matches ? "Emerald Gold" : "Sand Gold"); }catch(_e){} };
+        const handler = (e)=>{ try{ window.mfSetTheme(e.matches ? "Graphite Rose" : "Mint Light"); }catch(_e){} };
         if(mq && mq.addEventListener){ mq.addEventListener('change', handler); }
         else if(mq && mq.addListener){ mq.addListener(handler); }
       }
     }catch(e){}
 
   }catch(e){
-    try{ window.mfSetTheme("Emerald Gold"); }catch(_){}
+    try{ window.mfSetTheme("Graphite Rose"); }catch(_){}
   }
 })();
 </script>""",
@@ -4168,9 +4204,9 @@ ui.add_head_html(
 # -----------------------------
 def current_theme_name() -> str:
     try:
-        return str(app.storage.user.get("theme") or "Midnight Blue")
+        return str(app.storage.user.get("theme") or "Graphite Rose")
     except Exception:
-        return "Midnight Blue"
+        return "Graphite Rose"
 
 def is_light_theme_name(name: str) -> bool:
     n = (name or "").lower()
@@ -5202,340 +5238,356 @@ def dashboard_page():
                         row_key="merchant",
                     ).classes("w-full")
 
-        # ──── Monthly Insights ────
-        try:
-            _today = today()
-            _dom = _today.day  # day of month
-            _days_in_month = (dt.date(_today.year, _today.month % 12 + 1, 1) - dt.timedelta(days=1)).day if _today.month < 12 else 31
-
-            # Last month's data for comparison
-            if _today.month == 1:
-                _prev_year, _prev_month = _today.year - 1, 12
-            else:
-                _prev_year, _prev_month = _today.year, _today.month - 1
-            _prev_mkey = f"{_prev_year}-{_prev_month:02d}"
-            _prev_mtx = tx[tx["date_parsed"].apply(lambda d: month_key(d) == _prev_mkey)].copy()
-            if "type_l" not in _prev_mtx.columns:
-                _prev_mtx["type_l"] = _prev_mtx.get("type", pd.Series(dtype=str)).astype(str).str.lower().str.strip()
-            if "amount_num" not in _prev_mtx.columns:
-                _prev_mtx["amount_num"] = _prev_mtx.get("amount", pd.Series(dtype=float)).apply(to_float)
-            _prev_spend = _prev_mtx[_prev_mtx["type_l"].isin(["debit", "expense"])]
-            _prev_expense_total = float(_prev_spend["amount_num"].sum()) if not _prev_spend.empty else 0.0
-
-            with ui.card().classes("my-card p-0").style("overflow: hidden;"):
-                ui.element('div').style('height: 3px; background: linear-gradient(90deg, #f59e0b, #f97316); border-radius: 0;')
-                with ui.column().classes("p-5 gap-0"):
-                    with ui.row().classes("items-center gap-2 mb-4"):
-                        with ui.element("div").classes("mf-icon-box").style("background: rgba(245,158,11,0.12);"):
-                            ui.icon("auto_graph").style("font-size: 20px; color: #f59e0b;")
-                        ui.label("Monthly Insights").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
-
-                    # 1) Daily avg spend + projected month-end
-                    _daily_avg = round(expense / max(_dom, 1), 2) if expense > 0 else 0.0
-                    _projected = round(_daily_avg * _days_in_month, 2)
-                    _burn_pct = min(_dom / max(_days_in_month, 1), 1.0)
-
-                    # --- Row 1: Daily Average with burn-rate progress ---
-                    with ui.element("div").style(
-                        "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
-                        "border-bottom: 1px solid rgba(128,128,128,0.1);"
-                    ):
-                        with ui.element("div").style(
-                            "width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
-                            "background: rgba(239,68,68,0.08); flex-shrink: 0;"
-                        ):
-                            ui.icon("local_fire_department").style("font-size: 20px; color: #ef4444;")
-                        with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
-                            with ui.row().classes("items-baseline justify-between w-full"):
-                                ui.label("Daily Average").classes("text-sm font-semibold").style("color: var(--mf-text);")
-                                ui.label(currency(_daily_avg)).classes("text-base font-extrabold").style("color: #ef4444; font-feature-settings: 'tnum'; letter-spacing: -0.02em;")
-                            with ui.element("div").style(
-                                "width: 100%; height: 4px; border-radius: 2px; margin-top: 6px;"
-                                "background: rgba(128,128,128,0.12); overflow: hidden;"
-                            ):
-                                ui.element("div").style(
-                                    f"width: {_burn_pct * 100:.0f}%; height: 100%; border-radius: 2px;"
-                                    "background: linear-gradient(90deg, #f59e0b, #ef4444);"
-                                    "transition: width 0.8s ease;"
-                                )
-                            with ui.row().classes("items-center justify-between w-full mt-1"):
-                                ui.label(f"Day {_dom} of {_days_in_month}").classes("text-xs").style("color: var(--mf-muted);")
-                                ui.label(f"Projected: {currency(_projected)}").classes("text-xs").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
-
-                    # --- Row 2: vs Last Month ---
-                    if _prev_expense_total > 0:
-                        _pct_change = ((expense - _prev_expense_total) / _prev_expense_total) * 100
-                    else:
-                        _pct_change = 0.0
-                    _change_color = "#ef4444" if _pct_change > 0 else "#22c55e"
-                    _change_icon = "trending_up" if _pct_change > 0 else "trending_down"
-                    _change_sign = "+" if _pct_change > 0 else ""
-
-                    with ui.element("div").style(
-                        "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
-                        "border-bottom: 1px solid rgba(128,128,128,0.1);"
-                    ):
-                        with ui.element("div").style(
-                            f"width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
-                            f"background: {_change_color}14; flex-shrink: 0;"
-                        ):
-                            ui.icon(_change_icon).style(f"font-size: 20px; color: {_change_color};")
-                        with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
-                            with ui.row().classes("items-baseline justify-between w-full"):
-                                ui.label("vs Last Month").classes("text-sm font-semibold").style("color: var(--mf-text);")
-                                with ui.element("span").style(
-                                    f"background: {_change_color}18; color: {_change_color}; font-weight: 800; font-size: 14px;"
-                                    f"padding: 2px 10px; border-radius: 20px; font-feature-settings: 'tnum';"
-                                ):
-                                    ui.label(f"{_change_sign}{_pct_change:.1f}%")
-                            ui.label(f"Last month total: {currency(_prev_expense_total)}").classes("text-xs mt-1").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
-
-                    # --- Row 3: Biggest Expense ---
-                    if not spend.empty:
-                        _largest_row = spend.loc[spend["amount_num"].idxmax()]
-                        _largest_amt = float(_largest_row["amount_num"])
-                        _largest_note = str(_largest_row.get("notes", "") or "")[:28]
-                        _largest_cat = str(_largest_row.get("category", "") or "")
-                    else:
-                        _largest_amt = 0.0
-                        _largest_note = "—"
-                        _largest_cat = ""
-
-                    with ui.element("div").style(
-                        "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
-                        "border-bottom: 1px solid rgba(128,128,128,0.1);"
-                    ):
-                        with ui.element("div").style(
-                            "width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
-                            "background: rgba(168,85,247,0.08); flex-shrink: 0;"
-                        ):
-                            ui.icon("diamond").style("font-size: 20px; color: #a855f7;")
-                        with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
-                            with ui.row().classes("items-baseline justify-between w-full"):
-                                ui.label("Biggest Expense").classes("text-sm font-semibold").style("color: var(--mf-text);")
-                                ui.label(currency(_largest_amt)).classes("text-base font-extrabold").style("color: #a855f7; font-feature-settings: 'tnum'; letter-spacing: -0.02em;")
-                            _hint = _largest_note or _largest_cat or "—"
-                            ui.label(_hint).classes("text-xs mt-1").style("color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;")
-
-                    # --- Row 4: Top Category ---
-                    if not spend.empty and "category" in spend.columns:
-                        _top_cat_this = spend.groupby("category")["amount_num"].sum().idxmax()
-                        _top_cat_amt = float(spend.groupby("category")["amount_num"].sum().max())
-                        _top_cat_pct = (_top_cat_amt / expense * 100) if expense > 0 else 0
-                    else:
-                        _top_cat_this = "—"
-                        _top_cat_amt = 0.0
-                        _top_cat_pct = 0.0
-
-                    with ui.element("div").style(
-                        "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
-                    ):
-                        with ui.element("div").style(
-                            "width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
-                            "background: rgba(59,130,246,0.08); flex-shrink: 0;"
-                        ):
-                            ui.icon("category").style("font-size: 20px; color: #3b82f6;")
-                        with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
-                            with ui.row().classes("items-baseline justify-between w-full"):
-                                ui.label("Top Category").classes("text-sm font-semibold").style("color: var(--mf-text);")
-                                ui.label(str(_top_cat_this)).classes("text-base font-extrabold").style("color: #3b82f6; letter-spacing: -0.02em;")
-                            with ui.row().classes("items-center gap-3 mt-1"):
-                                ui.label(currency(_top_cat_amt)).classes("text-xs").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
-                                ui.label(f"{_top_cat_pct:.0f}% of total spend").classes("text-xs").style("color: var(--mf-muted);")
-
-        except Exception:
-            pass  # Insights are optional; never break the dashboard
-
-        # ──── Smart Alerts ────
-        try:
-            _alerts = []
-            # 1. Budget overspend alerts (80% threshold)
+        # ──── Dashboard section helpers (closure over spend, expense, tx, etc.) ────
+        def _render_insights():
+            # ──── Monthly Insights ────
             try:
-                _ab = read_df_optional('budgets')
-                if _ab is not None and not _ab.empty and not spend.empty and 'category' in spend.columns:
-                    _abcols = {str(c).strip().lower(): c for c in _ab.columns}
-                    _abc = _abcols.get('category') or _abcols.get('cat')
-                    _abb = _abcols.get('budget_monthly') or _abcols.get('monthly_budget') or _abcols.get('budget')
-                    if _abc and _abb:
-                        for _, _abr in _ab.iterrows():
-                            _abk = str(_abr.get(_abc, '')).strip()
-                            _abv = float(_abr.get(_abb, 0) or 0)
-                            if _abk and _abv > 0:
-                                _cat_spent = float(spend[spend['category'] == _abk]['amount_num'].sum()) if _abk in spend['category'].values else 0.0
-                                _pct_used = _cat_spent / _abv
-                                if _pct_used >= 1.0:
-                                    _alerts.append(('error', 'warning', f'{_abk}: Over budget! {currency(_cat_spent)} / {currency(_abv)} ({int(_pct_used*100)}%)'))
-                                elif _pct_used >= 0.8:
-                                    _alerts.append(('warning', 'trending_up', f'{_abk}: Nearing limit \u2014 {currency(_cat_spent)} / {currency(_abv)} ({int(_pct_used*100)}%)'))
-            except Exception:
-                pass
+                _today = today()
+                _dom = _today.day  # day of month
+                _days_in_month = (dt.date(_today.year, _today.month % 12 + 1, 1) - dt.timedelta(days=1)).day if _today.month < 12 else 31
 
-            # 2. Large transaction alerts (> $200 single transaction this month)
-            try:
-                if not spend.empty:
-                    _large = spend[spend['amount_num'] > 200.0]
-                    for _, _lr in _large.head(3).iterrows():
-                        _ln = str(_lr.get('notes', '') or '')[:30] or str(_lr.get('category', ''))
-                        _alerts.append(('info', 'payments', f'Large expense: {currency(float(_lr["amount_num"]))} \u2014 {_ln}'))
-            except Exception:
-                pass
-
-            # 3. Uncategorized transactions alert
-            try:
-                if not spend.empty and 'category' in spend.columns:
-                    _uncat = spend[spend['category'].astype(str).str.strip().isin(['', 'Uncategorized'])]
-                    if len(_uncat) > 0:
-                        _alerts.append(('warning', 'label_off', f'{len(_uncat)} uncategorized transaction{"s" if len(_uncat) > 1 else ""} this month'))
-            except Exception:
-                pass
-
-            if _alerts:
-                with ui.card().classes('my-card p-5'):
-                    with ui.row().classes('items-center gap-2 mb-3'):
-                        with ui.element("div").classes("mf-icon-box").style("background: rgba(239,68,68,0.12);"):
-                            ui.icon("notifications_active").style("font-size: 20px; color: #ef4444;")
-                        ui.label("Smart Alerts").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
-                    for _a_type, _a_icon, _a_msg in _alerts[:8]:
-                        _a_color = '#ef4444' if _a_type == 'error' else ('#f59e0b' if _a_type == 'warning' else '#3b82f6')
-                        with ui.row().classes('w-full items-center gap-3 py-2').style(f'border-left: 3px solid {_a_color}; padding-left: 12px; border-radius: 2px;'):
-                            ui.icon(_a_icon).style(f'font-size: 18px; color: {_a_color};')
-                            ui.label(_a_msg).classes('text-sm').style('color: var(--mf-text);')
-        except Exception:
-            pass
-
-        # ──── Cashflow Trend (enhanced: weekly income vs expense bars + cumulative balance) ────
-        with ui.card().classes("my-card p-0").style("overflow: hidden;"):
-            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #22c55e, #3b82f6); border-radius: 0;')
-            with ui.column().classes("p-5 gap-3"):
-                with ui.row().classes("items-center gap-2 mb-1"):
-                    with ui.element("div").classes("mf-icon-box").style("background: rgba(34,197,94,0.12);"):
-                        ui.icon("show_chart").style("font-size: 20px; color: #22c55e;")
-                    ui.label("Cashflow Trend").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
-
-                recent = tx[tx["date_parsed"] >= (today() - dt.timedelta(days=90))].copy()
-                if not recent.empty:
-                    recent["week"] = recent["date_parsed"].apply(lambda d: (d - dt.timedelta(days=d.weekday())).isoformat())
-                    recent["is_income"] = recent["type_l"].isin(["credit", "income"])
-                    recent["is_expense"] = recent["type_l"].isin(["debit", "expense", "investment"])
-
-                    # Weekly income / expense aggregation
-                    weekly_in = recent[recent["is_income"]].groupby("week", as_index=False)["amount_num"].sum().rename(columns={"amount_num": "income"})
-                    weekly_out = recent[recent["is_expense"]].groupby("week", as_index=False)["amount_num"].sum().rename(columns={"amount_num": "expense"})
-
-                    # Merge into one DataFrame with all weeks
-                    all_weeks = sorted(set(recent["week"].tolist()))
-                    wdf = pd.DataFrame({"week": all_weeks})
-                    wdf = wdf.merge(weekly_in, on="week", how="left").merge(weekly_out, on="week", how="left").fillna(0)
-                    wdf["net"] = wdf["income"] - wdf["expense"]
-                    wdf["balance"] = wdf["net"].cumsum()
-
-                    # Shorten week labels (e.g., "Mar 3")
-                    wdf["label"] = wdf["week"].apply(lambda w: dt.date.fromisoformat(w).strftime("%b %d"))
-
-                    import plotly.graph_objects as go
-                    fig2 = go.Figure()
-                    # Income bars (green)
-                    fig2.add_trace(go.Bar(
-                        x=wdf["label"], y=wdf["income"], name="Income",
-                        marker_color="#22c55e", opacity=0.85,
-                    ))
-                    # Expense bars (red)
-                    fig2.add_trace(go.Bar(
-                        x=wdf["label"], y=wdf["expense"], name="Expense",
-                        marker_color="#ef4444", opacity=0.75,
-                    ))
-                    # Cumulative net balance line (gold)
-                    fig2.add_trace(go.Scatter(
-                        x=wdf["label"], y=wdf["balance"], name="Running Balance",
-                        mode="lines+markers", line=dict(color="#FBBF24", width=3),
-                        marker=dict(size=6, color="#FBBF24"),
-                        yaxis="y2",
-                    ))
-
-                    _fc = plotly_font_color()
-                    fig2.update_layout(
-                        template=plotly_template(),
-                        barmode="group",
-                        margin=dict(l=10, r=10, t=10, b=10),
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        font_color=_fc,
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=11, color=_fc)),
-                        xaxis=dict(tickfont=dict(color=_fc, size=10), showgrid=False),
-                        yaxis=dict(tickfont=dict(color=_fc, size=10), showgrid=True, gridcolor="rgba(128,128,128,0.10)", title=""),
-                        yaxis2=dict(tickfont=dict(color="#FBBF24", size=10), overlaying="y", side="right", showgrid=False, title=""),
-                        bargap=0.25, bargroupgap=0.08,
-                    )
-
-                    ui.plotly(fig2).classes("w-full").style("height: 280px;")
-
-                    # Summary stats row
-                    _total_in = float(wdf["income"].sum())
-                    _total_out = float(wdf["expense"].sum())
-                    _net_90 = _total_in - _total_out
-                    _net_color = "#22c55e" if _net_90 >= 0 else "#ef4444"
-                    with ui.row().classes("w-full justify-around mt-1"):
-                        with ui.column().classes("items-center gap-0"):
-                            ui.label("Income (90d)").classes("text-xs").style("color: var(--mf-muted);")
-                            ui.label(currency(_total_in)).classes("text-sm font-bold").style("color: #22c55e; font-feature-settings: 'tnum';")
-                        with ui.column().classes("items-center gap-0"):
-                            ui.label("Expense (90d)").classes("text-xs").style("color: var(--mf-muted);")
-                            ui.label(currency(_total_out)).classes("text-sm font-bold").style("color: #ef4444; font-feature-settings: 'tnum';")
-                        with ui.column().classes("items-center gap-0"):
-                            ui.label("Net").classes("text-xs").style("color: var(--mf-muted);")
-                            ui.label(f"{'+'if _net_90>=0 else ''}{currency(_net_90)}").classes("text-sm font-bold").style(f"color: {_net_color}; font-feature-settings: 'tnum';")
+                # Last month's data for comparison
+                if _today.month == 1:
+                    _prev_year, _prev_month = _today.year - 1, 12
                 else:
-                    ui.label("No recent transactions to chart.").classes("text-sm").style("color: var(--mf-muted);")
+                    _prev_year, _prev_month = _today.year, _today.month - 1
+                _prev_mkey = f"{_prev_year}-{_prev_month:02d}"
+                _prev_mtx = tx[tx["date_parsed"].apply(lambda d: month_key(d) == _prev_mkey)].copy()
+                if "type_l" not in _prev_mtx.columns:
+                    _prev_mtx["type_l"] = _prev_mtx.get("type", pd.Series(dtype=str)).astype(str).str.lower().str.strip()
+                if "amount_num" not in _prev_mtx.columns:
+                    _prev_mtx["amount_num"] = _prev_mtx.get("amount", pd.Series(dtype=float)).apply(to_float)
+                _prev_spend = _prev_mtx[_prev_mtx["type_l"].isin(["debit", "expense"])]
+                _prev_expense_total = float(_prev_spend["amount_num"].sum()) if not _prev_spend.empty else 0.0
 
-        # ──── Recent Transactions (quick overview) ────
-        try:
-            if not tx.empty and "date_parsed" in tx.columns:
-                _recent_tx = tx.sort_values("date_parsed", ascending=False).head(6)
-                if not _recent_tx.empty:
-                    with ui.card().classes("my-card p-0").style("overflow: hidden;"):
-                        ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
-                        with ui.column().classes("p-5 gap-0"):
-                            with ui.row().classes("items-center justify-between w-full mb-3"):
-                                with ui.row().classes("items-center gap-2"):
-                                    with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
-                                        ui.icon("receipt_long").style("font-size: 20px; color: #6366f1;")
-                                    ui.label("Recent Transactions").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
-                                ui.button("View All", on_click=lambda: nav_to("/tx")).props("flat dense").style("border-radius: 8px; font-size: 12px; color: var(--mf-accent);")
+                with ui.card().classes("my-card p-0").style("overflow: hidden;"):
+                    ui.element('div').style('height: 3px; background: linear-gradient(90deg, #f59e0b, #f97316); border-radius: 0;')
+                    with ui.column().classes("p-5 gap-0"):
+                        with ui.row().classes("items-center gap-2 mb-4"):
+                            with ui.element("div").classes("mf-icon-box").style("background: rgba(245,158,11,0.12);"):
+                                ui.icon("auto_graph").style("font-size: 20px; color: #f59e0b;")
+                            ui.label("Monthly Insights").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
 
-                            for _, _rtx in _recent_tx.iterrows():
-                                _rt_type = str(_rtx.get("type", "") or "").strip().lower()
-                                _rt_is_income = _rt_type in ("credit", "income")
-                                _rt_color = "#22c55e" if _rt_is_income else "#ef4444"
-                                _rt_sign = "+" if _rt_is_income else "-"
-                                _rt_icon = "trending_up" if _rt_is_income else "shopping_cart"
-                                _rt_amt = float(_rtx.get("amount_num", 0) or 0)
-                                _rt_note = str(_rtx.get("notes", "") or "")[:32] or str(_rtx.get("category", "") or "")
-                                _rt_cat = str(_rtx.get("category", "") or "")
-                                _rt_date = ""
-                                try:
-                                    _rt_date = _rtx["date_parsed"].strftime("%b %d")
-                                except Exception:
-                                    _rt_date = str(_rtx.get("date", ""))[:10]
+                        # 1) Daily avg spend + projected month-end
+                        _daily_avg = round(expense / max(_dom, 1), 2) if expense > 0 else 0.0
+                        _projected = round(_daily_avg * _days_in_month, 2)
+                        _burn_pct = min(_dom / max(_days_in_month, 1), 1.0)
 
+                        # --- Row 1: Daily Average with burn-rate progress ---
+                        with ui.element("div").style(
+                            "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
+                            "border-bottom: 1px solid rgba(128,128,128,0.1);"
+                        ):
+                            with ui.element("div").style(
+                                "width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
+                                "background: rgba(239,68,68,0.08); flex-shrink: 0;"
+                            ):
+                                ui.icon("local_fire_department").style("font-size: 20px; color: #ef4444;")
+                            with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
+                                with ui.row().classes("items-baseline justify-between w-full"):
+                                    ui.label("Daily Average").classes("text-sm font-semibold").style("color: var(--mf-text);")
+                                    ui.label(currency(_daily_avg)).classes("text-base font-extrabold").style("color: #ef4444; font-feature-settings: 'tnum'; letter-spacing: -0.02em;")
                                 with ui.element("div").style(
-                                    "display: flex; align-items: center; gap: 12px; padding: 10px 0;"
-                                    "border-bottom: 1px solid rgba(128,128,128,0.07);"
+                                    "width: 100%; height: 4px; border-radius: 2px; margin-top: 6px;"
+                                    "background: rgba(128,128,128,0.12); overflow: hidden;"
                                 ):
-                                    with ui.element("div").style(
-                                        f"width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;"
-                                        f"background: {_rt_color}12; flex-shrink: 0;"
-                                    ):
-                                        ui.icon(_rt_icon).style(f"font-size: 18px; color: {_rt_color};")
-                                    with ui.column().classes("gap-0 flex-1").style("min-width: 0; overflow: hidden;"):
-                                        ui.label(_rt_note).classes("text-sm font-medium").style("white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mf-text);")
-                                        with ui.row().classes("items-center gap-2"):
-                                            ui.label(_rt_cat).classes("text-xs").style("color: var(--mf-muted);")
-                                            ui.label(f"· {_rt_date}").classes("text-xs").style("color: var(--mf-muted);")
-                                    ui.label(f"{_rt_sign}{currency(_rt_amt)}").classes("text-sm font-bold").style(
-                                        f"color: {_rt_color}; font-feature-settings: 'tnum'; white-space: nowrap; letter-spacing: -0.02em;"
+                                    ui.element("div").style(
+                                        f"width: {_burn_pct * 100:.0f}%; height: 100%; border-radius: 2px;"
+                                        "background: linear-gradient(90deg, #f59e0b, #ef4444);"
+                                        "transition: width 0.8s ease;"
                                     )
-        except Exception:
-            pass
+                                with ui.row().classes("items-center justify-between w-full mt-1"):
+                                    ui.label(f"Day {_dom} of {_days_in_month}").classes("text-xs").style("color: var(--mf-muted);")
+                                    ui.label(f"Projected: {currency(_projected)}").classes("text-xs").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
+
+                        # --- Row 2: vs Last Month ---
+                        if _prev_expense_total > 0:
+                            _pct_change = ((expense - _prev_expense_total) / _prev_expense_total) * 100
+                        else:
+                            _pct_change = 0.0
+                        _change_color = "#ef4444" if _pct_change > 0 else "#22c55e"
+                        _change_icon = "trending_up" if _pct_change > 0 else "trending_down"
+                        _change_sign = "+" if _pct_change > 0 else ""
+
+                        with ui.element("div").style(
+                            "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
+                            "border-bottom: 1px solid rgba(128,128,128,0.1);"
+                        ):
+                            with ui.element("div").style(
+                                f"width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
+                                f"background: {_change_color}14; flex-shrink: 0;"
+                            ):
+                                ui.icon(_change_icon).style(f"font-size: 20px; color: {_change_color};")
+                            with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
+                                with ui.row().classes("items-baseline justify-between w-full"):
+                                    ui.label("vs Last Month").classes("text-sm font-semibold").style("color: var(--mf-text);")
+                                    with ui.element("span").style(
+                                        f"background: {_change_color}18; color: {_change_color}; font-weight: 800; font-size: 14px;"
+                                        f"padding: 2px 10px; border-radius: 20px; font-feature-settings: 'tnum';"
+                                    ):
+                                        ui.label(f"{_change_sign}{_pct_change:.1f}%")
+                                ui.label(f"Last month total: {currency(_prev_expense_total)}").classes("text-xs mt-1").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
+
+                        # --- Row 3: Biggest Expense ---
+                        if not spend.empty:
+                            _largest_row = spend.loc[spend["amount_num"].idxmax()]
+                            _largest_amt = float(_largest_row["amount_num"])
+                            _largest_note = str(_largest_row.get("notes", "") or "")[:28]
+                            _largest_cat = str(_largest_row.get("category", "") or "")
+                        else:
+                            _largest_amt = 0.0
+                            _largest_note = "\u2014"
+                            _largest_cat = ""
+
+                        with ui.element("div").style(
+                            "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
+                            "border-bottom: 1px solid rgba(128,128,128,0.1);"
+                        ):
+                            with ui.element("div").style(
+                                "width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
+                                "background: rgba(168,85,247,0.08); flex-shrink: 0;"
+                            ):
+                                ui.icon("diamond").style("font-size: 20px; color: #a855f7;")
+                            with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
+                                with ui.row().classes("items-baseline justify-between w-full"):
+                                    ui.label("Biggest Expense").classes("text-sm font-semibold").style("color: var(--mf-text);")
+                                    ui.label(currency(_largest_amt)).classes("text-base font-extrabold").style("color: #a855f7; font-feature-settings: 'tnum'; letter-spacing: -0.02em;")
+                                _hint = _largest_note or _largest_cat or "\u2014"
+                                ui.label(_hint).classes("text-xs mt-1").style("color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;")
+
+                        # --- Row 4: Top Category ---
+                        if not spend.empty and "category" in spend.columns:
+                            _top_cat_this = spend.groupby("category")["amount_num"].sum().idxmax()
+                            _top_cat_amt = float(spend.groupby("category")["amount_num"].sum().max())
+                            _top_cat_pct = (_top_cat_amt / expense * 100) if expense > 0 else 0
+                        else:
+                            _top_cat_this = "\u2014"
+                            _top_cat_amt = 0.0
+                            _top_cat_pct = 0.0
+
+                        with ui.element("div").style(
+                            "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
+                        ):
+                            with ui.element("div").style(
+                                "width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
+                                "background: rgba(59,130,246,0.08); flex-shrink: 0;"
+                            ):
+                                ui.icon("category").style("font-size: 20px; color: #3b82f6;")
+                            with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
+                                with ui.row().classes("items-baseline justify-between w-full"):
+                                    ui.label("Top Category").classes("text-sm font-semibold").style("color: var(--mf-text);")
+                                    ui.label(str(_top_cat_this)).classes("text-base font-extrabold").style("color: #3b82f6; letter-spacing: -0.02em;")
+                                with ui.row().classes("items-center gap-3 mt-1"):
+                                    ui.label(currency(_top_cat_amt)).classes("text-xs").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
+                                    ui.label(f"{_top_cat_pct:.0f}% of total spend").classes("text-xs").style("color: var(--mf-muted);")
+
+            except Exception:
+                pass  # Insights are optional; never break the dashboard
+
+        def _render_alerts():
+            # ──── Smart Alerts ────
+            try:
+                _alerts = []
+                # 1. Budget overspend alerts (80% threshold)
+                try:
+                    _ab = read_df_optional('budgets')
+                    if _ab is not None and not _ab.empty and not spend.empty and 'category' in spend.columns:
+                        _abcols = {str(c).strip().lower(): c for c in _ab.columns}
+                        _abc = _abcols.get('category') or _abcols.get('cat')
+                        _abb = _abcols.get('budget_monthly') or _abcols.get('monthly_budget') or _abcols.get('budget')
+                        if _abc and _abb:
+                            for _, _abr in _ab.iterrows():
+                                _abk = str(_abr.get(_abc, '')).strip()
+                                _abv = float(_abr.get(_abb, 0) or 0)
+                                if _abk and _abv > 0:
+                                    _cat_spent = float(spend[spend['category'] == _abk]['amount_num'].sum()) if _abk in spend['category'].values else 0.0
+                                    _pct_used = _cat_spent / _abv
+                                    if _pct_used >= 1.0:
+                                        _alerts.append(('error', 'warning', f'{_abk}: Over budget! {currency(_cat_spent)} / {currency(_abv)} ({int(_pct_used*100)}%)'))
+                                    elif _pct_used >= 0.8:
+                                        _alerts.append(('warning', 'trending_up', f'{_abk}: Nearing limit \u2014 {currency(_cat_spent)} / {currency(_abv)} ({int(_pct_used*100)}%)'))
+                except Exception:
+                    pass
+
+                # 2. Large transaction alerts (> $200 single transaction this month)
+                try:
+                    if not spend.empty:
+                        _large = spend[spend['amount_num'] > 200.0]
+                        for _, _lr in _large.head(3).iterrows():
+                            _ln = str(_lr.get('notes', '') or '')[:30] or str(_lr.get('category', ''))
+                            _alerts.append(('info', 'payments', f'Large expense: {currency(float(_lr["amount_num"]))} \u2014 {_ln}'))
+                except Exception:
+                    pass
+
+                # 3. Uncategorized transactions alert
+                try:
+                    if not spend.empty and 'category' in spend.columns:
+                        _uncat = spend[spend['category'].astype(str).str.strip().isin(['', 'Uncategorized'])]
+                        if len(_uncat) > 0:
+                            _alerts.append(('warning', 'label_off', f'{len(_uncat)} uncategorized transaction{"s" if len(_uncat) > 1 else ""} this month'))
+                except Exception:
+                    pass
+
+                if _alerts:
+                    with ui.card().classes('my-card p-5'):
+                        with ui.row().classes('items-center gap-2 mb-3'):
+                            with ui.element("div").classes("mf-icon-box").style("background: rgba(239,68,68,0.12);"):
+                                ui.icon("notifications_active").style("font-size: 20px; color: #ef4444;")
+                            ui.label("Smart Alerts").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
+                        for _a_type, _a_icon, _a_msg in _alerts[:8]:
+                            _a_color = '#ef4444' if _a_type == 'error' else ('#f59e0b' if _a_type == 'warning' else '#3b82f6')
+                            with ui.row().classes('w-full items-center gap-3 py-2').style(f'border-left: 3px solid {_a_color}; padding-left: 12px; border-radius: 2px;'):
+                                ui.icon(_a_icon).style(f'font-size: 18px; color: {_a_color};')
+                                ui.label(_a_msg).classes('text-sm').style('color: var(--mf-text);')
+            except Exception:
+                pass
+
+        def _render_cashflow():
+            # ──── Cashflow Trend (enhanced: weekly income vs expense bars + cumulative balance) ────
+            with ui.card().classes("my-card p-0").style("overflow: hidden;"):
+                ui.element('div').style('height: 3px; background: linear-gradient(90deg, #22c55e, #3b82f6); border-radius: 0;')
+                with ui.column().classes("p-5 gap-3"):
+                    with ui.row().classes("items-center gap-2 mb-1"):
+                        with ui.element("div").classes("mf-icon-box").style("background: rgba(34,197,94,0.12);"):
+                            ui.icon("show_chart").style("font-size: 20px; color: #22c55e;")
+                        ui.label("Cashflow Trend").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
+
+                    recent = tx[tx["date_parsed"] >= (today() - dt.timedelta(days=90))].copy()
+                    if not recent.empty:
+                        recent["week"] = recent["date_parsed"].apply(lambda d: (d - dt.timedelta(days=d.weekday())).isoformat())
+                        recent["is_income"] = recent["type_l"].isin(["credit", "income"])
+                        recent["is_expense"] = recent["type_l"].isin(["debit", "expense", "investment"])
+
+                        # Weekly income / expense aggregation
+                        weekly_in = recent[recent["is_income"]].groupby("week", as_index=False)["amount_num"].sum().rename(columns={"amount_num": "income"})
+                        weekly_out = recent[recent["is_expense"]].groupby("week", as_index=False)["amount_num"].sum().rename(columns={"amount_num": "expense"})
+
+                        # Merge into one DataFrame with all weeks
+                        all_weeks = sorted(set(recent["week"].tolist()))
+                        wdf = pd.DataFrame({"week": all_weeks})
+                        wdf = wdf.merge(weekly_in, on="week", how="left").merge(weekly_out, on="week", how="left").fillna(0)
+                        wdf["net"] = wdf["income"] - wdf["expense"]
+                        wdf["balance"] = wdf["net"].cumsum()
+
+                        # Shorten week labels (e.g., "Mar 3")
+                        wdf["label"] = wdf["week"].apply(lambda w: dt.date.fromisoformat(w).strftime("%b %d"))
+
+                        import plotly.graph_objects as go
+                        fig2 = go.Figure()
+                        # Income bars (green)
+                        fig2.add_trace(go.Bar(
+                            x=wdf["label"], y=wdf["income"], name="Income",
+                            marker_color="#22c55e", opacity=0.85,
+                        ))
+                        # Expense bars (red)
+                        fig2.add_trace(go.Bar(
+                            x=wdf["label"], y=wdf["expense"], name="Expense",
+                            marker_color="#ef4444", opacity=0.75,
+                        ))
+                        # Cumulative net balance line (gold)
+                        fig2.add_trace(go.Scatter(
+                            x=wdf["label"], y=wdf["balance"], name="Running Balance",
+                            mode="lines+markers", line=dict(color="#FBBF24", width=3),
+                            marker=dict(size=6, color="#FBBF24"),
+                            yaxis="y2",
+                        ))
+
+                        _fc = plotly_font_color()
+                        fig2.update_layout(
+                            template=plotly_template(),
+                            barmode="group",
+                            margin=dict(l=10, r=10, t=10, b=10),
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            font_color=_fc,
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=11, color=_fc)),
+                            xaxis=dict(tickfont=dict(color=_fc, size=10), showgrid=False),
+                            yaxis=dict(tickfont=dict(color=_fc, size=10), showgrid=True, gridcolor="rgba(128,128,128,0.10)", title=""),
+                            yaxis2=dict(tickfont=dict(color="#FBBF24", size=10), overlaying="y", side="right", showgrid=False, title=""),
+                            bargap=0.25, bargroupgap=0.08,
+                        )
+
+                        ui.plotly(fig2).classes("w-full").style("height: 280px;")
+
+                        # Summary stats row
+                        _total_in = float(wdf["income"].sum())
+                        _total_out = float(wdf["expense"].sum())
+                        _net_90 = _total_in - _total_out
+                        _net_color = "#22c55e" if _net_90 >= 0 else "#ef4444"
+                        with ui.row().classes("w-full justify-around mt-1"):
+                            with ui.column().classes("items-center gap-0"):
+                                ui.label("Income (90d)").classes("text-xs").style("color: var(--mf-muted);")
+                                ui.label(currency(_total_in)).classes("text-sm font-bold").style("color: #22c55e; font-feature-settings: 'tnum';")
+                            with ui.column().classes("items-center gap-0"):
+                                ui.label("Expense (90d)").classes("text-xs").style("color: var(--mf-muted);")
+                                ui.label(currency(_total_out)).classes("text-sm font-bold").style("color: #ef4444; font-feature-settings: 'tnum';")
+                            with ui.column().classes("items-center gap-0"):
+                                ui.label("Net").classes("text-xs").style("color: var(--mf-muted);")
+                                ui.label(f"{'+'if _net_90>=0 else ''}{currency(_net_90)}").classes("text-sm font-bold").style(f"color: {_net_color}; font-feature-settings: 'tnum';")
+                    else:
+                        ui.label("No recent transactions to chart.").classes("text-sm").style("color: var(--mf-muted);")
+
+        def _render_recent_tx():
+            # ──── Recent Transactions (quick overview) ────
+            try:
+                if not tx.empty and "date_parsed" in tx.columns:
+                    _recent_tx = tx.sort_values("date_parsed", ascending=False).head(6)
+                    if not _recent_tx.empty:
+                        with ui.card().classes("my-card p-0").style("overflow: hidden;"):
+                            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
+                            with ui.column().classes("p-5 gap-0"):
+                                with ui.row().classes("items-center justify-between w-full mb-3"):
+                                    with ui.row().classes("items-center gap-2"):
+                                        with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
+                                            ui.icon("receipt_long").style("font-size: 20px; color: #6366f1;")
+                                        ui.label("Recent Transactions").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
+                                    ui.button("View All", on_click=lambda: nav_to("/tx")).props("flat dense").style("border-radius: 8px; font-size: 12px; color: var(--mf-accent);")
+
+                                for _, _rtx in _recent_tx.iterrows():
+                                    _rt_type = str(_rtx.get("type", "") or "").strip().lower()
+                                    _rt_is_income = _rt_type in ("credit", "income")
+                                    _rt_color = "#22c55e" if _rt_is_income else "#ef4444"
+                                    _rt_sign = "+" if _rt_is_income else "-"
+                                    _rt_icon = "trending_up" if _rt_is_income else "shopping_cart"
+                                    _rt_amt = float(_rtx.get("amount_num", 0) or 0)
+                                    _rt_note = str(_rtx.get("notes", "") or "")[:32] or str(_rtx.get("category", "") or "")
+                                    _rt_cat = str(_rtx.get("category", "") or "")
+                                    _rt_date = ""
+                                    try:
+                                        _rt_date = _rtx["date_parsed"].strftime("%b %d")
+                                    except Exception:
+                                        _rt_date = str(_rtx.get("date", ""))[:10]
+
+                                    with ui.element("div").style(
+                                        "display: flex; align-items: center; gap: 12px; padding: 10px 0;"
+                                        "border-bottom: 1px solid rgba(128,128,128,0.07);"
+                                    ):
+                                        with ui.element("div").style(
+                                            f"width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;"
+                                            f"background: {_rt_color}12; flex-shrink: 0;"
+                                        ):
+                                            ui.icon(_rt_icon).style(f"font-size: 18px; color: {_rt_color};")
+                                        with ui.column().classes("gap-0 flex-1").style("min-width: 0; overflow: hidden;"):
+                                            ui.label(_rt_note).classes("text-sm font-medium").style("white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mf-text);")
+                                            with ui.row().classes("items-center gap-2"):
+                                                ui.label(_rt_cat).classes("text-xs").style("color: var(--mf-muted);")
+                                                ui.label(f"\u00b7 {_rt_date}").classes("text-xs").style("color: var(--mf-muted);")
+                                        ui.label(f"{_rt_sign}{currency(_rt_amt)}").classes("text-sm font-bold").style(
+                                            f"color: {_rt_color}; font-feature-settings: 'tnum'; white-space: nowrap; letter-spacing: -0.02em;"
+                                        )
+            except Exception:
+                pass
+
+        # ──── Dashboard Grid (responsive 2-col on desktop) ────
+        with ui.element('div').classes('mf-dash-grid'):
+            with ui.element('div'):
+                _render_insights()
+            with ui.element('div'):
+                _render_recent_tx()
+            with ui.element('div').classes('mf-dash-full'):
+                _render_alerts()
+            with ui.element('div').classes('mf-dash-full'):
+                _render_cashflow()
 
     shell(content)
 
@@ -8794,6 +8846,7 @@ def about_page() -> None:
         return
 
     def content() -> None:
+      with ui.element('div').classes('mf-about-wrap'):
         # ── App Info Card ──
         with ui.card().classes('my-card p-0').style('overflow: hidden;'):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #22C55E, #FBBF24); border-radius: 0;')
@@ -8812,7 +8865,7 @@ def about_page() -> None:
                     'of your money. Track every expense, scan receipts with AI-powered OCR, monitor '
                     'credit card utilization, set budgets, and visualize your spending patterns — all '
                     'from a single elegant interface.'
-                ).classes('text-sm text-center').style('color: var(--mf-muted); line-height: 1.7; max-width: 520px;')
+                ).classes('text-sm text-center').style('color: var(--mf-muted); line-height: 1.7; max-width: 720px;')
 
                 # Feature highlights
                 _features = [
@@ -8823,9 +8876,7 @@ def about_page() -> None:
                     ('call_split', 'Receipt Splitting', 'Multi-category split for Walmart, Costco & Superstore receipts.'),
                     ('autorenew', 'Recurring Templates', 'Set it and forget it — automatic transaction creation on due dates.'),
                 ]
-                with ui.element('div').style(
-                    'display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; width: 100%; max-width: 600px; margin-top: 8px;'
-                ):
+                with ui.element('div').classes('mf-about-features'):
                     for f_icon, f_title, f_desc in _features:
                         with ui.element('div').style(
                             'display: flex; align-items: flex-start; gap: 12px; padding: 12px;'
@@ -8846,9 +8897,7 @@ def about_page() -> None:
                         ui.icon('person').style('font-size: 20px; color: #6366f1;')
                     ui.label('About the Author').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
 
-                with ui.element('div').style(
-                    'display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;'
-                ):
+                with ui.element('div').classes('mf-about-author'):
                     # Avatar placeholder
                     with ui.element('div').style(
                         'width: 90px; height: 90px; border-radius: 50%; flex-shrink: 0;'
@@ -9017,6 +9066,73 @@ async def _keepalive_loop():
 async def _health_check():
     return {'status': 'ok', 'version': APP_VERSION}
 
+# ---------------------------
+# Web App Manifest (improves iOS/Android PWA launch performance)
+# ---------------------------
+@app.get('/manifest.json')
+async def _manifest():
+    from starlette.responses import JSONResponse
+    return JSONResponse({
+        "name": "FinTrackr",
+        "short_name": "FinTrackr",
+        "description": "Premium personal finance dashboard",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#0F1923",
+        "theme_color": "#0F1923",
+        "orientation": "portrait-primary",
+        "icons": [
+            {"src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png"},
+        ],
+    })
+
+# ---------------------------
+# Service Worker (caches fonts + static assets for faster repeat launches)
+# ---------------------------
+@app.get('/sw.js')
+async def _service_worker():
+    from starlette.responses import Response
+    sw_js = f'''
+const CACHE_NAME = 'fintrackr-v{APP_VERSION}';
+const PRECACHE = [
+  'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap',
+  'https://fonts.googleapis.com/icon?family=Material+Icons',
+  '/apple-touch-icon.png',
+  '/manifest.json',
+];
+
+self.addEventListener('install', e => {{
+  e.waitUntil(
+    caches.open(CACHE_NAME).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting())
+  );
+}});
+
+self.addEventListener('activate', e => {{
+  e.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
+}});
+
+self.addEventListener('fetch', e => {{
+  const url = e.request.url;
+  // Only cache fonts and static assets; never cache HTML/WebSocket/API
+  if (url.includes('fonts.googleapis.com') || url.includes('fonts.gstatic.com') ||
+      url.includes('/apple-touch-icon') || url.includes('/manifest.json')) {{
+    e.respondWith(
+      caches.match(e.request).then(r => r || fetch(e.request).then(resp => {{
+        const clone = resp.clone();
+        caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+        return resp;
+      }}))
+    );
+  }}
+}});
+'''
+    return Response(content=sw_js, media_type='application/javascript',
+                    headers={'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/'})
+
 app.on_startup(lambda: asyncio.create_task(_keepalive_loop()))
 
 ui.run(
@@ -9027,4 +9143,4 @@ ui.run(
     favicon=_FAVICON_SVG,
 )
 
-# Release: FinTrackr Phase 7.5.0
+# Release: FinTrackr Phase 7.5.1
