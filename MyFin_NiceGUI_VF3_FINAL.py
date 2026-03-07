@@ -1,17 +1,17 @@
 # ======================================
-# FinTrackr App – Phase 4.6A (REAL FIX BUILD)
+# FinTrackr App ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ Phase 4.6A (REAL FIX BUILD)
 # Changes vs P4.5: Dashboard hero, Rules selection, OCR toast timeout, richer palette
 # ======================================
 
 # ==============================
-# FinTrackr App – Phase 4.5 (P4.4 + P4.5 combined)
+# FinTrackr App ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ Phase 4.5 (P4.4 + P4.5 combined)
 # Base: Myfin_NICEGUI_VF2_P4_2 (last stable)
 # Changes: Budgets setup UX, Transactions table mobile UX, Rules edit, Cards utilization bars,
 #          Dashboard pay-period view, Premium login styling
 # ==============================
 
 """
-FinTrackr — NiceGUI Stable
+FinTrackr ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â NiceGUI Stable
 File: Myfin_NICEGUI_VF2_P4_2.py
 
 Purpose
@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '7.6.0'
+APP_VERSION = '7.7.0'
 
 
 def log(message: str) -> None:
@@ -1188,6 +1188,57 @@ def parse_amount(s: Any) -> float:
     except Exception:
         return 0.0
 
+
+_TX_TYPE_ALIASES = {
+    'debit': 'debit',
+    'expense': 'debit',
+    'spend': 'debit',
+    'credit': 'credit',
+    'income': 'credit',
+    'salary': 'credit',
+    'investment': 'investment',
+    'investments': 'investment',
+    'invest': 'investment',
+    'cc repay': 'cc repay',
+    'cc repayment': 'cc repay',
+    'credit card repay': 'cc repay',
+    'credit card repayment': 'cc repay',
+    'creditcard repay': 'cc repay',
+    'cc_repay': 'cc repay',
+    'loc draw': 'loc draw',
+    'loc withdrawal': 'loc draw',
+    'loc_withdrawal': 'loc draw',
+    'line of credit withdrawal': 'loc draw',
+    'loc repay': 'loc repay',
+    'loc repayment': 'loc repay',
+    'loc_repay': 'loc repay',
+    'loc_repayment': 'loc repay',
+    'line of credit repayment': 'loc repay',
+    'international': 'international',
+    'international transaction': 'international',
+    'remittance': 'international',
+}
+
+
+def canonical_tx_type(value: Any) -> str:
+    """Normalize transaction types from old/new sheet variants into a canonical set."""
+    t = str(value or '').strip().lower()
+    if not t:
+        return ''
+    t = t.replace('_', ' ').replace('-', ' ')
+    t = re.sub(r'\s+', ' ', t).strip()
+    if t in _TX_TYPE_ALIASES:
+        return _TX_TYPE_ALIASES[t]
+    if 'loc' in t and ('withdraw' in t or 'draw' in t or 'utilization' in t):
+        return 'loc draw'
+    if 'loc' in t and ('repay' in t or 'repayment' in t or 'payment' in t):
+        return 'loc repay'
+    if ('credit card' in t or t.startswith('cc ')) and ('repay' in t or 'payment' in t):
+        return 'cc repay'
+    if 'invest' in t:
+        return 'investment'
+    return t
+
 def wide_transactions_to_long(df: pd.DataFrame) -> pd.DataFrame:
     """Convert a 'wide' Transactions sheet into the app's long format.
 
@@ -1228,11 +1279,11 @@ def wide_transactions_to_long(df: pd.DataFrame) -> pd.DataFrame:
     mapping = [
         ('international', pick('international transaction', 'international', 'intl', 'remittance')),
         ('credit', pick('credit', 'income')),
-        ('investment', pick('investment', 'invest')),
-        ('cc_repay', pick('credit card repay', 'credit card repayment', 'creditcard repay', 'cc repay', 'cc repayment')),
+        ('investment', pick('investment', 'invest', 'investments')),
+        ('cc repay', pick('credit card repay', 'credit card repayment', 'creditcard repay', 'cc repay', 'cc repayment')),
         ('debit', pick('debit', 'expense', 'spend')),
-        ('loc_withdrawal', pick('loc withdrawal', 'loc draw', 'line of credit withdrawal')),
-        ('loc_repayment', pick('loc repayment', 'loc repay', 'line of credit repayment')),
+        ('loc draw', pick('loc withdrawal', 'loc draw', 'line of credit withdrawal', 'loc utilization')),
+        ('loc repay', pick('loc repayment', 'loc repay', 'line of credit repayment')),
     ]
 
     # build long rows
@@ -1259,7 +1310,7 @@ def wide_transactions_to_long(df: pd.DataFrame) -> pd.DataFrame:
         # if no category columns found, keep row (helps surface schema issues)
         if not any_added:
             row = dict(base)
-            row.update({'type': str(r.get(pick('type')) or '').strip(), 'amount': to_float(r.get(pick('amount')) or 0)})
+            row.update({'type': canonical_tx_type(r.get(pick('type'))), 'amount': to_float(r.get(pick('amount')) or 0)})
             out_rows.append(row)
 
     out = pd.DataFrame(out_rows)
@@ -1267,6 +1318,7 @@ def wide_transactions_to_long(df: pd.DataFrame) -> pd.DataFrame:
     for c in ['date', 'type', 'amount', 'account', 'notes', 'owner']:
         if c not in out.columns:
             out[c] = '' if c != 'amount' else 0.0
+    out['type'] = out['type'].apply(canonical_tx_type)
     return out
 
 def normalize_title(s: str) -> str:
@@ -1392,7 +1444,7 @@ def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
     current_section: str | None = None
 
     def _clean_name(s: str) -> str:
-        s = s.replace('CAD', '').replace('$', '').strip(" -:·|")
+        s = s.replace('CAD', '').replace('$', '').strip(" -:Ãƒâ€šÃ‚Â·|")
         # Remove long numeric codes (SKU/UPC) but keep short quantities (e.g., 2 AT 1 FOR)
         s = re.sub(r"\b\d{6,}\b", " ", s)
         s = re.sub(r"\s+", " ", s).strip()
@@ -2049,6 +2101,7 @@ def append_tx(tx: Optional[Dict[str, Any]] = None, **kwargs: Any) -> None:
         tx['date'] = tx.get('date_')
     if 'type' not in tx and 'type_' in tx:
         tx['type'] = tx.get('type_')
+    tx['type'] = canonical_tx_type(tx.get('type'))
 
     # Ensure required columns exist even if blank
     tx.setdefault('owner', '')
@@ -2168,6 +2221,8 @@ def cached_df(tab: str, force: bool = False) -> pd.DataFrame:
             # by converting it into the app's long ledger format.
             before_cols = list(df.columns)
             df = wide_transactions_to_long(df)
+            if 'type' in df.columns:
+                df['type'] = df['type'].apply(canonical_tx_type)
             print(f"[FinTrackr] transactions loaded: rows={len(df)} cols={list(df.columns)} (source cols={before_cols})")
 
     except Exception as e:
@@ -2318,7 +2373,7 @@ def create_or_update_recurring_template(
     if not rdf.empty and (rdf["recurring_id"].astype(str) == rid).any():
         update_row_by_id("recurring", "recurring_id", rid, {
             "owner": owner,
-            "type": type_,
+            "type": canonical_tx_type(type_),
             "amount": amount,
             "method": method,
             "account": account,
@@ -2335,7 +2390,7 @@ def create_or_update_recurring_template(
     append_row("recurring", {
         "recurring_id": rid,
         "owner": owner,
-        "type": type_,
+        "type": canonical_tx_type(type_),
         "amount": amount,
         "method": method,
         "account": account,
@@ -2400,7 +2455,7 @@ def generate_recurring_for_date(d: dt.date) -> int:
             "id": tx_id,
             "date": target.isoformat(),
             "owner": str(r.get("owner", "")).strip(),
-            "type": str(r.get("type", "Debit")).strip(),
+            "type": canonical_tx_type(r.get("type", "Debit")),
             "amount": float(to_float(r.get("amount", 0))),
             "method": str(r.get("method", "Other")).strip(),
             "account": str(r.get("account", "")).strip(),
@@ -3277,35 +3332,49 @@ html.mf-light .q-btn__content {
   transform: translateY(-1px) scale(0.99);
 }
 
-/* Premium dialogs — fast open, no heavy blur for performance */
+/* Premium dialogs ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â instant open, zero blur for snappy iOS performance */
 .q-dialog__backdrop {
-  background: rgba(0,0,0,0.55) !important;
-  backdrop-filter: blur(4px) !important;
-  -webkit-backdrop-filter: blur(4px) !important;
+  background: rgba(0,0,0,0.45) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  transition: opacity 0.12s ease !important;
+}
+.q-dialog__inner {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px) !important;
+  padding-top: max(env(safe-area-inset-top, 0px), 8px) !important;
 }
 .q-dialog__inner > div {
   background: var(--mf-bg) !important;
   border: 1px solid rgba(255,255,255,0.10) !important;
-  box-shadow: 0 24px 48px rgba(0,0,0,0.35) !important;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.30) !important;
   border-radius: 22px !important;
-  animation: mf-dialogIn 0.18s ease-out !important;
+  animation: mf-dialogIn 0.12s cubic-bezier(0.22, 1, 0.36, 1) !important;
+  will-change: transform, opacity;
 }
 @keyframes mf-dialogIn {
-  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  from { opacity: 0; transform: scale(0.97) translateY(6px); }
   to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 html.mf-light .q-dialog__backdrop {
-  background: rgba(100,100,120,0.35) !important;
+  background: rgba(100,100,120,0.30) !important;
 }
 html.mf-light .q-dialog__inner > div {
   background: #fff !important;
   border: 1px solid rgba(17,24,39,0.08) !important;
-  box-shadow: 0 24px 48px rgba(0,0,0,0.10) !important;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.08) !important;
 }
 .q-dialog__inner > div .q-card {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
+}
+/* Kill the black bar: ensure app + dialogs respect safe areas */
+html, body, #app { background: var(--mf-bg) !important; }
+body.q-body--dialog { overflow: hidden !important; background: var(--mf-bg) !important; }
+.q-dialog { padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px) !important; }
+.q-dialog__inner--minimized > div {
+  max-height: calc(88vh - env(safe-area-inset-bottom, 0px)) !important;
+  margin-bottom: max(env(safe-area-inset-bottom, 0px), 8px) !important;
 }
 
 /* Nicer KPI blocks */
@@ -3335,96 +3404,197 @@ html.mf-light .mf-progress {
 
 
 /* ================================
-   Phase 6.5 Shell Layout (bank-style)
+   Phase 7.7 Shell Layout (premium banking)
+   Desktop: persistent left rail, no hamburger
+   Mobile: bottom tab bar, hamburger opens full nav
    ================================ */
 .mf-shell { display: flex; min-height: 100vh; width: 100%; }
+
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Left Rail (Desktop: always visible, Mobile: overlay) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 .mf-rail {
-  width: 92px;
+  width: 88px;
   position: fixed;
-  left: 18px;
-  top: 18px;
-  height: calc(100vh - 36px);
+  left: 14px;
+  top: 14px;
+  height: calc(100vh - 28px);
   padding: 0;
   z-index: 50;
   transform: translateX(-130%);
-  transition: transform 180ms ease;
+  transition: transform 180ms cubic-bezier(0.2,0.9,0.3,1);
 }
 .mf-nav-open .mf-rail { transform: translateX(0); }
 
 .mf-backdrop{
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.55);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  background: rgba(0,0,0,0.45);
   z-index: 40;
   display: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .mf-nav-open .mf-backdrop{ display:block; }
 .mf-rail-card{
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   border: 1px solid var(--mf-border);
   background: var(--mf-surface);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border-radius: 20px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.28);
-  padding: 14px;
+  border-radius: 18px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+  padding: 12px 10px;
+  overflow-y: auto;
 }
 .mf-brand{
-  height:44px;
+  height: 40px;
   display:flex;
   align-items:center;
   justify-content:center;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid var(--mf-border);
   background: rgba(255,255,255,0.04);
   font-weight: 900;
-  letter-spacing: 0.8px;
+  font-size: 11px;
+  letter-spacing: 0.6px;
   user-select: none;
 }
-.mf-navbtn .q-btn__content{ flex-direction: column !important; gap: 6px; }
+.mf-navbtn .q-btn__content{ flex-direction: column !important; gap: 4px; }
 .mf-navbtn{
   width: 100%;
-  min-height: 58px;
-  border-radius: 14px !important;
+  min-height: 52px;
+  border-radius: 12px !important;
   border: 1px solid transparent !important;
   text-transform: none !important;
+  transition: background 0.15s ease;
 }
 .mf-navbtn.is-active{
-  background: var(--mf-g1) !important;
-  border: 1px solid rgba(255,255,255,0.18) !important;
+  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.14) !important;
+  border: 1px solid rgba(var(--mf-accent-rgb, 91,140,255), 0.22) !important;
 }
-.mf-navbtn .q-btn__content span { font-size: 11px; opacity: 0.78; }
+.mf-navbtn .q-btn__content span { font-size: 10px; opacity: 0.7; font-weight: 600; }
 
-.mf-main { flex: 1; padding: 38px; }
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Bottom Tab Bar (Mobile only) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
+.mf-bottombar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 55;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-around;
+  height: calc(56px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--mf-surface);
+  border-top: 1px solid var(--mf-border);
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.10);
+}
+html.mf-light .mf-bottombar {
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.06);
+}
+.mf-bottombar .mf-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+  color: var(--mf-muted);
+  text-decoration: none;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  padding: 4px 0;
+  border: none;
+  background: none;
+}
+.mf-bottombar .mf-tab .q-icon { font-size: 22px; transition: color 0.15s ease; }
+.mf-bottombar .mf-tab.is-active { color: var(--mf-accent); }
+.mf-bottombar .mf-tab.is-active .q-icon { color: var(--mf-accent); }
+/* Pulsing Add button in center */
+.mf-bottombar .mf-tab-add {
+  position: relative;
+  top: -12px;
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2, var(--mf-accent)));
+  color: #fff !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 52px;
+  box-shadow: 0 4px 16px rgba(var(--mf-accent-rgb, 91,140,255), 0.35);
+  cursor: pointer;
+  border: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.mf-bottombar .mf-tab-add .q-icon { font-size: 26px; color: #fff; }
+
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Main area ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
+.mf-main { flex: 1; padding: 24px 30px; }
 .mf-header{
-  height: 64px;
-  display:flex;
-  align-items:center;
+  height: 56px;
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 14px;
   max-width: 1180px;
-  margin: 0 auto 26px auto;
+  margin: 0 auto 22px auto;
 }
 .mf-title .t1 { font-size: 18px; font-weight: 900; }
 .mf-title .t2 { font-size: 12px; color: var(--mf-muted); }
 .mf-canvas{
-  max-width: 1180px;
+  width: 100%;
+  max-width: 1240px;
   margin: 0 auto;
-  display:flex;
+  display: flex;
   flex-direction: column;
-  gap: 26px;
+  gap: 22px;
+}
+.mf-menu-fab {
+  position: fixed;
+  left: 14px;
+  bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+  width: 52px;
+  height: 52px;
+  z-index: 56;
+  border-radius: 14px;
+  border: 1px solid var(--mf-border);
+  background: linear-gradient(135deg, var(--mf-surface), var(--mf-card-bottom));
+  box-shadow: 0 10px 24px rgba(0,0,0,0.22);
+  display: none;
+}
+.mf-admin-wrap {
+  width: 100%;
+  max-width: 1360px;
+  margin: 0 auto;
 }
 
-@media (max-width: 900px){
-  .mf-rail{ padding: 10px; }
-  .mf-main{ padding: 18px 10px; }
-  .mf-navbtn .q-btn__content span { display:none; }
-  .mf-navbtn { min-height: 46px; }
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Desktop (ÃƒÂ¢Ã¢â‚¬Â°Ã‚Â¥900px): always show left rail, hide hamburger & bottom bar ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
+@media (min-width: 901px) {
+  .mf-rail {
+    transform: translateX(0) !important;  /* always visible */
+  }
+  .mf-backdrop { display: none !important; }
+  .mf-main { margin-left: 104px; }  /* rail width + gap */
+  .mf-hamburger { display: none !important; }
+  .mf-menu-fab { display: none !important; }
+  .mf-bottombar { display: none !important; }
+}
+
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Mobile (ÃƒÂ¢Ã¢â‚¬Â°Ã‚Â¤900px): hide rail, show bottom bar + hamburger ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
+@media (max-width: 900px) {
+  .mf-rail { width: 82px; padding: 8px; }
+  .mf-main {
+    padding: 16px 12px;
+    padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px));  /* space for bottom bar */
+  }
+  .mf-navbtn .q-btn__content span { display: none; }
+  .mf-navbtn { min-height: 42px; }
+  .mf-hamburger { display: none !important; }
+  .mf-menu-fab { display: inline-flex !important; }
 }
 
 
@@ -3787,7 +3957,7 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 .mf-split-pill { border-radius: 999px; padding: 6px 10px; border: 1px solid var(--mf-border); background: rgba(255,255,255,0.06); }
 html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
 
-/* ── About Page Responsive ── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ About Page Responsive ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 .mf-about-wrap { max-width: 640px; margin: 0 auto; }
 .mf-about-features {
   display: grid; grid-template-columns: 1fr; gap: 14px; width: 100%; margin-top: 8px;
@@ -3804,7 +3974,7 @@ html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
   .mf-about-features { grid-template-columns: repeat(3, 1fr); }
 }
 
-/* ── Home Page Dashboard Responsive Grid ── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Home Page Dashboard Responsive Grid ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 .mf-dash-grid {
   display: grid; grid-template-columns: 1fr; gap: 16px; width: 100%;
 }
@@ -3837,7 +4007,7 @@ ui.add_head_html(r'''
 <link rel="apple-touch-startup-image" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1284' height='2778' viewBox='0 0 1284 2778'%3E%3Crect fill='%230F1923' width='1284' height='2778'/%3E%3Ctext x='642' y='1340' text-anchor='middle' fill='%23FBBF24' font-size='80' font-family='system-ui' font-weight='800'%3EFinTrackr%3C/text%3E%3Ccircle cx='642' cy='1210' r='45' fill='%2322C55E' opacity='0.7'/%3E%3C/svg%3E" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)">
 <link rel="apple-touch-startup-image" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1179' height='2556' viewBox='0 0 1179 2556'%3E%3Crect fill='%230F1923' width='1179' height='2556'/%3E%3Ctext x='590' y='1230' text-anchor='middle' fill='%23FBBF24' font-size='80' font-family='system-ui' font-weight='800'%3EFinTrackr%3C/text%3E%3Ccircle cx='590' cy='1110' r='45' fill='%2322C55E' opacity='0.7'/%3E%3C/svg%3E" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)">
 <style>
-/* CRITICAL: Paint dark background IMMEDIATELY — prevents iOS white flash */
+/* CRITICAL: Paint dark background IMMEDIATELY ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â prevents iOS white flash */
 html,body{ background:#0F1923 !important; }
 /* Remove ugly yellow background on browser autofill (Safari/Chrome) */
 input:-webkit-autofill,
@@ -3849,7 +4019,7 @@ select:-webkit-autofill{
   caret-color: var(--mf-text) !important;
   background-color: var(--mf-bg-2) !important;
 }
-/* iOS launch splash overlay — covers blank page while NiceGUI hydrates */
+/* iOS launch splash overlay ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â covers blank page while NiceGUI hydrates */
 #mf-splash{
   position:fixed; inset:0; z-index:999999;
   background: #0F1923;
@@ -3882,7 +4052,7 @@ select:-webkit-autofill{
 @keyframes mf-sp-blink{ 0%,100%{ opacity:0.25; } 50%{ opacity:1; } }
 </style>
 <script>
-// Inject splash overlay ASAP — matches the app header icon (insights icon in emerald+gold badge)
+// Inject splash overlay ASAP ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â matches the app header icon (insights icon in emerald+gold badge)
 (function(){
   if(document.getElementById('mf-splash')) return;
   var s=document.createElement('div'); s.id='mf-splash';
@@ -4060,7 +4230,7 @@ ui.add_head_html(
           const t = await verRes.text();
           throw new Error('Passkey registration failed: ' + (t || verRes.status));
         }
-        toast('Passkey registered ✓');
+        toast('Passkey registered ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“');
         alert('Passkey registered successfully for ' + username);
       } catch (e) {
         console.error(e);
@@ -4196,7 +4366,7 @@ window.mfSetTheme = function(name){
       // Default to system preference: Dark/Night -> Graphite Rose, Light/Day -> Mint Light
       try{
         const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        // Also check time of day: 6 AM–6 PM = day, otherwise night
+        // Also check time of day: 6 AMÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“6 PM = day, otherwise night
         const hour = new Date().getHours();
         const isNight = (hour < 6 || hour >= 18);
         const useDark = prefersDark || isNight;
@@ -4361,7 +4531,7 @@ def shell(content_fn, *, active_path: str = ""):
                 with ui.row().classes("items-center justify-between w-full"):
                     # LEFT: hamburger + title
                     with ui.row().classes("items-center gap-3"):
-                        ui.button("", icon="menu").props("flat round dense").style(
+                        ui.button("", icon="menu").props("flat round dense").classes("mf-hamburger").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
                         ).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-nav-open')"))
                         with ui.element("div").classes("mf-title"):
@@ -4495,6 +4665,9 @@ def shell(content_fn, *, active_path: str = ""):
             with ui.element("div").classes("mf-canvas"):
                 content_fn()
 
+        ui.button("", icon="menu").props("unelevated round").classes("mf-menu-fab").style(
+            "color: var(--mf-text);"
+        ).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-nav-open')"))
 
 
 # -----------------------------
@@ -4511,12 +4684,34 @@ def owners_list() -> List[str]:
 
 
 def accounts_list() -> List[str]:
+    """Return known account names from transactions + cards sheets + sensible defaults."""
+    accts: set[str] = set()
+    # 1) From past transactions
     tx = cached_df("transactions")
-    accts = set()
-    if not tx.empty:
+    if not tx.empty and "account" in tx.columns:
         accts |= set(tx["account"].astype(str).tolist())
-    accts = {a.strip() for a in accts if a and a.strip()}
-    return sorted(accts)
+
+    # 2) From cards sheet (handle old/new header names)
+    try:
+        cards = cached_df("cards")
+        if not cards.empty:
+            cmap = {str(c).strip().lower(): c for c in cards.columns}
+            for key in ("card_name", "card name", "name", "account", "method_name", "method"):
+                col = cmap.get(key)
+                if col:
+                    accts |= set(cards[col].astype(str).tolist())
+    except Exception:
+        pass
+
+    # 3) Sensible defaults so Investment / LOC / CC always have selectable accounts
+    accts |= {"Bank", "Line of Credit"}
+    cleaned = set()
+    for a in accts:
+        s = str(a or '').strip()
+        if not s or s.lower() in ('nan', 'none'):
+            continue
+        cleaned.add(s)
+    return sorted(cleaned)
 
 
 def categories_list() -> List[str]:
@@ -4531,7 +4726,7 @@ def categories_list() -> List[str]:
 
 def methods_list() -> List[str]:
     cards = cached_df("cards")
-    methods = set(["Debit", "Card", "Other"])
+    methods = set(["Debit", "Card", "Bank", "Other"])
     if not cards.empty and "method_name" in cards.columns:
         methods |= set(cards["method_name"].astype(str).tolist())
     return sorted({m.strip() for m in methods if m and m.strip()})
@@ -4828,7 +5023,7 @@ def dashboard_page():
                         ui.label(currency(net_pp)).classes('mf-stat-value').style(f'color: {_net_color};')
                         with ui.row().classes('items-center gap-2 mt-1'):
                             ui.icon('date_range').style('font-size: 14px; color: var(--mf-muted);')
-                            ui.label(f"{pp_start.strftime('%b %d')} — {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
+                            ui.label(f"{pp_start.strftime('%b %d')} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
                     if next_pay:
                         with ui.column().classes('items-end gap-1'):
                             ui.label('Next Payday').classes('mf-stat-label')
@@ -4870,23 +5065,23 @@ def dashboard_page():
                     ui.label(mkey).classes("text-xs mt-1").style("color: var(--mf-muted)")
 
 
-        # ──── Financial Health Score ────
+        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Financial Health Score ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
         try:
             # Compute a 0-100 score from multiple financial signals
             _fh_scores = []
 
-            # 1. Savings Rate (income - expenses - invest) / income — target > 20%
+            # 1. Savings Rate (income - expenses - invest) / income ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â target > 20%
             if income > 0:
                 _savings_rate = max(0.0, (income - expense - invest) / income)
-                # 0% → 0pts, 10% → 15pts, 20% → 25pts, 30%+ → 30pts
+                # 0% ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 0pts, 10% ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 15pts, 20% ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 25pts, 30%+ ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 30pts
                 _fh_scores.append(min(30.0, _savings_rate * 100))
             else:
                 _fh_scores.append(0.0)
 
-            # 2. Expense-to-Income Ratio — target < 70%
+            # 2. Expense-to-Income Ratio ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â target < 70%
             if income > 0:
                 _ei_ratio = expense / income
-                # <50% → 25pts, 70% → 15pts, 100%+ → 0pts
+                # <50% ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 25pts, 70% ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 15pts, 100%+ ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 0pts
                 _fh_scores.append(max(0.0, 25.0 * (1.0 - max(0.0, _ei_ratio - 0.5) / 0.5)))
             else:
                 _fh_scores.append(0.0)
@@ -4953,7 +5148,7 @@ def dashboard_page():
             if len(_fh_scores) > 3 and _fh_scores[3] < 10: _fh_tips.append('Your daily spending is very inconsistent')
             if not _fh_tips:
                 if _fh_score >= 80: _fh_tips.append('Excellent financial discipline!')
-                elif _fh_score >= 60: _fh_tips.append('Good progress — keep it up!')
+                elif _fh_score >= 60: _fh_tips.append('Good progress ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â keep it up!')
                 else: _fh_tips.append('Room for improvement this month')
 
             # SVG circular gauge
@@ -5022,10 +5217,10 @@ def dashboard_page():
                     ):
                         ui.label(label).classes('mf-stat-label')
                         ui.label(currency(val)).classes('text-lg font-bold mt-1').style(f'color: {accent}; font-feature-settings: "tnum";')
-                        ui.label(f"{pp_start.strftime('%b %d')} — {pp_end.strftime('%b %d')}").classes('text-xs mt-1').style('color: var(--mf-muted)')
+                        ui.label(f"{pp_start.strftime('%b %d')} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â {pp_end.strftime('%b %d')}").classes('text-xs mt-1').style('color: var(--mf-muted)')
 
 
-        # ──── Smart Alerts ────
+        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Smart Alerts ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
         try:
             _alerts: list[tuple[str, str, str, str]] = []  # (icon, message, severity, action_path)
 
@@ -5251,12 +5446,12 @@ def dashboard_page():
                     s = str(n or "").strip()
                     if not s:
                         return "(blank)"
-                    # common separators: '|', '-', '•'
-                    for sep in ("|", "•", "-"):
+                    # common separators: '|', '-', 'ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢'
+                    for sep in ("|", "ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢", "-"):
                         if sep in s:
                             s = s.split(sep, 1)[0].strip()
                     s = re.sub(r"\s+", " ", s)
-                    return (s[:28] + "…") if len(s) > 28 else s
+                    return (s[:28] + "ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦") if len(s) > 28 else s
 
                 spend["_merchant"] = spend["notes"].apply(_merchant_from_notes)
                 topm = spend.groupby("_merchant", as_index=False)["amount_num"].sum().sort_values("amount_num", ascending=False)
@@ -5275,9 +5470,9 @@ def dashboard_page():
                         row_key="merchant",
                     ).classes("w-full")
 
-        # ──── Dashboard section helpers (closure over spend, expense, tx, etc.) ────
+        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Dashboard section helpers (closure over spend, expense, tx, etc.) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
         def _render_insights():
-            # ──── Monthly Insights ────
+            # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Monthly Insights ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
             try:
                 _today = today()
                 _dom = _today.day  # day of month
@@ -5422,7 +5617,7 @@ def dashboard_page():
                 pass  # Insights are optional; never break the dashboard
 
         def _render_alerts():
-            # ──── Smart Alerts ────
+            # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Smart Alerts ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
             try:
                 _alerts = []
                 # 1. Budget overspend alerts (80% threshold)
@@ -5480,7 +5675,7 @@ def dashboard_page():
                 pass
 
         def _render_cashflow():
-            # ──── Cashflow Trend (enhanced: weekly income vs expense bars + cumulative balance) ────
+            # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Cashflow Trend (enhanced: weekly income vs expense bars + cumulative balance) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
             with ui.card().classes("my-card p-0").style("overflow: hidden;"):
                 ui.element('div').style('height: 3px; background: linear-gradient(90deg, #22c55e, #3b82f6); border-radius: 0;')
                 with ui.column().classes("p-5 gap-3"):
@@ -5565,7 +5760,7 @@ def dashboard_page():
                         ui.label("No recent transactions to chart.").classes("text-sm").style("color: var(--mf-muted);")
 
         def _render_recent_tx():
-            # ──── Recent Transactions (quick overview) ────
+            # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Recent Transactions (quick overview) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
             try:
                 if not tx.empty and "date_parsed" in tx.columns:
                     _recent_tx = tx.sort_values("date_parsed", ascending=False).head(6)
@@ -5615,7 +5810,7 @@ def dashboard_page():
             except Exception:
                 pass
 
-        # ──── Dashboard Grid (responsive 2-col on desktop) ────
+        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Dashboard Grid (responsive 2-col on desktop) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
         with ui.element('div').classes('mf-dash-grid'):
             with ui.element('div'):
                 _render_insights()
@@ -5661,8 +5856,9 @@ def add_page():
         _accent, _dicon, _dlabel = _dlg_accents.get(entry_type.lower(), ('#6366f1', 'add_circle', entry_type))
 
         dlg = ui.dialog()
+        dlg.props('transition-show=jump-down transition-hide=jump-up')
         with dlg, ui.card().classes("my-card mf-add-dialog w-[580px] max-w-[95vw]").style("max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"):
-            # Premium dialog header — accent strip + header area with background
+            # Premium dialog header ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â accent strip + header area with background
             ui.element('div').style(f'height: 4px; background: linear-gradient(90deg, {_accent}, {_accent}66); border-radius: 24px 24px 0 0;')
             with ui.element('div').style(
                 f'padding: 20px 24px 16px 24px;'
@@ -5680,7 +5876,7 @@ def add_page():
                     ui.element('div').style('flex: 1;')
                     ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.5;')
 
-            # ── Section 1: Date & Amount ──
+            # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Section 1: Date & Amount ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
             with ui.element('div').style('padding: 0 24px;'):
                 with ui.row().classes('items-center gap-2 mt-1 mb-2'):
                     ui.icon('event').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
@@ -5757,7 +5953,7 @@ def add_page():
             if account_default and account_default not in (accounts or []):
                 accounts = [account_default] + [a for a in (accounts or []) if a != account_default]
 
-            # ── Section 2: Payment ──
+            # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Section 2: Payment ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
             ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
             with ui.element('div').style('padding: 0 24px;'):
                 with ui.row().classes('items-center gap-2 mt-3 mb-2'):
@@ -5777,7 +5973,7 @@ def add_page():
                 if hide_method and fixed_method:
                     ui.label(f"Method: {fixed_method}").classes("text-xs").style("color: var(--mf-muted); margin-top:-6px;")
 
-            # ── Section 3: Category & Notes ──
+            # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Section 3: Category & Notes ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
             ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
             with ui.element('div').style('padding: 0 24px;'):
                 with ui.row().classes('items-center gap-2 mt-3 mb-2'):
@@ -5793,7 +5989,9 @@ def add_page():
                 scan_state: Dict[str, Any] = {"data_url": None}
 
                 scan_dlg = ui.dialog()
+                scan_dlg.props('transition-show=jump-down transition-hide=jump-up')
                 scan_progress_dlg = ui.dialog()
+                scan_progress_dlg.props('transition-show=fade transition-hide=fade')
                 with scan_progress_dlg, ui.card().classes('p-4').style('min-width:260px'):
                     ui.spinner(size='lg')
                     ui.label('Scanning...').classes('text-subtitle1')
@@ -5959,7 +6157,7 @@ def add_page():
                                 if not scan_state.get('data_url') and not scan_state.get('img_bytes'):
                                     ui.notify('Please upload a receipt image first.', type='warning')
                                     return
-                            ui.notify('Scanning…', type='info', timeout=8.0)
+                            ui.notify('ScanningÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦', type='info', timeout=8.0)
                             # Show busy indicator (mobile Safari can take a while)
                             try:
                                 scan_spinner.style('display:block')
@@ -6127,7 +6325,7 @@ def add_page():
                                             if w in lowtxt:
                                                 scores['Groceries'] += 1.0
 
-                                        # Walmart is multi-category — do NOT bias toward Groceries
+                                        # Walmart is multi-category ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â do NOT bias toward Groceries
 
                                         best = max(scores, key=lambda k: scores[k])
                                         if scores[best] <= 0.0:
@@ -6159,12 +6357,12 @@ def add_page():
                             pv_date.value = (rdate.isoformat() if rdate else '')
                             pv_amount.value = (f"{float(amt):.2f}" if amt is not None else '')
                             pv_last4.value = last4
-                            pv_conf.text = f"Amount confidence: {conf:.1f}/10 (source: {src})" + (" — please double-check" if conf < 3.0 else "")
+                            pv_conf.text = f"Amount confidence: {conf:.1f}/10 (source: {src})" + (" ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â please double-check" if conf < 3.0 else "")
                             parsed_card.style('display:block')
                             apply_btn.enable()
 
                             if conf < 3.0:
-                                ui.notify('Low confidence TOTAL detected — verify amount before applying.', type='warning', timeout=2.0)
+                                ui.notify('Low confidence TOTAL detected ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â verify amount before applying.', type='warning', timeout=2.0)
                             else:
                                 ui.notify('Scan complete. Review and tap Apply.', type='positive', timeout=1.2)
 
@@ -6254,7 +6452,7 @@ def add_page():
                                 # Fallback: use Notes-based suggestion
                                 _refresh_suggestion_now()
                             if conf < 3.0:
-                                ui.notify('Applied, but amount confidence was low — please verify before saving.', type='warning')
+                                ui.notify('Applied, but amount confidence was low ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â please verify before saving.', type='warning')
                             else:
                                 ui.notify('Applied scan results. Please review and save.', type='positive')
                             _reset_scan_ui()
@@ -6297,7 +6495,7 @@ def add_page():
                     _open_scan_dialog()
 
 
-                # Phase 6.5: Multi-category split UI — shown only after OCR Apply for Walmart/Costco/Superstore
+                # Phase 6.5: Multi-category split UI ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â shown only after OCR Apply for Walmart/Costco/Superstore
                 with ui.element('div').style('padding: 0 24px;'):
                     split_banner = ui.element('div').style(
                         'display:none; background: linear-gradient(135deg, rgba(34,197,94,0.10), rgba(251,191,36,0.08));'
@@ -6312,6 +6510,7 @@ def add_page():
                     split_item_list = ui.column().classes('gap-1 mt-1')
 
                 split_dlg = ui.dialog()
+                split_dlg.props('transition-show=jump-down transition-hide=jump-up')
                 with split_dlg, ui.card().classes("my-card mf-split-card p-4 w-[600px] max-w-[95vw]").style("max-height: 78vh; overflow-y:auto;"):
                     ui.label("Split this receipt").classes("text-lg font-bold")
                     ui.label("We detected line items. Adjust amounts if needed, then Apply.").classes("text-xs").style("color: var(--mf-muted)")
@@ -6350,13 +6549,13 @@ def add_page():
                         # warning / remainder
                         diff = _round2(total_amt - cur_sum)
                         if abs(diff) <= 0.02:
-                            warn_lbl.text = f"Total: ${total_amt:,.2f} • Split: ${cur_sum:,.2f}"
+                            warn_lbl.text = f"Total: ${total_amt:,.2f} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Split: ${cur_sum:,.2f}"
                         else:
                             # show remainder direction
                             if diff > 0:
-                                warn_lbl.text = f"Total: ${total_amt:,.2f} • Split: ${cur_sum:,.2f} • Remaining: ${diff:,.2f}"
+                                warn_lbl.text = f"Total: ${total_amt:,.2f} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Split: ${cur_sum:,.2f} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Remaining: ${diff:,.2f}"
                             else:
-                                warn_lbl.text = f"Total: ${total_amt:,.2f} • Split: ${cur_sum:,.2f} • Over by: ${abs(diff):,.2f}"
+                                warn_lbl.text = f"Total: ${total_amt:,.2f} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Split: ${cur_sum:,.2f} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Over by: ${abs(diff):,.2f}"
 
                     # Grid-like rows
                     for c in split_cats:
@@ -6449,7 +6648,7 @@ def add_page():
                                     pct = int(round(100 * (v / total_amt))) if total_amt > 0 else 0
                                     with ui.row().classes('items-center gap-2'):
                                         ui.element('div').style(f'width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink: 0;')
-                                        ui.label(f"{k} — ${v:.2f} ({pct}%)").classes('text-xs font-medium')
+                                        ui.label(f"{k} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â ${v:.2f} ({pct}%)").classes('text-xs font-medium')
                             # Disable category selector (split overrides it)
                             d_category.props('disable')
                             d_category.value = f'Split ({n_cats} categories)'
@@ -6637,7 +6836,7 @@ def add_page():
                         invalidate('transactions')
                         invalidate('recurring')
                         cats_str = ', '.join(plan.keys())
-                        ui.notify(f"✓ Saved {n} separate transactions: {cats_str}", type="positive", timeout=5.0)
+                        ui.notify(f"ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Saved {n} separate transactions: {cats_str}", type="positive", timeout=5.0)
                         dlg.close()
                         return
                     except Exception as e:
@@ -6732,8 +6931,8 @@ def add_page():
                     "box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
                 )
 
-        ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
         dlg.open()
+        ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
 
     def content():
         # --- Hero: Scan Receipt (premium gradient card) ---
@@ -6745,7 +6944,7 @@ def add_page():
             with ui.row().classes("w-full items-center p-6 gap-5"):
                 with ui.column().classes("flex-1 gap-2"):
                     ui.label("Scan a Receipt").classes("text-2xl font-extrabold").style("letter-spacing: -0.02em;")
-                    ui.label("Snap a photo or upload — AI reads total, date & splits items by category.").classes("text-sm").style("color: var(--mf-muted); line-height: 1.6;")
+                    ui.label("Snap a photo or upload ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â AI reads total, date & splits items by category.").classes("text-sm").style("color: var(--mf-muted); line-height: 1.6;")
                     ui.button("Scan Now", icon="document_scanner", on_click=lambda: open_add_dialog("Debit", auto_scan=True)).props("unelevated").classes("mt-1").style(
                         "background: linear-gradient(135deg, #6366f1, #3b82f6) !important; color: #fff !important;"
                         "font-weight: 700; letter-spacing: 0.01em; padding: 10px 32px; border-radius: 12px;"
@@ -6805,43 +7004,44 @@ def admin_page() -> None:
         return
 
     def content() -> None:
-        with ui.card().classes("my-card p-0").style("overflow: hidden;"):
-            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #8b5cf6); border-radius: 0;')
-            with ui.column().classes("p-5 gap-3"):
-                with ui.row().classes("items-center gap-3"):
-                    with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
-                        ui.icon("settings").style("font-size: 20px; color: #6366f1;")
-                    with ui.column().classes("gap-0"):
-                        ui.label("Admin Panel").classes("text-xl font-extrabold").style("letter-spacing: -0.02em;")
-                        ui.label("Manage rules, cards, templates & data tools").classes("text-xs").style("color: var(--mf-muted)")
+        with ui.column().classes("w-full mf-admin-wrap"):
+            with ui.card().classes("my-card p-0").style("overflow: hidden;"):
+                ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #8b5cf6); border-radius: 0;')
+                with ui.column().classes("p-5 gap-3"):
+                    with ui.row().classes("items-center gap-3"):
+                        with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
+                            ui.icon("settings").style("font-size: 20px; color: #6366f1;")
+                        with ui.column().classes("gap-0"):
+                            ui.label("Admin Panel").classes("text-xl font-extrabold").style("letter-spacing: -0.02em;")
+                            ui.label("Manage rules, cards, templates & data tools").classes("text-xs").style("color: var(--mf-muted)")
 
-                _admin_links = [
-                    ("Keyword Rules", "rule", "/rules", "rgba(34,197,94,0.10)", "#22c55e"),
-                    ("Cards", "credit_card", "/cards", "rgba(59,130,246,0.10)", "#3b82f6"),
-                    ("Recurring Templates", "autorenew", "/recurring", "rgba(168,85,247,0.10)", "#a855f7"),
-                    ("Transactions", "receipt_long", "/tx", "rgba(239,68,68,0.10)", "#ef4444"),
-                    ("Budgets", "account_balance_wallet", "/budgets", "rgba(251,191,36,0.10)", "#eab308"),
-                    ("Data Tools", "cloud_download", "/data_tools", "rgba(96,165,250,0.10)", "#60a5fa"),
-                    ("Reports", "assessment", "/reports", "rgba(99,102,241,0.10)", "#6366f1"),
-                ]
-                with ui.element("div").style(
-                    "display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%;"
-                ):
-                    for label, icon, href, bg, accent in _admin_links:
-                        with ui.card().classes("tile p-0").style(
-                            f"cursor: pointer; border: 1px solid var(--mf-border); border-radius: 14px;"
-                            f"background: rgba(255,255,255,0.02); transition: transform 0.15s ease, box-shadow 0.15s ease;"
-                        ).on("click", lambda h=href: nav_to(h)):
-                            with ui.column().classes("items-center justify-center p-4 gap-2").style("min-height: 100px;"):
-                                with ui.element("div").classes("mf-icon-box").style(f"background: {bg};"):
-                                    ui.icon(icon).style(f"font-size: 22px; color: {accent};")
-                                ui.label(label).classes("text-xs font-semibold text-center")
+                    _admin_links = [
+                        ("Keyword Rules", "rule", "/rules", "rgba(34,197,94,0.10)", "#22c55e"),
+                        ("Cards", "credit_card", "/cards", "rgba(59,130,246,0.10)", "#3b82f6"),
+                        ("Recurring Templates", "autorenew", "/recurring", "rgba(168,85,247,0.10)", "#a855f7"),
+                        ("Transactions", "receipt_long", "/tx", "rgba(239,68,68,0.10)", "#ef4444"),
+                        ("Budgets", "account_balance_wallet", "/budgets", "rgba(251,191,36,0.10)", "#eab308"),
+                        ("Data Tools", "cloud_download", "/data_tools", "rgba(96,165,250,0.10)", "#60a5fa"),
+                        ("Reports", "assessment", "/reports", "rgba(99,102,241,0.10)", "#6366f1"),
+                    ]
+                    with ui.element("div").style(
+                        "display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; width: 100%;"
+                    ):
+                        for label, icon, href, bg, accent in _admin_links:
+                            with ui.card().classes("tile p-0").style(
+                                f"cursor: pointer; border: 1px solid var(--mf-border); border-radius: 14px;"
+                                f"background: rgba(255,255,255,0.02); transition: transform 0.15s ease, box-shadow 0.15s ease;"
+                            ).on("click", lambda h=href: nav_to(h)):
+                                with ui.column().classes("items-center justify-center p-4 gap-2").style("min-height: 100px;"):
+                                    with ui.element("div").classes("mf-icon-box").style(f"background: {bg};"):
+                                        ui.icon(icon).style(f"font-size: 22px; color: {accent};")
+                                    ui.label(label).classes("text-xs font-semibold text-center")
 
-        with ui.card().classes("my-card p-5 mt-3"):
-            with ui.row().classes("items-center gap-2"):
-                ui.icon("lock").style("color: var(--mf-muted); font-size: 18px;")
-                ui.label("Month Locks").classes("text-sm font-bold")
-            ui.label("Managed via the Transactions page month lock toggle.").classes("text-xs mt-1").style("color: var(--mf-muted)")
+            with ui.card().classes("my-card p-5 mt-3"):
+                with ui.row().classes("items-center gap-2"):
+                    ui.icon("lock").style("color: var(--mf-muted); font-size: 18px;")
+                    ui.label("Month Locks").classes("text-sm font-bold")
+                ui.label("Managed via the Transactions page month lock toggle.").classes("text-xs mt-1").style("color: var(--mf-muted)")
 
     shell(content)
 
@@ -7041,7 +7241,7 @@ def transactions_page():
             with ui.row().classes('w-full items-center gap-2'):
                 f_min_amt = ui.number('Min $', value=None, format='%.2f').props('dense outlined clearable').classes('w-40')
                 f_max_amt = ui.number('Max $', value=None, format='%.2f').props('dense outlined clearable').classes('w-40')
-            sort_opts = ["Date (new → old)", "Date (old → new)", "Amount (high → low)", "Amount (low → high)"]
+            sort_opts = ["Date (new ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ old)", "Date (old ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ new)", "Amount (high ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ low)", "Amount (low ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ high)"]
             f_sort = ui.select(sort_opts, value=sort_opts[0], label="Sort").classes("w-full")
 
             # Quick filter presets
@@ -7080,7 +7280,7 @@ def transactions_page():
                         'border-radius: 8px; font-size: 11px; padding: 4px 12px; border: 1px solid var(--mf-border);'
                     )
 
-            # ── Saved Filter Presets ──
+            # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Saved Filter Presets ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
             _PRESETS_KEY = 'tx_saved_presets'
 
             def _get_saved_presets() -> list:
@@ -7349,20 +7549,20 @@ def transactions_page():
                     df = df.drop(columns=['_amt_f'], errors='ignore')
                 # Sorting
                 try:
-                    sort_choice = f_sort.value or "Date (new → old)"
+                    sort_choice = f_sort.value or "Date (new ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ old)"
                 except Exception:
-                    sort_choice = "Date (new → old)"
+                    sort_choice = "Date (new ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ old)"
 
                 if "Amount" in sort_choice:
                     df["__amt"] = df["amount"].apply(to_float)
-                    ascending = "low → high" in sort_choice
+                    ascending = "low ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ high" in sort_choice
                     df = df.sort_values(by="__amt", ascending=ascending)
                     df = df.drop(columns=["__amt"], errors="ignore")
                 else:
                     # Date sorting uses parsed date
                     if "date_parsed" not in df.columns:
                         df["date_parsed"] = df["date"].apply(parse_date)
-                    ascending = "old → new" in sort_choice
+                    ascending = "old ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ new" in sort_choice
                     df = df.sort_values(by="date_parsed", ascending=ascending)
 
                 # keep a copy of the current filtered/sorted view for export & diagnostics
@@ -7405,6 +7605,7 @@ def transactions_page():
                     ui.notify("This month is locked. Unlock it to edit.", type="warning")
                     return
                 dlg = ui.dialog()
+                dlg.props('transition-show=jump-down transition-hide=jump-up')
                 with dlg, ui.card().classes("my-card p-5 w-[720px] max-w-[95vw]"):
                     ui.label("Edit transaction").classes("text-lg font-bold")
                     tid = str(row.get("id", "")).strip()
@@ -7511,7 +7712,7 @@ def security_page() -> None:
                 if not username:
                     ui.notify("Username required", type="warning")
                     return
-                ui.notify("Opening Face ID / Passkey prompt…", type="info", timeout=1.5)
+                ui.notify("Opening Face ID / Passkey promptÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦", type="info", timeout=1.5)
                 js = """
                 (async () => {{
                   try {{
@@ -7557,7 +7758,7 @@ def security_page() -> None:
                       const t = await vRes.text();
                       throw new Error(t || "Registration verify failed");
                     }}
-                    document.getElementById('pk_status')?.replaceChildren('Passkey registered ✅');
+                    document.getElementById('pk_status')?.replaceChildren('Passkey registered ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦');
                   }} catch (e) {{
                     alert(`Passkey registration failed: ${{e.message||e}}`);
                   }}
@@ -7581,7 +7782,7 @@ def security_page() -> None:
                 for user, data in store.items():
                     with ui.card().classes("my-card p-3 w-full"):
                         ui.label(user).classes("font-semibold")
-                        ui.label(f"Credential ID: {str(data.get('credential_id',''))[:18]}…").classes("text-xs").style("color: var(--mf-muted)")
+                        ui.label(f"Credential ID: {str(data.get('credential_id',''))[:18]}ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦").classes("text-xs").style("color: var(--mf-muted)")
                         def _mk_del(u=user):
                             def _del():
                                 s=_load_passkeys()
@@ -7625,7 +7826,7 @@ def cards_page() -> None:
             return [default] * len(df)
 
         names = pick(['card_name', 'name', 'account', 'Account'], default='Card')
-        emojis = pick(['emoji', 'Emoji'], default='💳')
+        emojis = pick(['emoji', 'Emoji'], default='ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Â³')
         methods = pick(['method_name', 'method', 'Method'], default='')
         billing_days = pick(['billing_day', 'BillingDay', 'billingday'], default='')
         limits = pick(['max_limit', 'limit', 'Limit'], default='')
@@ -7815,10 +8016,10 @@ def cards_page() -> None:
                         with ui.element('div').style('display: grid; grid-template-columns: 1fr 1fr; gap: 12px;'):
                             with ui.column().classes('gap-0'):
                                 ui.label('Limit').classes('mf-stat-label')
-                                ui.label(currency(c['limit']) if c.get('limit') else '—').classes('text-sm font-bold').style('font-feature-settings: "tnum";')
+                                ui.label(currency(c['limit']) if c.get('limit') else 'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â').classes('text-sm font-bold').style('font-feature-settings: "tnum";')
                             with ui.column().classes('gap-0'):
                                 ui.label('Billing Day').classes('mf-stat-label')
-                                ui.label(str(c.get('billing_day') or '—')).classes('text-sm font-bold')
+                                ui.label(str(c.get('billing_day') or 'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â')).classes('text-sm font-bold')
 
                         # Utilization section
                         with ui.column().classes('gap-2'):
@@ -7834,7 +8035,7 @@ def cards_page() -> None:
                                 ui.label(currency(c.get('balance', 0.0))).classes('text-sm font-bold').style('font-feature-settings: "tnum";')
                             with ui.column().classes('gap-0'):
                                 ui.label('Available').classes('mf-stat-label')
-                                ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '—').classes('text-sm font-bold').style('color: var(--mf-good); font-feature-settings: "tnum";')
+                                ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else 'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â').classes('text-sm font-bold').style('color: var(--mf-good); font-feature-settings: "tnum";')
 
                     # Status badge (premium, no chart)
                     _status_color = '#22c55e' if pct_val < 0.30 else ('#3b82f6' if pct_val < 0.50 else ('#eab308' if pct_val < 0.80 else '#ef4444'))
@@ -8034,7 +8235,7 @@ def rules_page():
                 return ""
             shown = keys[:max_chips]
             tail = len(keys) - len(shown)
-            return " • ".join(shown) + (f"  +{tail}" if tail > 0 else "")
+            return " ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ ".join(shown) + (f"  +{tail}" if tail > 0 else "")
 
         # Premium rules header
         with ui.card().classes('my-card p-0 mb-4').style('overflow: hidden;'):
@@ -8044,7 +8245,7 @@ def rules_page():
                     ui.icon("rule").style("font-size: 22px; color: #f59e0b;")
                 with ui.column().classes('gap-0'):
                     ui.label('Rules').classes('text-xl font-extrabold').style('letter-spacing: -0.02em;')
-                    ui.label('Keyword → category mapping used for Auto-category').classes('text-xs').style('color: var(--mf-muted);')
+                    ui.label('Keyword ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ category mapping used for Auto-category').classes('text-xs').style('color: var(--mf-muted);')
 
         with ui.row().classes("w-full gap-4 mt-4"):
 
@@ -8092,8 +8293,8 @@ def rules_page():
                                else "border: 1px solid var(--mf-border); background: rgba(255,255,255,0.04);")
                         )
                         with item:
-                            ui.label(cat or "—").classes("text-sm font-semibold").style("color: var(--mf-text);")
-                            ui.label(chips_preview(keys, 4) or "—").classes("text-xs").style("color: var(--mf-muted);")
+                            ui.label(cat or "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â").classes("text-sm font-semibold").style("color: var(--mf-text);")
+                            ui.label(chips_preview(keys, 4) or "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â").classes("text-xs").style("color: var(--mf-muted);")
                         item.on("click", lambda e, kw=kw_raw: (select_rule(kw), render_list()))
 
                 search.on("input", lambda e: render_list())
@@ -8372,7 +8573,7 @@ def normalize_merchant_from_notes(notes: str) -> str:
     if not s:
         return ''
     # merchant usually is first chunk
-    for sep in ('|', '•'):
+    for sep in ('|', 'ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢'):
         if sep in s:
             s = s.split(sep, 1)[0].strip()
             break
@@ -8397,7 +8598,7 @@ def apply_merchant_cleanup(df: pd.DataFrame) -> pd.DataFrame:
         # replace first segment only
         # split by separators, keep remainder
         rest = ''
-        for sep in ('|', '•'):
+        for sep in ('|', 'ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢'):
             if sep in full:
                 head, tail = full.split(sep, 1)
                 rest = sep + tail
@@ -8889,7 +9090,7 @@ def about_page() -> None:
 
     def content() -> None:
       with ui.element('div').classes('mf-about-wrap'):
-        # ── App Info Card ──
+        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ App Info Card ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
         with ui.card().classes('my-card p-0').style('overflow: hidden;'):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #22C55E, #FBBF24); border-radius: 0;')
             with ui.column().classes('p-6 gap-4 items-center'):
@@ -8905,18 +9106,18 @@ def about_page() -> None:
                 ui.label(
                     'FinTrackr is a premium personal finance dashboard built to help you take control '
                     'of your money. Track every expense, scan receipts with AI-powered OCR, monitor '
-                    'credit card utilization, set budgets, and visualize your spending patterns — all '
+                    'credit card utilization, set budgets, and visualize your spending patterns ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â all '
                     'from a single elegant interface.'
                 ).classes('text-sm text-center').style('color: var(--mf-muted); line-height: 1.7; max-width: 720px;')
 
                 # Feature highlights
                 _features = [
                     ('document_scanner', 'AI Receipt Scanning', 'Snap a photo and let OCR extract amounts, merchants & categories automatically.'),
-                    ('palette', '8 Premium Themes', 'From dark Midnight Blue to light Sand Gold — pick the look that suits you.'),
+                    ('palette', '8 Premium Themes', 'From dark Midnight Blue to light Sand Gold ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â pick the look that suits you.'),
                     ('show_chart', 'Smart Analytics', 'Weekly cashflow charts, category breakdowns, budget alerts and monthly insights.'),
                     ('security', 'Passkey Auth', 'Biometric login with WebAuthn passkeys for secure, passwordless access.'),
                     ('call_split', 'Receipt Splitting', 'Multi-category split for Walmart, Costco & Superstore receipts.'),
-                    ('autorenew', 'Recurring Templates', 'Set it and forget it — automatic transaction creation on due dates.'),
+                    ('autorenew', 'Recurring Templates', 'Set it and forget it ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â automatic transaction creation on due dates.'),
                 ]
                 with ui.element('div').classes('mf-about-features'):
                     for f_icon, f_title, f_desc in _features:
@@ -8930,7 +9131,7 @@ def about_page() -> None:
                                 ui.label(f_title).classes('text-sm font-bold').style('color: var(--mf-text);')
                                 ui.label(f_desc).classes('text-xs').style('color: var(--mf-muted); line-height: 1.5;')
 
-        # ── Author Card ──
+        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Author Card ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
         with ui.card().classes('my-card p-0 mt-3').style('overflow: hidden;'):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
             with ui.column().classes('p-6 gap-4'):
@@ -8951,13 +9152,12 @@ def about_page() -> None:
 
                     with ui.column().classes('gap-2 flex-1').style('min-width: 200px;'):
                         ui.label('Nishanth R').style('font-size: 22px; font-weight: 800; letter-spacing: -0.03em; color: var(--mf-text);')
-                        ui.label('Oracle DBA & Full-Stack Developer').classes('text-sm font-medium').style('color: var(--mf-accent);')
+                        ui.label('Oracle DBA').classes('text-sm font-medium').style('color: var(--mf-accent);')
+                        ui.label('I do software development for learning and fun.').classes('text-xs').style('color: var(--mf-muted); margin-top: -2px;')
                         ui.label(
-                            'An experienced Oracle Database Administrator with a passion for building '
-                            'elegant, data-driven applications. FinTrackr was born from a personal need '
-                            'to track finances with the same precision and reliability that goes into '
-                            'managing enterprise databases — clean architecture, robust error handling, '
-                            'and a beautiful interface that makes financial management effortless.'
+                            'I built FinTrackr as a practical side project to learn by shipping useful software. '
+                            'The app focuses on clean data capture, reliable Google Sheets sync, and a polished UI '
+                            'that makes day-to-day money tracking simple and enjoyable.'
                         ).classes('text-sm').style('color: var(--mf-muted); line-height: 1.7;')
 
                 ui.separator().classes('w-full opacity-20')
@@ -8974,6 +9174,16 @@ def about_page() -> None:
                         ui.icon('email').style('font-size: 18px; color: #ef4444;')
                         ui.label('nishanth91.dba@gmail.com').classes('text-sm font-medium')
 
+                    # LinkedIn
+                    with ui.element('a').style(
+                        'display: flex; align-items: center; gap: 8px; text-decoration: none;'
+                        'padding: 8px 16px; border-radius: 10px; border: 1px solid var(--mf-border);'
+                        'background: var(--mf-surface); color: var(--mf-text); cursor: pointer;'
+                        'transition: background 0.2s ease;'
+                    ).props('href="https://www.linkedin.com/in/nishanth-r-9531a2114?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=ios_app" target="_blank"'):
+                        ui.icon('work').style('font-size: 18px; color: #0A66C2;')
+                        ui.label('LinkedIn').classes('text-sm font-medium')
+
                     # Instagram
                     with ui.element('a').style(
                         'display: flex; align-items: center; gap: 8px; text-decoration: none;'
@@ -8984,7 +9194,7 @@ def about_page() -> None:
                         ui.icon('photo_camera').style('font-size: 18px; color: #E1306C;')
                         ui.label('@n_1_5_h_').classes('text-sm font-medium')
 
-        # ── Tech Stack Card ──
+        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Tech Stack Card ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
         with ui.card().classes('my-card p-0 mt-3').style('overflow: hidden;'):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #22c55e, #3b82f6); border-radius: 0;')
             with ui.column().classes('p-6 gap-3'):
@@ -9032,7 +9242,7 @@ def bootstrap() -> None:
 
 bootstrap()
 
-# Premium SVG favicon – "insights" style: zigzag trend + sparkle on dark-emerald bg
+# Premium SVG favicon ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ "insights" style: zigzag trend + sparkle on dark-emerald bg
 _FAVICON_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -9049,7 +9259,7 @@ _FAVICON_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
     </filter>
   </defs>
   <rect width="512" height="512" rx="108" fill="url(#bg)"/>
-  <!-- Trend zigzag line (gold) — the "insights" signature shape -->
+  <!-- Trend zigzag line (gold) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the "insights" signature shape -->
   <polyline points="90,340 175,180 280,280 395,110" fill="none" stroke="#FBBF24" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
   <!-- Node dots -->
   <circle cx="90" cy="340" r="18" fill="#FBBF24"/>
@@ -9088,9 +9298,9 @@ async def _keepalive_loop():
     import aiohttp
     target = _RENDER_URL or f'http://localhost:{PORT}'
     ping_url = f'{target}/api/health'
-    _logger.info(f'[keepalive] starting self-ping loop → {ping_url}')
+    _logger.info(f'[keepalive] starting self-ping loop ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ {ping_url}')
     while True:
-        await asyncio.sleep(300)  # 5 minutes — aggressive to avoid cold starts
+        await asyncio.sleep(300)  # 5 minutes ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â aggressive to avoid cold starts
         try:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
                 async with session.get(ping_url) as resp:
@@ -9195,7 +9405,7 @@ async def _prewarm_cache():
     """Pre-load transactions from Google Sheets on startup so first page load is instant."""
     await asyncio.sleep(2)  # let the server finish booting
     try:
-        _logger.info('[prewarm] loading transactions into cache …')
+        _logger.info('[prewarm] loading transactions into cache ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦')
         cached_df('transactions')
         _logger.info('[prewarm] transactions cache ready')
     except Exception as e:
