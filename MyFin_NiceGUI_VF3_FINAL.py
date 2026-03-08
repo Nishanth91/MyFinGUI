@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '7.7.0'
+APP_VERSION = '7.8.0'
 
 
 def log(message: str) -> None:
@@ -3496,7 +3496,7 @@ html.mf-light .mf-progress {
 .mf-backdrop{
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.45);
+  background: rgba(2,6,23,0.62);
   z-index: 40;
   display: none;
   -webkit-backdrop-filter: none;
@@ -3641,13 +3641,35 @@ html.mf-light .mf-bottombar {
 
 /*  Mobile (900px): hide rail, show bottom bar + hamburger  */
 @media (max-width: 900px) {
-  .mf-rail { width: 82px; padding: 8px; }
+  .mf-rail {
+    width: 256px;
+    left: 10px;
+    top: 10px;
+    height: calc(100vh - 20px);
+    z-index: 75;
+    padding: 0;
+  }
+  .mf-rail-card {
+    background: color-mix(in srgb, var(--mf-surface) 96%, #0b1220 4%);
+    border-radius: 16px;
+    padding: 12px;
+  }
   .mf-main {
     padding: 16px 12px;
     padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px));  /* space for bottom bar */
   }
-  .mf-navbtn .q-btn__content span { display: none; }
-  .mf-navbtn { min-height: 42px; }
+  .mf-navbtn .q-btn__content {
+    flex-direction: row !important;
+    justify-content: flex-start;
+    gap: 10px;
+  }
+  .mf-navbtn .q-btn__content span {
+    display: inline;
+    font-size: 13px;
+    opacity: 0.95;
+  }
+  .mf-navbtn { min-height: 46px; }
+  .mf-brand { justify-content: flex-start; padding: 0 10px; font-size: 13px; }
 }
 
 
@@ -6005,6 +6027,10 @@ def add_page():
                 fixed_method = 'Card'
                 hide_method = True
 
+            # Ensure preset/fixed category is selectable even if Rules sheet does not contain it yet.
+            if fixed_category and fixed_category not in categories:
+                categories = [fixed_category] + [c for c in categories if c != fixed_category]
+
             default_method = ("Card" if is_debit else ("Bank" if (is_income or is_invest) else "Other"))
 
             # Presets override remembered defaults.
@@ -6036,7 +6062,7 @@ def add_page():
                     ui.icon('account_balance_wallet').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
                     ui.label('Payment').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
 
-                with ui.row().classes('w-full gap-3 items-start mf-add-grid2'):
+                with ui.element('div').classes('w-full mf-add-grid2').style('gap: 12px; align-items: start;'):
                     if hide_method:
                         d_method = None
                         with ui.element('div').classes('mf-add-chip-muted w-full'):
@@ -7146,6 +7172,15 @@ def transactions_page():
             ui.label(f'Data source error: {e}').classes('text-sm text-red-300')
 
         tx = cached_df("transactions")
+        # Guard against legacy/wide shapes so /tx never fails with 500.
+        if not tx.empty:
+            for _c in ["id", "date", "type", "amount", "category", "method", "account", "notes"]:
+                if _c not in tx.columns:
+                    tx[_c] = "" if _c != "amount" else 0.0
+            try:
+                tx["type"] = tx["type"].apply(canonical_tx_type)
+            except Exception:
+                pass
         # Selection uses `row_key='id'`. If `id` is empty for older data, every row shares the
         # same key (""), which makes the table behave like "select all".
         # We therefore backfill `id` from the legacy `TxId` (or `txid`) column when needed.
@@ -9495,7 +9530,11 @@ ui.run(
     favicon=_FAVICON_SVG,
 )
 
-# Release: FinTrackr Phase 7.7.2
+# Release: FinTrackr Phase 7.8
+
+
+
+
 
 
 
