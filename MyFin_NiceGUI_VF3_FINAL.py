@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '7.6.0'
+APP_VERSION = '8.0.0'
 
 
 def log(message: str) -> None:
@@ -370,7 +370,7 @@ WIFE_PAY_ANCHOR = dt.date(2026, 1, 16)  # biweekly Friday anchor
 # Data cache (prevents repeated Google Sheets reads)
 # -----------------------------
 # Default to 5 minutes to avoid Google Sheets "Read requests per minute" quota issues.
-CACHE_TTL = int(os.environ.get("CACHE_TTL_SECONDS", "300"))  # seconds
+CACHE_TTL = int(os.environ.get("CACHE_TTL_SECONDS", "60"))  # seconds — reduced to 60s so sheet edits reflect faster
 
 # Safety switch: when a sheet/tab name mismatch happens, auto-creating blank worksheets makes the app
 # look like it "has no data" while actually reading a new empty tab. Default is OFF so we fail loudly.
@@ -2925,22 +2925,19 @@ body, .q-layout, .q-page {
   border: 1px solid var(--mf-card-border) !important;
   border-radius: 20px !important;
   box-shadow:
-    var(--mf-card-shadow, 0 8px 32px rgba(0,0,0,0.28)),
-    inset 0 1px 0 rgba(255,255,255,0.10);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+    var(--mf-card-shadow, 0 6px 24px rgba(0,0,0,0.22)),
+    inset 0 1px 0 rgba(255,255,255,0.08);
   overflow: hidden;
   position: relative;
-  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .my-card::before{
   content:"";
   position:absolute; inset:-1px;
   background:
-    radial-gradient(600px 250px at 15% 0%, rgba(255,255,255,0.10), transparent 55%),
-    radial-gradient(400px 200px at 85% 15%, var(--mf-g1), transparent 60%);
+    radial-gradient(500px 200px at 15% 0%, rgba(255,255,255,0.05), transparent 50%);
   pointer-events:none;
-  opacity:0.7;
+  opacity:0.5;
   border-radius: 20px;
 }
 
@@ -3277,36 +3274,43 @@ html.mf-light .q-btn__content {
   transform: translateY(-1px) scale(0.99);
 }
 
-/* Premium dialogs — fast open, no heavy blur for performance */
+/* Premium dialogs — instant open, NO blur for snappy iOS performance (B4) */
 .q-dialog__backdrop {
-  background: rgba(0,0,0,0.55) !important;
-  backdrop-filter: blur(4px) !important;
-  -webkit-backdrop-filter: blur(4px) !important;
+  background: rgba(0,0,0,0.45) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+.q-dialog__inner {
+  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
 }
 .q-dialog__inner > div {
   background: var(--mf-bg) !important;
   border: 1px solid rgba(255,255,255,0.10) !important;
-  box-shadow: 0 24px 48px rgba(0,0,0,0.35) !important;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.30) !important;
   border-radius: 22px !important;
-  animation: mf-dialogIn 0.18s ease-out !important;
+  animation: mf-dialogIn 0.12s cubic-bezier(0.2,0.9,0.3,1) !important;
+  will-change: transform, opacity;
 }
 @keyframes mf-dialogIn {
-  from { opacity: 0; transform: scale(0.96) translateY(8px); }
-  to   { opacity: 1; transform: scale(1) translateY(0); }
+  from { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.97); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 html.mf-light .q-dialog__backdrop {
-  background: rgba(100,100,120,0.35) !important;
+  background: rgba(100,100,120,0.28) !important;
 }
 html.mf-light .q-dialog__inner > div {
   background: #fff !important;
   border: 1px solid rgba(17,24,39,0.08) !important;
-  box-shadow: 0 24px 48px rgba(0,0,0,0.10) !important;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.08) !important;
 }
 .q-dialog__inner > div .q-card {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
 }
+/* Kill black bar at bottom when dialog opens (B4/iOS safe-area) */
+body.q-body--dialog { overflow: hidden !important; }
+.q-dialog { padding-bottom: env(safe-area-inset-bottom, 0px) !important; }
 
 /* Nicer KPI blocks */
 .kpi {
@@ -3335,96 +3339,159 @@ html.mf-light .mf-progress {
 
 
 /* ================================
-   Phase 6.5 Shell Layout (bank-style)
+   Phase 8.0 Shell Layout (premium banking)
+   Desktop: persistent left rail, no hamburger needed
+   Mobile: bottom tab bar + hamburger for full nav
    ================================ */
 .mf-shell { display: flex; min-height: 100vh; width: 100%; }
+
+/* ── Left Rail ── */
 .mf-rail {
-  width: 92px;
+  width: 86px;
   position: fixed;
-  left: 18px;
-  top: 18px;
-  height: calc(100vh - 36px);
+  left: 14px;
+  top: 14px;
+  height: calc(100vh - 28px);
   padding: 0;
   z-index: 50;
   transform: translateX(-130%);
-  transition: transform 180ms ease;
+  transition: transform 160ms cubic-bezier(0.2,0.9,0.3,1);
 }
 .mf-nav-open .mf-rail { transform: translateX(0); }
 
 .mf-backdrop{
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.55);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  background: rgba(0,0,0,0.40);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   z-index: 40;
   display: none;
 }
 .mf-nav-open .mf-backdrop{ display:block; }
+
 .mf-rail-card{
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 4px;
   border: 1px solid var(--mf-border);
-  background: var(--mf-surface);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border-radius: 20px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.28);
-  padding: 14px;
+  background: var(--mf-bg);
+  border-radius: 16px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.18);
+  padding: 10px 8px;
+  overflow-y: auto;
 }
 .mf-brand{
-  height:44px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  border-radius: 14px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
   border: 1px solid var(--mf-border);
   background: rgba(255,255,255,0.04);
-  font-weight: 900;
-  letter-spacing: 0.8px;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.5px;
   user-select: none;
 }
-.mf-navbtn .q-btn__content{ flex-direction: column !important; gap: 6px; }
+.mf-navbtn .q-btn__content{ flex-direction: column !important; gap: 3px; }
 .mf-navbtn{
   width: 100%;
-  min-height: 58px;
-  border-radius: 14px !important;
+  min-height: 50px;
+  border-radius: 12px !important;
   border: 1px solid transparent !important;
   text-transform: none !important;
+  transition: background 0.12s ease;
 }
 .mf-navbtn.is-active{
-  background: var(--mf-g1) !important;
-  border: 1px solid rgba(255,255,255,0.18) !important;
+  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.14) !important;
+  border-color: rgba(var(--mf-accent-rgb, 91,140,255), 0.22) !important;
 }
-.mf-navbtn .q-btn__content span { font-size: 11px; opacity: 0.78; }
+.mf-navbtn .q-btn__content span { font-size: 10px; opacity: 0.7; font-weight: 600; }
 
-.mf-main { flex: 1; padding: 38px; }
+/* ── Bottom Tab Bar (mobile) ── */
+.mf-bottombar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 55;
+  display: none;  /* hidden by default, shown on mobile */
+  align-items: stretch;
+  justify-content: space-around;
+  height: calc(54px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--mf-bg);
+  border-top: 1px solid var(--mf-border);
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.08);
+}
+.mf-bottombar .mf-tab {
+  flex: 1;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 2px; cursor: pointer;
+  color: var(--mf-muted);
+  text-decoration: none; font-size: 10px; font-weight: 600;
+  -webkit-tap-highlight-color: transparent;
+  padding: 4px 0; border: none; background: none;
+  transition: color 0.12s ease;
+}
+.mf-bottombar .mf-tab .q-icon { font-size: 22px; }
+.mf-bottombar .mf-tab.is-active { color: var(--mf-accent); }
+.mf-bottombar .mf-tab.is-active .q-icon { color: var(--mf-accent); }
+/* Floating Add button */
+.mf-bottombar .mf-tab-add {
+  position: relative; top: -10px;
+  width: 48px; height: 48px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2, var(--mf-accent)));
+  color: #fff !important;
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 48px;
+  box-shadow: 0 4px 14px rgba(var(--mf-accent-rgb, 91,140,255), 0.30);
+  cursor: pointer; border: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.mf-bottombar .mf-tab-add .q-icon { font-size: 24px; color: #fff; }
+
+/* ── Main area ── */
+.mf-main { flex: 1; padding: 26px 32px; }
 .mf-header{
-  height: 64px;
-  display:flex;
-  align-items:center;
+  height: 56px;
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 14px;
   max-width: 1180px;
-  margin: 0 auto 26px auto;
+  margin: 0 auto 20px auto;
 }
 .mf-title .t1 { font-size: 18px; font-weight: 900; }
 .mf-title .t2 { font-size: 12px; color: var(--mf-muted); }
 .mf-canvas{
   max-width: 1180px;
   margin: 0 auto;
-  display:flex;
+  display: flex;
   flex-direction: column;
-  gap: 26px;
+  gap: 20px;
 }
 
-@media (max-width: 900px){
-  .mf-rail{ padding: 10px; }
-  .mf-main{ padding: 18px 10px; }
-  .mf-navbtn .q-btn__content span { display:none; }
-  .mf-navbtn { min-height: 46px; }
+/* ── Desktop (≥901px): persistent rail, no hamburger, no bottom bar ── */
+@media (min-width: 901px) {
+  .mf-rail { transform: translateX(0) !important; }
+  .mf-backdrop { display: none !important; }
+  .mf-main { margin-left: 100px; }
+  .mf-hamburger { display: none !important; }
+  .mf-bottombar { display: none !important; }
+}
+
+/* ── Mobile (≤900px): bottom bar visible, rail is overlay only ── */
+@media (max-width: 900px) {
+  .mf-rail { width: 80px; }
+  .mf-main {
+    padding: 14px 10px;
+    padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+  }
+  .mf-bottombar { display: flex !important; }
+  .mf-navbtn .q-btn__content span { display: none; }
+  .mf-navbtn { min-height: 40px; }
 }
 
 
@@ -3743,17 +3810,17 @@ html.mf-light .q-menu .q-list{background: var(--mf-menu-bg) !important; color: v
 html.mf-light .q-menu .q-item__label{color: var(--mf-text) !important;}
 html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 
-/* Add dialog (iOS): prevent input zoom + sideways shift */
+/* ── Add Dialog: Premium form styling (E2) ── */
 .mf-add-dialog input,
 .mf-add-dialog textarea,
 .mf-add-dialog .q-field__native,
 .mf-add-dialog .q-field__input {
-  font-size: 16px !important;
+  font-size: 16px !important;  /* prevent iOS zoom */
 }
 .mf-add-dialog .q-dialog__inner > div { max-width: 95vw; }
 .mf-add-dialog .q-card { box-sizing: border-box; overflow-x: hidden; }
 
-/* Theme the upload bar to match the app */
+/* Upload bar theming */
 .mf-add-dialog .q-uploader__header,
 .q-uploader__header {
   background: var(--mf-surface-2, var(--mf-bg-2)) !important;
@@ -3768,18 +3835,36 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
   overflow: hidden;
 }
 .mf-add-dialog .q-uploader__header .q-btn { color: var(--mf-accent) !important; }
-/* Form field polish in dialog */
+
+/* Form fields — rounder, cleaner, themed */
 .mf-add-dialog .q-field--outlined .q-field__control {
   border-radius: 12px !important;
+  transition: border-color 0.15s ease;
 }
 .mf-add-dialog .q-field--outlined .q-field__control::before {
   border-color: var(--mf-border) !important;
 }
 .mf-add-dialog .q-field--outlined.q-field--focused .q-field__control::before {
   border-color: var(--mf-accent) !important;
+  border-width: 2px !important;
 }
 .mf-add-dialog .q-field__label { color: var(--mf-muted) !important; }
 .mf-add-dialog .q-checkbox__label { color: var(--mf-muted) !important; font-size: 13px; }
+
+/* Select dropdown: match app theme */
+.mf-add-dialog .q-field--outlined .q-field__append .q-icon {
+  color: var(--mf-muted) !important;
+}
+/* Section headers in dialog */
+.mf-add-dialog .mf-dlg-section {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--mf-muted);
+}
+/* Save button glow */
+.mf-add-dialog .mf-save-btn:hover {
+  box-shadow: 0 6px 20px rgba(0,0,0,0.20) !important;
+  transform: translateY(-1px);
+}
 
 /* Split slider polish */
 .mf-split-card .q-slider__track-container { height: 6px; }
@@ -3806,16 +3891,32 @@ html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
 
 /* ── Home Page Dashboard Responsive Grid ── */
 .mf-dash-grid {
-  display: grid; grid-template-columns: 1fr; gap: 16px; width: 100%;
+  display: grid; grid-template-columns: 1fr; gap: 18px; width: 100%;
 }
 .mf-dash-grid > * { min-width: 0; }
-@media (min-width: 900px) {
-  .mf-dash-grid { grid-template-columns: repeat(2, 1fr); }
+@media (min-width: 901px) {
+  .mf-dash-grid { grid-template-columns: repeat(2, 1fr); gap: 20px; }
   .mf-dash-grid > .mf-dash-full,
   .mf-dash-grid > :has(> .mf-dash-full) { grid-column: 1 / -1; }
 }
 /* Ensure canvas children stretch full width */
 .mf-canvas > * { width: 100% !important; min-width: 0; }
+/* KPI tiles: lighter, cleaner look (E5) */
+.kpi { border-radius: 16px !important; }
+html.mf-light .kpi {
+  background: rgba(255,255,255,0.65) !important;
+  border-color: rgba(0,0,0,0.06) !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
+}
+/* Section titles: clean spacing */
+.mf-section-title {
+  font-size: 13px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--mf-muted); margin-bottom: 10px;
+}
+/* Admin grid responsive */
+@media (max-width: 600px) {
+  .mf-admin-grid { grid-template-columns: repeat(2, 1fr) !important; }
+}
 
 </style>""", shared=True)
 
@@ -4303,12 +4404,8 @@ def nav_button(label: str, icon: str, path: str):
     ui.button(label, on_click=lambda: nav_to(path)).props(f"flat icon={icon}").classes("w-full")
 
 def shell(content_fn, *, active_path: str = ""):
-    """Phase 6.5 shell: bank-style rail + header + canvas.
-    Keeps Phase 4 logic intact and only wraps presentation.
+    """Phase 8.0 shell: persistent desktop rail + mobile bottom bar + header.
     """
-    # NOTE: do NOT use ui.open(); some NiceGUI versions on Render don't have it.
-    # Use nav_to() or normal links.
-
     # Active path detection (best-effort)
     try:
         if not active_path:
@@ -4319,28 +4416,26 @@ def shell(content_fn, *, active_path: str = ""):
     def nav_btn(label: str, icon: str, href: str) -> None:
         cls = "mf-navbtn" + (" is-active" if href == active_path else "")
         def go() -> None:
-            # use your Phase 4 router helper (no ui.open)
             try:
                 nav_to(href)
             except Exception:
                 pass
-            # close overlay after navigation (mobile + desktop)
             ui.run_javascript("document.documentElement.classList.remove('mf-nav-open')")
         ui.button(label, icon=icon).props("flat").classes(cls).on("click", go)
 
     with ui.element("div").classes("mf-shell"):
-        # Backdrop overlay (tap to close)
+        # Backdrop overlay (tap to close on mobile)
         ui.element("div").classes("mf-backdrop").on("click", lambda: ui.run_javascript("document.documentElement.classList.remove(\'mf-nav-open\')"))
 
-        # Left rail
+        # Left rail (persistent on desktop, overlay on mobile)
         with ui.element("div").classes("mf-rail"):
             with ui.element("div").classes("mf-rail-card"):
                 with ui.row().classes('items-center gap-2 mb-1'):
                     with ui.element('div').style(
-                        'width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;'
+                        'width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center;'
                         'background: linear-gradient(135deg, #0F1923, #22C55E); flex-shrink: 0;'
                     ):
-                        ui.icon('insights').style('font-size: 16px; color: #FBBF24;')
+                        ui.icon('insights').style('font-size: 14px; color: #FBBF24;')
                     ui.label("FinTrackr").classes("mf-brand")
                 ui.separator().props("dark").classes("opacity-20 my-1")
 
@@ -4355,13 +4450,42 @@ def shell(content_fn, *, active_path: str = ""):
                 ui.separator().props("dark").classes("opacity-20 my-1")
                 ui.label(f"v{APP_VERSION}").classes("text-xs").style("color: var(--mf-muted); text-align:center; opacity: 0.5;")
 
-        # Main
+        # Bottom tab bar (mobile only — CSS hides on ≥901px)
+        with ui.element("nav").classes("mf-bottombar"):
+            _bottom_tabs = [
+                ("Home", "dashboard", "/"),
+                ("Tx", "receipt_long", "/tx"),
+                ("Add", "add_circle", "/add"),
+                ("Cards", "credit_card", "/cards"),
+                ("More", "menu", None),  # opens rail overlay
+            ]
+            for _bl, _bi, _bh in _bottom_tabs:
+                _is_add = (_bl == "Add")
+                _is_more = (_bh is None)
+                _cls = "mf-tab"
+                if _is_add:
+                    _cls = "mf-tab-add"
+                elif _bh and _bh == active_path:
+                    _cls = "mf-tab is-active"
+                if _is_more:
+                    with ui.element("button").classes(_cls).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-nav-open')")):
+                        ui.icon(_bi)
+                        ui.label(_bl).style("font-size: 10px;")
+                elif _is_add:
+                    with ui.element("button").classes(_cls).on("click", lambda: nav_to("/add")):
+                        ui.icon(_bi)
+                else:
+                    with ui.element("button").classes(_cls).on("click", lambda h=_bh: nav_to(h)):
+                        ui.icon(_bi)
+                        ui.label(_bl).style("font-size: 10px;")
+
+        # Main content area
         with ui.element("main").classes("mf-main"):
             with ui.element("div").classes("mf-header"):
                 with ui.row().classes("items-center justify-between w-full"):
-                    # LEFT: hamburger + title
+                    # LEFT: hamburger (mobile only via CSS) + title
                     with ui.row().classes("items-center gap-3"):
-                        ui.button("", icon="menu").props("flat round dense").style(
+                        ui.button("", icon="menu").props("flat round dense").classes("mf-hamburger").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
                         ).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-nav-open')"))
                         with ui.element("div").classes("mf-title"):
@@ -4501,8 +4625,9 @@ def shell(content_fn, *, active_path: str = ""):
 # Shared actions
 # -----------------------------
 def refresh_all():
-    invalidate("transactions", "cards", "recurring", "rules")
-    ui.notify("Refreshed", type="positive")
+    """Force-clear all caches so next read fetches fresh data from Google Sheets."""
+    invalidate("transactions", "cards", "recurring", "rules", "budgets", "locks")
+    ui.notify("Refreshed — data reloaded from Google Sheets", type="positive")
 
 
 def owners_list() -> List[str]:
@@ -4511,10 +4636,23 @@ def owners_list() -> List[str]:
 
 
 def accounts_list() -> List[str]:
+    """Return known accounts from transactions + cards sheets + sensible defaults."""
+    accts: set[str] = set()
+    # 1) From past transactions
     tx = cached_df("transactions")
-    accts = set()
-    if not tx.empty:
+    if not tx.empty and "account" in tx.columns:
         accts |= set(tx["account"].astype(str).tolist())
+    # 2) From cards sheet (card_name = account key, method_name = payment label)
+    try:
+        cards = cached_df("cards")
+        if not cards.empty:
+            for col in ("card_name", "method_name"):
+                if col in cards.columns:
+                    accts |= set(cards[col].astype(str).tolist())
+    except Exception:
+        pass
+    # 3) Defaults so Investment / LOC / Income always have an account to select
+    accts |= {"Bank", "Line of Credit"}
     accts = {a.strip() for a in accts if a and a.strip()}
     return sorted(accts)
 
@@ -4531,7 +4669,7 @@ def categories_list() -> List[str]:
 
 def methods_list() -> List[str]:
     cards = cached_df("cards")
-    methods = set(["Debit", "Card", "Other"])
+    methods = set(["Debit", "Card", "Bank", "Other"])
     if not cards.empty and "method_name" in cards.columns:
         methods |= set(cards["method_name"].astype(str).tolist())
     return sorted({m.strip() for m in methods if m and m.strip()})
@@ -4642,10 +4780,13 @@ def dashboard_page():
             _logger.error("Failed to generate recurring transactions: %s", e)
 
         tx = cached_df("transactions")
-        if tx.empty:
-            with ui.card().classes("my-card p-5"):
-                ui.label("No transactions yet").classes("text-lg font-bold")
-                ui.label("Go to Add to create your first entry.").style("color: var(--mf-muted)")
+        # ── B2 fix: robust empty-data handling (no KeyError on cleaned sheets) ──
+        if tx is None or tx.empty or len(tx) == 0:
+            with ui.card().classes("my-card p-6"):
+                with ui.column().classes("items-center gap-3 w-full").style("padding: 30px 0;"):
+                    ui.icon("account_balance_wallet").style("font-size: 48px; color: var(--mf-muted); opacity: 0.3;")
+                    ui.label("No transactions yet").classes("text-lg font-bold")
+                    ui.label("Tap the + button or go to Add to create your first entry.").style("color: var(--mf-muted); text-align: center;")
             return
 
         # --- normalize expected columns (robust to sheet header variations) ---
@@ -4653,7 +4794,6 @@ def dashboard_page():
             for c in candidates:
                 if c in df.columns:
                     return c
-            # try case-insensitive match
             lower_map = {str(col).strip().lower(): col for col in df.columns}
             for c in candidates:
                 key = str(c).strip().lower()
@@ -4673,15 +4813,19 @@ def dashboard_page():
             tx["type"] = tx[c_type]
 
         # ensure columns exist even if the sheet is missing them
-        if "date" not in tx.columns:
-            tx["date"] = ""
-        if "amount" not in tx.columns:
-            tx["amount"] = 0
-        if "type" not in tx.columns:
-            tx["type"] = ""
+        for _col, _def in [("date", ""), ("amount", 0), ("type", ""), ("account", ""), ("category", ""), ("notes", ""), ("owner", "Family")]:
+            if _col not in tx.columns:
+                tx[_col] = _def
 
         tx["date_parsed"] = tx["date"].apply(parse_date)
         tx = tx[tx["date_parsed"].notna()].copy()
+        if tx.empty:
+            with ui.card().classes("my-card p-6"):
+                with ui.column().classes("items-center gap-3 w-full").style("padding: 30px 0;"):
+                    ui.icon("event_busy").style("font-size: 48px; color: var(--mf-muted); opacity: 0.3;")
+                    ui.label("No valid transactions found").classes("text-lg font-bold")
+                    ui.label("Check that your transactions sheet has a 'date' column with valid dates.").style("color: var(--mf-muted); text-align: center;")
+            return
         tx["amount_num"] = tx["amount"].apply(to_float)
         # Normalize "type" column (sheet headers may vary in casing/spaces)
         if "type" not in tx.columns:
@@ -4947,8 +5091,8 @@ def dashboard_page():
 
             # Tip based on weakest area
             _fh_tips = []
-            if _fh_scores[0] < 15: _fh_tips.append('Try to save at least 20% of your income')
-            if _fh_scores[1] < 15: _fh_tips.append('Your expenses are high relative to income')
+            if len(_fh_scores) > 0 and _fh_scores[0] < 15: _fh_tips.append('Try to save at least 20% of your income')
+            if len(_fh_scores) > 1 and _fh_scores[1] < 15: _fh_tips.append('Your expenses are high relative to income')
             if _budget_pts < 10: _fh_tips.append('Several budget categories are over limit')
             if len(_fh_scores) > 3 and _fh_scores[3] < 10: _fh_tips.append('Your daily spending is very inconsistent')
             if not _fh_tips:
@@ -4988,7 +5132,7 @@ def dashboard_page():
                                 f'padding: 2px 10px; border-radius: 8px;'
                             ):
                                 ui.label(_fh_grade)
-                        ui.label(_fh_tips[0]).classes('text-sm').style('color: var(--mf-muted); line-height: 1.5;')
+                        ui.label(_fh_tips[0] if _fh_tips else 'Track your spending to see insights').classes('text-sm').style('color: var(--mf-muted); line-height: 1.5;')
                         # Score breakdown pills
                         _pill_labels = ['Savings', 'Expense Ratio', 'Budget', 'Consistency']
                         _pill_maxes = [30, 25, 20, 25]
@@ -5366,11 +5510,14 @@ def dashboard_page():
                                 ui.label(f"Last month total: {currency(_prev_expense_total)}").classes("text-xs mt-1").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
 
                         # --- Row 3: Biggest Expense ---
-                        if not spend.empty:
-                            _largest_row = spend.loc[spend["amount_num"].idxmax()]
-                            _largest_amt = float(_largest_row["amount_num"])
-                            _largest_note = str(_largest_row.get("notes", "") or "")[:28]
-                            _largest_cat = str(_largest_row.get("category", "") or "")
+                        if not spend.empty and len(spend) > 0 and spend["amount_num"].sum() > 0:
+                            try:
+                                _largest_row = spend.loc[spend["amount_num"].idxmax()]
+                                _largest_amt = float(_largest_row["amount_num"])
+                                _largest_note = str(_largest_row.get("notes", "") or "")[:28]
+                                _largest_cat = str(_largest_row.get("category", "") or "")
+                            except (ValueError, KeyError):
+                                _largest_amt, _largest_note, _largest_cat = 0.0, "\u2014", ""
                         else:
                             _largest_amt = 0.0
                             _largest_note = "\u2014"
@@ -5393,10 +5540,14 @@ def dashboard_page():
                                 ui.label(_hint).classes("text-xs mt-1").style("color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;")
 
                         # --- Row 4: Top Category ---
-                        if not spend.empty and "category" in spend.columns:
-                            _top_cat_this = spend.groupby("category")["amount_num"].sum().idxmax()
-                            _top_cat_amt = float(spend.groupby("category")["amount_num"].sum().max())
-                            _top_cat_pct = (_top_cat_amt / expense * 100) if expense > 0 else 0
+                        if not spend.empty and "category" in spend.columns and len(spend) > 0:
+                            try:
+                                _cat_sums = spend.groupby("category")["amount_num"].sum()
+                                _top_cat_this = _cat_sums.idxmax() if len(_cat_sums) > 0 else "\u2014"
+                                _top_cat_amt = float(_cat_sums.max()) if len(_cat_sums) > 0 else 0.0
+                                _top_cat_pct = (_top_cat_amt / expense * 100) if expense > 0 else 0
+                            except (ValueError, KeyError):
+                                _top_cat_this, _top_cat_amt, _top_cat_pct = "\u2014", 0.0, 0.0
                         else:
                             _top_cat_this = "\u2014"
                             _top_cat_amt = 0.0
@@ -5650,13 +5801,20 @@ def add_page():
         # Map entry types to accent colors and icons
         _dlg_accents = {
             'debit': ('#ef4444', 'shopping_cart', 'Expense'),
+            'expense': ('#ef4444', 'shopping_cart', 'Expense'),
             'credit': ('#22c55e', 'trending_up', 'Income'),
             'income': ('#22c55e', 'trending_up', 'Income'),
             'investment': ('#a855f7', 'show_chart', 'Investment'),
             'cc repay': ('#eab308', 'credit_card', 'CC Repay'),
             'cc_repay': ('#eab308', 'credit_card', 'CC Repay'),
             'loc draw': ('#60a5fa', 'account_balance', 'LOC Draw'),
+            'loc_draw': ('#60a5fa', 'account_balance', 'LOC Draw'),
+            'loc withdrawal': ('#60a5fa', 'account_balance', 'LOC Draw'),
+            'loc_withdrawal': ('#60a5fa', 'account_balance', 'LOC Draw'),
             'loc repay': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
+            'loc_repay': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
+            'loc repayment': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
+            'loc_repayment': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
         }
         _accent, _dicon, _dlabel = _dlg_accents.get(entry_type.lower(), ('#6366f1', 'add_circle', entry_type))
 
@@ -5689,10 +5847,13 @@ def add_page():
                     d_date = ui.input("Date", value=today().isoformat()).props("type=date autofocus outlined dense").classes("flex-1")
                     d_amount = ui.number("Amount", value=0.0, format="%.2f").props("outlined dense").classes("flex-1")
 
-            is_debit = entry_type.lower() == 'debit'
-            is_income = entry_type.lower() in ('credit', 'income')
-            is_invest = entry_type.lower() == 'investment'
-            is_cc_repay = entry_type.lower() in ('cc repay', 'cc_repay', 'ccrepay', 'credit card repay', 'credit card repayment')
+            _et = entry_type.lower().strip()
+            is_debit = _et in ('debit', 'expense')
+            is_income = _et in ('credit', 'income')
+            is_invest = _et == 'investment'
+            is_cc_repay = _et in ('cc repay', 'cc_repay', 'ccrepay', 'credit card repay', 'credit card repayment')
+            is_loc_draw = _et in ('loc draw', 'loc_draw', 'loc withdrawal', 'loc_withdrawal')
+            is_loc_repay = _et in ('loc repay', 'loc_repay', 'loc repayment', 'loc_repayment')
 
             # Phase 6.5+: OCR-triggered multi-category split (Walmart/Costco/Superstore)
             # Stores a plan of category->amount which will be written as multiple transaction rows on Save.
@@ -5732,8 +5893,20 @@ def add_page():
             if is_cc_repay:
                 fixed_method = 'Card'
                 hide_method = True
+            if is_loc_draw:
+                if not fixed_method:
+                    fixed_method = preset_method or 'Card'
+                hide_method = True
+                if not fixed_category:
+                    fixed_category = preset_category or 'LOC Utilization'
+            if is_loc_repay:
+                if not fixed_method:
+                    fixed_method = preset_method or 'Bank'
+                hide_method = True
+                if not fixed_category:
+                    fixed_category = preset_category or 'Repayment'
 
-            default_method = ("Card" if is_debit else ("Bank" if (is_income or is_invest) else "Other"))
+            default_method = ("Card" if is_debit else ("Bank" if (is_income or is_invest or is_loc_repay) else ("Card" if is_loc_draw else "Other")))
 
             # Presets override remembered defaults.
             method_default = (fixed_method or preset_method or (last_debit_method if (is_debit and last_debit_method in methods) else default_method))
@@ -6825,17 +6998,17 @@ def admin_page() -> None:
                     ("Reports", "assessment", "/reports", "rgba(99,102,241,0.10)", "#6366f1"),
                 ]
                 with ui.element("div").style(
-                    "display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%;"
+                    "display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; width: 100%;"
                 ):
                     for label, icon, href, bg, accent in _admin_links:
                         with ui.card().classes("tile p-0").style(
-                            f"cursor: pointer; border: 1px solid var(--mf-border); border-radius: 14px;"
-                            f"background: rgba(255,255,255,0.02); transition: transform 0.15s ease, box-shadow 0.15s ease;"
+                            f"cursor: pointer; border: 1px solid var(--mf-border); border-radius: 16px;"
+                            f"background: rgba(255,255,255,0.03); transition: transform 0.12s ease, box-shadow 0.12s ease;"
                         ).on("click", lambda h=href: nav_to(h)):
-                            with ui.column().classes("items-center justify-center p-4 gap-2").style("min-height: 100px;"):
+                            with ui.column().classes("items-center justify-center p-5 gap-3").style("min-height: 110px;"):
                                 with ui.element("div").classes("mf-icon-box").style(f"background: {bg};"):
                                     ui.icon(icon).style(f"font-size: 22px; color: {accent};")
-                                ui.label(label).classes("text-xs font-semibold text-center")
+                                ui.label(label).classes("text-sm font-semibold text-center")
 
         with ui.card().classes("my-card p-5 mt-3"):
             with ui.row().classes("items-center gap-2"):
@@ -8951,7 +9124,7 @@ def about_page() -> None:
 
                     with ui.column().classes('gap-2 flex-1').style('min-width: 200px;'):
                         ui.label('Nishanth R').style('font-size: 22px; font-weight: 800; letter-spacing: -0.03em; color: var(--mf-text);')
-                        ui.label('Oracle DBA & Full-Stack Developer').classes('text-sm font-medium').style('color: var(--mf-accent);')
+                        ui.label('Oracle DBA').classes('text-sm font-medium').style('color: var(--mf-accent);')
                         ui.label(
                             'An experienced Oracle Database Administrator with a passion for building '
                             'elegant, data-driven applications. FinTrackr was born from a personal need '
@@ -8973,6 +9146,16 @@ def about_page() -> None:
                     ).props('href="mailto:nishanth91.dba@gmail.com"'):
                         ui.icon('email').style('font-size: 18px; color: #ef4444;')
                         ui.label('nishanth91.dba@gmail.com').classes('text-sm font-medium')
+
+                    # LinkedIn
+                    with ui.element('a').style(
+                        'display: flex; align-items: center; gap: 8px; text-decoration: none;'
+                        'padding: 8px 16px; border-radius: 10px; border: 1px solid var(--mf-border);'
+                        'background: var(--mf-surface); color: var(--mf-text); cursor: pointer;'
+                        'transition: background 0.2s ease;'
+                    ).props('href="https://www.linkedin.com/in/nishanth-r-ajay/" target="_blank"'):
+                        ui.icon('work').style('font-size: 18px; color: #0A66C2;')
+                        ui.label('LinkedIn').classes('text-sm font-medium')
 
                     # Instagram
                     with ui.element('a').style(
@@ -9212,4 +9395,4 @@ ui.run(
     favicon=_FAVICON_SVG,
 )
 
-# Release: FinTrackr Phase 7.6
+# Release: FinTrackr Phase 8.0
