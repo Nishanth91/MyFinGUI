@@ -3483,6 +3483,12 @@ html.mf-light .mf-progress {
 }
 /* 8.2.2: icon-only, 30px, zero transition delay */
 .mf-bottombar .mf-tab .q-icon { font-size: 30px; transition: none !important; }
+/* Ensure <a> tags in bottom bar inherit proper colors (not default link blue) */
+.mf-bottombar a.mf-tab,
+.mf-bottombar a.mf-tab-add { text-decoration: none !important; color: var(--mf-muted); }
+.mf-bottombar a.mf-tab:visited { color: var(--mf-muted); }
+.mf-bottombar a.mf-tab.is-active,
+.mf-bottombar a.mf-tab.is-active:visited { color: var(--mf-accent); }
 
 /* Active = full icon highlight (rounded pill bg) */
 .mf-bottombar .mf-tab.is-active {
@@ -3564,6 +3570,19 @@ html.mf-light .mf-more-popup {
   -webkit-tap-highlight-color: transparent;
 }
 .mf-more-item .q-icon { font-size: 22px !important; }
+/* <a> based more-items need link color reset + flex layout */
+a.mf-more-item {
+  text-decoration: none !important;
+  color: var(--mf-text) !important;
+  display: flex !important;
+  align-items: center !important;
+}
+a.mf-more-item:visited { color: var(--mf-text) !important; }
+a.mf-more-item.is-active,
+a.mf-more-item.is-active:visited {
+  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.12) !important;
+  color: var(--mf-accent) !important;
+}
 .mf-more-item:active {
   background: rgba(var(--mf-accent-rgb, 91,140,255), 0.10) !important;
 }
@@ -3625,8 +3644,11 @@ html.mf-light .mf-more-popup {
   padding: 2px 0 0 0;
 }
 .mf-header-actions .q-btn {
-  width: 36px !important; height: 36px !important;
-  min-width: 36px !important; min-height: 36px !important;
+  width: 44px !important; height: 44px !important;
+  min-width: 44px !important; min-height: 44px !important;
+}
+.mf-header-actions .q-btn .q-icon {
+  font-size: 24px !important;
 }
 .mf-canvas{
   max-width: 1180px;
@@ -3734,7 +3756,8 @@ html.mf-light .mf-more-popup {
   /* 8.2.2: compact header with action row below title */
   .mf-header { height: auto !important; padding-top: 8px !important; padding-bottom: 6px !important; }
   .mf-header-actions { padding: 0 !important; }
-  .mf-header-actions .q-btn { width: 34px !important; height: 34px !important; min-width: 34px !important; min-height: 34px !important; }
+  .mf-header-actions .q-btn { width: 42px !important; height: 42px !important; min-width: 42px !important; min-height: 42px !important; }
+  .mf-header-actions .q-btn .q-icon { font-size: 22px !important; }
 }
 .q-menu { z-index: 99999 !important; }
 
@@ -4130,6 +4153,20 @@ html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
 .mf-canvas > * { width: 100% !important; min-width: 0; box-sizing: border-box !important; margin-left: 0 !important; margin-right: 0 !important; }
 .mf-canvas .my-card { width: 100% !important; box-sizing: border-box !important; margin-left: 0 !important; margin-right: 0 !important; }
 .mf-canvas .q-card { width: 100% !important; box-sizing: border-box !important; }
+/* ROOT FIX: NiceGUI's ui.column() adds Quasar .column { align-items: flex-start } —
+   this prevents children from stretching. Force stretch inside cards so content fills width. */
+.my-card .column,
+.my-card .q-column,
+.my-card > .column,
+.mf-canvas .column {
+  align-items: stretch !important;
+}
+.my-card .column > *,
+.mf-canvas .my-card .column > * {
+  width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
 /* KPI tiles: lighter, cleaner look (E5) */
 .kpi { border-radius: 16px !important; }
 html.mf-light .kpi {
@@ -4718,51 +4755,77 @@ def shell(content_fn, *, active_path: str = ""):
                 ui.label(f"v{APP_VERSION}").classes("text-xs").style("color: var(--mf-muted); text-align:center; opacity: 0.5;")
 
         # Bottom tab bar (mobile only — CSS hides on ≥901px)
-        # 8.2.2: icons only, instant JS navigation (no server round-trip), Cards swapped to left
-        with ui.element("nav").classes("mf-bottombar"):
-            _bottom_tabs = [
-                ("Cards", "credit_card", "/cards"),
-                ("Tx", "receipt_long", "/tx"),
-                ("Add", "add_circle", "/add"),
-                ("Home", "dashboard", "/"),
-                ("More", "menu", None),  # opens compact popup
-            ]
-            for _bl, _bi, _bh in _bottom_tabs:
-                _is_add = (_bl == "Add")
-                _is_more = (_bh is None)
-                _cls = "mf-tab"
-                if _is_add:
-                    _cls = "mf-tab-add"
-                elif _bh and _bh == active_path:
-                    _cls = "mf-tab is-active"
-                if _is_more:
-                    with ui.element("button").classes(_cls + " mf-more-btn").on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-more-open')")):
-                        ui.icon(_bi)
-                elif _is_add:
-                    # Add button — instant JS navigation
-                    with ui.element("button").classes(_cls).on("click", lambda: ui.run_javascript("window.location.href='/add'")):
-                        ui.icon(_bi)
-                else:
-                    # 8.2.2: Instant client-side navigation — no Python server round-trip
-                    with ui.element("button").classes(_cls).on("click", lambda _evt=None, h=_bh: ui.run_javascript(f"window.location.href='{h}'")):
-                        ui.icon(_bi)
+        # 8.2.2 FIX: Pure HTML <a> tags for INSTANT navigation — zero server round-trip.
+        # Previous approach used ui.run_javascript() which still required Python server hop.
+        # Native <a href> triggers immediate browser navigation with no JS/WebSocket involved.
+        _bottom_tabs_html = []
+        for _bl, _bi, _bh in [
+            ("Cards", "credit_card", "/cards"),
+            ("Tx", "receipt_long", "/tx"),
+            ("Add", "add_circle", "/add"),
+            ("Home", "dashboard", "/"),
+            ("More", "menu", None),
+        ]:
+            if _bl == "Add":
+                _bottom_tabs_html.append(
+                    f'<a href="/add" class="mf-tab-add" style="text-decoration:none;">'
+                    f'<i class="q-icon notranslate material-icons" aria-hidden="true" role="img">add_circle</i></a>'
+                )
+            elif _bh is None:
+                # More button — client-side JS toggle only (no navigation)
+                _bottom_tabs_html.append(
+                    f'<button class="mf-tab mf-more-btn" onclick="document.documentElement.classList.toggle(\'mf-more-open\')">'
+                    f'<i class="q-icon notranslate material-icons" aria-hidden="true" role="img">menu</i></button>'
+                )
+            else:
+                _act = " is-active" if _bh == active_path else ""
+                _bottom_tabs_html.append(
+                    f'<a href="{_bh}" class="mf-tab{_act}" style="text-decoration:none;">'
+                    f'<i class="q-icon notranslate material-icons" aria-hidden="true" role="img">{_bi}</i></a>'
+                )
+        ui.html(f'<nav class="mf-bottombar">{"".join(_bottom_tabs_html)}</nav>')
 
-        # 8.2.2: Compact "More" popup — Rules, Admin, About + Logout (moved from header)
-        with ui.element("div").classes("mf-more-popup"):
-            for _ml, _mi, _mh in [("Rules", "rule", "/rules"), ("Admin", "settings", "/admin"), ("About", "info", "/about")]:
-                _mcls = "mf-more-item" + (" is-active" if _mh == active_path else "")
-                def _more_go(_evt=None, h=_mh):
-                    ui.run_javascript(f"window.location.href='{h}'")
-                    ui.run_javascript("document.documentElement.classList.remove('mf-more-open')")
-                ui.button(_ml, icon=_mi).props("flat").classes(_mcls).on("click", _more_go)
-            # Divider + Logout
-            ui.element('div').style('height: 1px; background: var(--mf-border); margin: 4px 6px;')
-            def _more_logout(_evt=None):
-                ui.run_javascript("document.documentElement.classList.remove('mf-more-open')")
-                do_logout()
-            ui.button("Logout", icon="logout").props("flat").classes("mf-more-item").style("color: #ef4444 !important;").on("click", _more_logout)
-        # Backdrop for more popup
-        ui.element("div").classes("mf-more-backdrop").on("click", lambda: ui.run_javascript("document.documentElement.classList.remove('mf-more-open')"))
+        # 8.2.2: Compact "More" popup — pure HTML links for instant nav
+        _more_items = []
+        for _ml, _mi, _mh in [("Rules", "rule", "/rules"), ("Admin", "settings", "/admin"), ("About", "info", "/about")]:
+            _act = " is-active" if _mh == active_path else ""
+            _more_items.append(
+                f'<a href="{_mh}" class="mf-more-item{_act}" onclick="document.documentElement.classList.remove(\'mf-more-open\')">'
+                f'<i class="q-icon notranslate material-icons" style="font-size:22px; margin-right:10px;">{_mi}</i>{_ml}</a>'
+            )
+        _more_items.append('<div style="height:1px; background:var(--mf-border); margin:4px 6px;"></div>')
+        # Logout still needs Python handler for session cleanup
+        _more_html = '<div class="mf-more-popup">' + ''.join(_more_items) + '</div>'
+        _more_html += '<div class="mf-more-backdrop" onclick="document.documentElement.classList.remove(\'mf-more-open\')"></div>'
+        ui.html(_more_html)
+        # Logout: inject into popup via JS (needs Python handler for session cleanup)
+        ui.run_javascript("""
+        (function(){
+            var popup = document.querySelector('.mf-more-popup');
+            if(!popup) return;
+            var btn = document.createElement('button');
+            btn.className = 'mf-more-item';
+            btn.style.cssText = 'color:#ef4444 !important; display:flex; align-items:center; width:100%; border:none; background:none; cursor:pointer; font-size:15px; font-weight:600; padding:8px 16px; min-height:52px; border-radius:12px; touch-action:manipulation;';
+            btn.innerHTML = '<i class="q-icon notranslate material-icons" style="font-size:22px; margin-right:10px;">logout</i>Logout';
+            btn.onclick = function(){ document.documentElement.classList.remove('mf-more-open'); };
+            btn.id = 'mf-logout-btn';
+            popup.appendChild(btn);
+        })();
+        """
+        )
+        # Wire up the logout button click to Python handler
+        ui.run_javascript("""
+        document.addEventListener('click', function(e){
+            if(e.target && (e.target.id === 'mf-logout-btn' || e.target.closest('#mf-logout-btn'))){
+                // NiceGUI will handle this via the hidden logout trigger
+                var t = document.getElementById('mf-logout-trigger');
+                if(t) t.click();
+            }
+        });
+        """
+        )
+        # Hidden logout trigger button (NiceGUI handler)
+        ui.button("").props("flat").style("display:none;").props('id=mf-logout-trigger').on("click", do_logout)
 
         # Main content area
         with ui.element("main").classes("mf-main"):
@@ -4873,17 +4936,17 @@ def shell(content_fn, *, active_path: str = ""):
                             except Exception:
                                 pass
 
-                    # Row 2: Action buttons — theme (mobile), search, refresh — neatly under title
-                    with ui.row().classes("items-center gap-2 mf-header-actions"):
-                        ui.button("", icon="palette").props("flat round dense").classes("mf-show-mobile").style(
-                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
+                    # Row 2: Action buttons — theme (mobile), search, refresh — bigger for accessibility
+                    with ui.row().classes("items-center gap-3 mf-header-actions"):
+                        ui.button("", icon="palette").props("flat round").classes("mf-show-mobile").style(
+                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 12px;"
                         ).on("click", _open_theme_dialog)
                         ui.run_javascript('window.mfSetTheme(localStorage.getItem(\"mf_theme\") || \"Midnight Blue\")')
-                        ui.button("", icon="search").props("flat round dense").style(
-                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
+                        ui.button("", icon="search").props("flat round").style(
+                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 12px;"
                         ).on("click", lambda: open_search_dialog())
-                        ui.button("", icon="refresh").props("flat round dense").style(
-                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
+                        ui.button("", icon="refresh").props("flat round").style(
+                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 12px;"
                         ).on("click", lambda: ui.navigate.to(ui.context.client.page.path))
                         # 8.2.2: Logout moved to More popup — desktop keeps it in rail
 
@@ -5570,8 +5633,8 @@ def dashboard_page():
 
                         with ui.card().classes("my-card p-0 w-full").style("overflow: hidden; width: 100%; box-sizing: border-box;"):
                             # Accent strip
-                            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
-                            with ui.column().classes("p-5 gap-0 w-full"):
+                            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0; width: 100%;')
+                            with ui.column().classes("p-5 gap-0 w-full items-stretch").style("align-items: stretch; width: 100%;"):
                                 # Header
                                 with ui.row().classes("items-center gap-3 mb-4"):
                                     with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
@@ -5583,7 +5646,7 @@ def dashboard_page():
                                 # Overall summary row
                                 _ovr_color = '#ef4444' if _overall_pct >= 1.0 else ('#f59e0b' if _overall_pct >= 0.8 else '#22c55e')
                                 with ui.element("div").style(
-                                    "padding: 14px 16px; border-radius: 14px; margin-bottom: 16px;"
+                                    "padding: 14px 16px; border-radius: 14px; margin-bottom: 16px; width: 100%; box-sizing: border-box;"
                                     "background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.10);"
                                 ):
                                     with ui.row().classes("items-center justify-between w-full"):
@@ -5611,7 +5674,7 @@ def dashboard_page():
                                     pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
                                     _c_color = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else 'var(--mf-accent)')
                                     with ui.element("div").style(
-                                        "display: flex; align-items: center; gap: 14px; padding: 12px 0;"
+                                        "display: flex; align-items: center; gap: 14px; padding: 12px 0; width: 100%; box-sizing: border-box;"
                                         "border-bottom: 1px solid rgba(128,128,128,0.08);"
                                     ):
                                         # Category icon circle
@@ -5755,9 +5818,9 @@ def dashboard_page():
                 _prev_spend = _prev_mtx[_prev_mtx["type_l"].isin(["debit", "expense"])]
                 _prev_expense_total = float(_prev_spend["amount_num"].sum()) if not _prev_spend.empty else 0.0
 
-                with ui.card().classes("my-card p-0").style("overflow: hidden;"):
-                    ui.element('div').style('height: 3px; background: linear-gradient(90deg, #f59e0b, #f97316); border-radius: 0;')
-                    with ui.column().classes("p-5 gap-0"):
+                with ui.card().classes("my-card p-0 w-full").style("overflow: hidden; width: 100%; box-sizing: border-box;"):
+                    ui.element('div').style('height: 3px; background: linear-gradient(90deg, #f59e0b, #f97316); border-radius: 0; width: 100%;')
+                    with ui.column().classes("p-5 gap-0 w-full items-stretch").style("align-items: stretch; width: 100%;"):
                         with ui.row().classes("items-center gap-2 mb-4"):
                             with ui.element("div").classes("mf-icon-box").style("background: rgba(245,158,11,0.12);"):
                                 ui.icon("auto_graph").style("font-size: 20px; color: #f59e0b;")
