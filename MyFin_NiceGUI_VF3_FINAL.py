@@ -1,3 +1,4 @@
+
 # ======================================
 # FinTrackr App – Phase 4.6A (REAL FIX BUILD)
 # Changes vs P4.5: Dashboard hero, Rules selection, OCR toast timeout, richer palette
@@ -56,7 +57,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '8.2.0'
+APP_VERSION = '8.2.1'
 
 
 def log(message: str) -> None:
@@ -3448,68 +3449,62 @@ html.mf-light .mf-progress {
 }
 .mf-navbtn .q-btn__content span { font-size: 10px; opacity: 0.7; font-weight: 600; }
 
-/* ── Bottom Tab Bar (mobile) — instant, tactile, native-feel ── */
+/* ── Bottom Tab Bar (mobile) — 8.2.1: icons only, instant, tactile ── */
 .mf-bottombar {
   position: fixed;
   bottom: 0; left: 0; right: 0;
   z-index: 55;
-  display: none;  /* hidden by default, shown on mobile */
-  align-items: stretch;
+  display: none;
+  align-items: center;
   justify-content: space-around;
-  height: calc(64px + env(safe-area-inset-bottom, 0px));
+  height: calc(58px + env(safe-area-inset-bottom, 0px));
   padding-bottom: env(safe-area-inset-bottom, 0px);
   background: var(--mf-bg);
   border-top: 1px solid var(--mf-border);
   box-shadow: 0 -2px 16px rgba(0,0,0,0.10);
-  /* GPU layer for instant rendering */
   will-change: contents;
   transform: translateZ(0);
   -webkit-backface-visibility: hidden;
 }
 .mf-bottombar .mf-tab {
   flex: 1;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  gap: 3px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
   color: var(--mf-muted);
-  text-decoration: none;
-  font-size: 11px; font-weight: 700;     /* Task 2: bigger label */
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
-  user-select: none;
-  -webkit-user-select: none;
-  padding: 6px 0; border: none; background: none;
+  user-select: none; -webkit-user-select: none;
+  padding: 8px 0; border: none; background: none;
   transition: none;
   position: relative;
-  overflow: hidden;
 }
-/* Instant tap feedback — scale down + accent flash */
-.mf-bottombar .mf-tab:active {
-  transform: scale(0.85);
-  color: var(--mf-accent) !important;
-  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.08);
+/* 8.2.1 Task 1: icon-only, bigger */
+.mf-bottombar .mf-tab .q-icon { font-size: 30px; transition: none; }
+
+/* 8.2.1 Task 2: active = full icon highlight (rounded pill bg), not just a dot */
+.mf-bottombar .mf-tab.is-active {
+  color: var(--mf-accent);
+}
+.mf-bottombar .mf-tab.is-active .q-icon {
+  color: var(--mf-accent);
+  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.14);
   border-radius: 12px;
+  padding: 6px 14px;
+}
+/* Tap feedback — full icon lights up */
+.mf-bottombar .mf-tab:active {
+  transform: scale(0.88);
 }
 .mf-bottombar .mf-tab:active .q-icon {
   color: var(--mf-accent) !important;
-}
-.mf-bottombar .mf-tab .q-icon {
-  font-size: 27px;     /* Task 2: bigger icons */
-  transition: none;
-}
-.mf-bottombar .mf-tab.is-active { color: var(--mf-accent); }
-.mf-bottombar .mf-tab.is-active .q-icon { color: var(--mf-accent); }
-/* Active tab indicator dot */
-.mf-bottombar .mf-tab.is-active::after {
-  content: '';
-  position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
-  width: 5px; height: 5px; border-radius: 50%;
-  background: var(--mf-accent);
+  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.12);
+  border-radius: 12px;
+  padding: 6px 14px;
 }
 /* Floating Add button */
 .mf-bottombar .mf-tab-add {
   position: relative; top: -12px;
-  width: 54px; height: 54px; border-radius: 50%;      /* Task 2: bigger */
+  width: 54px; height: 54px; border-radius: 50%;
   background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2, var(--mf-accent)));
   color: #fff !important;
   display: flex; align-items: center; justify-content: center;
@@ -3518,8 +3513,7 @@ html.mf-light .mf-progress {
   cursor: pointer; border: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
-  user-select: none;
-  -webkit-user-select: none;
+  user-select: none; -webkit-user-select: none;
   transition: none;
 }
 .mf-bottombar .mf-tab-add:active {
@@ -3527,6 +3521,59 @@ html.mf-light .mf-progress {
   box-shadow: 0 2px 8px rgba(var(--mf-accent-rgb, 91,140,255), 0.55);
 }
 .mf-bottombar .mf-tab-add .q-icon { font-size: 28px; color: #fff; }
+
+/* ── 8.2.1 Task 3: Compact "More" popup (floats above hamburger icon) ── */
+.mf-more-popup {
+  position: fixed;
+  bottom: calc(66px + env(safe-area-inset-bottom, 0px));
+  right: 8px;
+  z-index: 60;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--mf-bg);
+  border: 1px solid var(--mf-border);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  padding: 6px;
+  min-width: 140px;
+  animation: mf-popupIn 0.1s ease-out;
+}
+@keyframes mf-popupIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+html.mf-light .mf-more-popup {
+  background: #fff;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.10);
+}
+.mf-more-open .mf-more-popup { display: flex; }
+.mf-more-item {
+  width: 100%;
+  border-radius: 10px !important;
+  text-transform: none !important;
+  justify-content: flex-start !important;
+  min-height: 42px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.mf-more-item:active {
+  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.10) !important;
+}
+.mf-more-item.is-active {
+  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.12) !important;
+  color: var(--mf-accent) !important;
+}
+.mf-more-backdrop {
+  position: fixed; inset: 0; z-index: 58;
+  background: transparent; display: none;
+}
+.mf-more-open .mf-more-backdrop { display: block; }
+/* Hide more popup on desktop */
+@media (min-width: 901px) {
+  .mf-more-popup { display: none !important; }
+  .mf-more-backdrop { display: none !important; }
+}
 
 /* ── Main area ── */
 .mf-main { flex: 1; padding: 26px 32px; }
@@ -3574,14 +3621,28 @@ html.mf-light .mf-progress {
   .mf-navbtn .q-btn__content span { display: none; }
   .mf-navbtn { min-height: 40px; }
 
-  /* Task 6: Transactions page mobile — prevent clipping, compact table */
-  .mf-canvas { padding: 0 !important; max-width: 100vw !important; overflow-x: hidden !important; }
-  .mf-canvas > * { max-width: 100% !important; overflow-x: hidden !important; }
-  .mf-canvas .my-card { border-radius: 14px !important; }
-  .q-table th { font-size: 11px !important; padding: 6px 6px !important; white-space: nowrap; }
-  .q-table td { font-size: 12px !important; padding: 7px 6px !important; word-break: break-word; }
-  .q-table { font-size: 12px !important; width: 100% !important; }
-  .q-field { max-width: 100% !important; }
+  /* Task 4/6: Mobile layout — prevent ALL clipping & overflow */
+  .mf-main { overflow-x: hidden !important; }
+  .mf-canvas {
+    padding: 0 !important; width: 100% !important;
+    max-width: 100% !important; overflow-x: hidden !important;
+    box-sizing: border-box !important;
+  }
+  .mf-canvas > * { max-width: 100% !important; box-sizing: border-box !important; }
+  .mf-canvas .my-card { border-radius: 14px !important; max-width: 100% !important; }
+  /* Tx page: compact table */
+  .q-table th { font-size: 11px !important; padding: 5px 4px !important; white-space: nowrap; }
+  .q-table td { font-size: 12px !important; padding: 6px 4px !important; word-break: break-word; }
+  .q-table { font-size: 12px !important; width: 100% !important; table-layout: fixed !important; }
+  .q-table__container { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+  /* All form fields constrained */
+  .q-field { max-width: 100% !important; box-sizing: border-box !important; }
+  .q-select { max-width: 100% !important; }
+  /* Fixed-width elements must shrink on mobile */
+  .w-40 { width: 100% !important; max-width: 48% !important; }
+  .w-64 { width: 100% !important; max-width: 100% !important; }
+  /* Expansion panels full width */
+  .q-expansion-item { max-width: 100% !important; overflow: hidden !important; }
 
   /* Admin tiles stack nicely on small screens */
   .mf-canvas .q-card .tile { min-width: 0; }
@@ -3998,7 +4059,8 @@ html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
   .mf-dash-grid > :has(> .mf-dash-full) { grid-column: 1 / -1; }
 }
 /* Ensure canvas children stretch full width */
-.mf-canvas > * { width: 100% !important; min-width: 0; }
+.mf-canvas > * { width: 100% !important; min-width: 0; box-sizing: border-box !important; }
+.mf-canvas .my-card { width: 100% !important; box-sizing: border-box !important; }
 /* KPI tiles: lighter, cleaner look (E5) */
 .kpi { border-radius: 16px !important; }
 html.mf-light .kpi {
@@ -4559,13 +4621,14 @@ def shell(content_fn, *, active_path: str = ""):
                 ui.label(f"v{APP_VERSION}").classes("text-xs").style("color: var(--mf-muted); text-align:center; opacity: 0.5;")
 
         # Bottom tab bar (mobile only — CSS hides on ≥901px)
+        # 8.2.1: icons only, no text labels
         with ui.element("nav").classes("mf-bottombar"):
             _bottom_tabs = [
                 ("Home", "dashboard", "/"),
                 ("Tx", "receipt_long", "/tx"),
                 ("Add", "add_circle", "/add"),
                 ("Cards", "credit_card", "/cards"),
-                ("More", "menu", None),  # opens rail overlay
+                ("More", "menu", None),  # opens compact popup
             ]
             for _bl, _bi, _bh in _bottom_tabs:
                 _is_add = (_bl == "Add")
@@ -4576,16 +4639,25 @@ def shell(content_fn, *, active_path: str = ""):
                 elif _bh and _bh == active_path:
                     _cls = "mf-tab is-active"
                 if _is_more:
-                    with ui.element("button").classes(_cls).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-nav-open')")):
+                    with ui.element("button").classes(_cls + " mf-more-btn").on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-more-open')")):
                         ui.icon(_bi)
-                        ui.label(_bl).style("font-size: 10px;")
                 elif _is_add:
                     with ui.element("button").classes(_cls).on("click", lambda: nav_to("/add")):
                         ui.icon(_bi)
                 else:
                     with ui.element("button").classes(_cls).on("click", lambda h=_bh: nav_to(h)):
                         ui.icon(_bi)
-                        ui.label(_bl).style("font-size: 10px;")
+
+        # 8.2.1 Task 3: Compact "More" popup — floats right above hamburger icon
+        with ui.element("div").classes("mf-more-popup"):
+            for _ml, _mi, _mh in [("Rules", "rule", "/rules"), ("Admin", "settings", "/admin"), ("About", "info", "/about")]:
+                _mcls = "mf-more-item" + (" is-active" if _mh == active_path else "")
+                def _more_go(_evt=None, h=_mh):
+                    nav_to(h)
+                    ui.run_javascript("document.documentElement.classList.remove('mf-more-open')")
+                ui.button(_ml, icon=_mi).props("flat").classes(_mcls).on("click", _more_go)
+        # Backdrop for more popup
+        ui.element("div").classes("mf-more-backdrop").on("click", lambda: ui.run_javascript("document.documentElement.classList.remove('mf-more-open')"))
 
         # Main content area
         with ui.element("main").classes("mf-main"):
@@ -5398,10 +5470,10 @@ def dashboard_page():
                         _overall_pct = min(1.0, _total_spent / _total_budgeted) if _total_budgeted > 0 else 0.0
                         _remaining = max(0, _total_budgeted - _total_spent)
 
-                        with ui.card().classes("my-card p-0").style("overflow: hidden;"):
+                        with ui.card().classes("my-card p-0 w-full").style("overflow: hidden; width: 100%; box-sizing: border-box;"):
                             # Accent strip
                             ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
-                            with ui.column().classes("p-5 gap-0"):
+                            with ui.column().classes("p-5 gap-0 w-full"):
                                 # Header
                                 with ui.row().classes("items-center gap-3 mb-4"):
                                     with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
@@ -9543,31 +9615,27 @@ ui.run(
     favicon=_FAVICON_SVG,
 )
 
-# Release: FinTrackr Phase 8.2
+# Release: FinTrackr Phase 8.2.1
 # ────────────────────────────────────────────────
-# Phase 8.2 (10 UI fixes + enhancements):
+# Phase 8.2.1 (6 UI refinements):
 #
-# 1.  More menu (mobile): trimmed to Rules, Admin, About, Version only.
-#     Home/Add/Tx/Cards hidden from rail on mobile (already on bottom bar).
-# 2.  Bottom nav icons: enlarged (27px icons, 54px Add button), bigger labels,
-#     active indicator dot below current tab.
-# 3.  Bottom nav instant: :active scale(0.85) + accent flash, no transitions,
-#     touch-action:manipulation kills 300ms iOS delay, GPU-accelerated.
-# 4.  +Add button removed from header (redundant with bottom nav).
-# 5.  ALL popups/dialogs fully opaque: forced var(--mf-bg) on every .q-card,
-#     .my-card inside .q-dialog. No more semi-transparent bleed-through.
-#     Root cause was card gradients using rgba(255,255,255,0.10) — now overridden.
-# 6.  Transactions mobile: overflow-x:hidden on .mf-canvas, max-width:100%
-#     on all children, compact table cells, prevents left-side clipping.
-# 7.  iOS PWA black bar: changed apple-mobile-web-app-status-bar-style from
-#     "black-translucent" to "default"; body extends into safe areas.
-# 8.  Spending Breakdown & Cashflow Trend removed from home page.
-# 9.  Budgets block redesigned: accent strip, icon header, overall summary
-#     with percentage pill, individual category rows with colored progress bars,
-#     remaining amount display. Premium banking aesthetic.
-# 10. Saved as 8.2.
+# 1.  Bottom bar: icons only — removed all text labels (Home, Tx, Cards, More).
+#     Icons enlarged to 30px. Cleaner, more spacious look.
+# 2.  Active tab: full icon highlight with rounded pill background
+#     (rgba accent bg + border-radius + padding) instead of small dot.
+#     Tap feedback also shows pill highlight on press.
+# 3.  More menu: replaced full-height right rail with compact floating popup
+#     that appears right above the hamburger icon. Shows only Rules, Admin,
+#     About. Uses mf-more-open class instead of mf-nav-open for mobile.
+#     Popup animates in with scale+fade, closes on backdrop tap.
+# 4.  Transactions page mobile: aggressive overflow containment —
+#     .mf-main overflow-x:hidden, .mf-canvas 100% width + box-sizing,
+#     table-layout:fixed, .w-40 elements flex to 48% max on mobile,
+#     .q-table__container gets overflow-x:auto for horizontal scroll.
+# 5.  Budgets section: explicit w-full + width:100% + box-sizing on card.
+#     Global .mf-canvas .my-card gets box-sizing:border-box for all cards.
+# 6.  Version bumped to 8.2.1.
 #
-# Carries forward all 8.1 fixes: B1 lambda collision, B2 right-slide rail,
-# B3 perf, B4 admin layout, B5 dialog bg, B6 field sizing, B7 tx mobile.
+# Carries forward all 8.2 + 8.1 fixes.
 # ────────────────────────────────────────────────
 # ────────────────────────────────────────────────
