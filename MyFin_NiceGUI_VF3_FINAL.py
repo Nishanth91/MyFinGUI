@@ -3290,9 +3290,9 @@ html.mf-light .q-btn__content {
 }
 .mf-add-dialog .q-field__label {
   font-size: 13px !important;
-  /* 8.2.2: Section headers already label each field — hide floating labels to reduce clutter */
-  display: none !important;
 }
+/* 8.2.2: Hide labels only on Date & Amount fields (section header suffices) */
+.mf-add-dialog .mf-no-label .q-field__label { display: none !important; }
 
 /* ── Task 5: ALL dialogs/popups use SOLID opaque backgrounds ── */
 /* No transparency, no bleed-through, fully readable text */
@@ -3491,35 +3491,14 @@ html.mf-light .mf-progress {
 .mf-bottombar a.mf-tab:visited { color: var(--mf-muted); }
 .mf-bottombar a.mf-tab.is-active,
 .mf-bottombar a.mf-tab.is-active:visited { color: var(--mf-accent); }
-/* More button is a separate NiceGUI element — position it inside the bottom bar visually */
-.mf-bottombar-more {
-  position: fixed !important;
-  bottom: 0; right: 0;
-  z-index: 56;
-  display: none;
-  align-items: center; justify-content: center;
-  width: 20%; /* 5 items = 20% each */
-  height: calc(58px + env(safe-area-inset-bottom, 0px));
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  color: var(--mf-muted);
-  background: transparent;
-  border: none; cursor: pointer;
+/* More button is inside the bottom bar nav — inherits bar styling */
+.mf-bottombar .mf-more-btn {
+  background: none; border: none;
+  cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   user-select: none; -webkit-user-select: none;
-  transition: none !important;
 }
-.mf-bottombar-more .q-icon { font-size: 30px; transition: none !important; }
-.mf-bottombar-more:active { transform: scale(0.88); }
-.mf-bottombar-more:active .q-icon {
-  color: var(--mf-accent) !important;
-  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.18);
-  border-radius: 12px; padding: 6px 14px;
-}
-/* The HTML bottom bar only has 4 items, takes 80% width */
-.mf-bottombar-links { width: 80% !important; right: 20% !important; }
-@media (max-width: 900px) { .mf-bottombar-more { display: flex !important; } }
-@media (min-width: 901px) { .mf-bottombar-more { display: none !important; } }
 
 /* Active = full icon highlight (rounded pill bg) */
 .mf-bottombar .mf-tab.is-active {
@@ -4104,8 +4083,11 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 .mf-add-dialog .q-card > * { width: 100% !important; box-sizing: border-box !important; }
 .mf-add-dialog .column { align-items: stretch !important; width: 100% !important; }
 .mf-add-dialog .row { width: 100% !important; }
-.mf-add-dialog .q-field { width: 100% !important; }
-.mf-add-dialog .q-select { width: 100% !important; }
+.mf-add-dialog .q-field { width: 100% !important; box-sizing: border-box !important; }
+.mf-add-dialog .q-select { width: 100% !important; box-sizing: border-box !important; }
+/* Force every NiceGUI wrapper div inside dialog to be full-width */
+.mf-add-dialog div[class*="nicegui"] { width: 100% !important; }
+.mf-add-dialog > div > div { width: 100% !important; }
 
 /* Upload bar theming */
 .mf-add-dialog .q-uploader__header,
@@ -4792,20 +4774,28 @@ def shell(content_fn, *, active_path: str = ""):
                 ui.label(f"v{APP_VERSION}").classes("text-xs").style("color: var(--mf-muted); text-align:center; opacity: 0.5;")
 
         # Bottom tab bar (mobile only — CSS hides on ≥901px)
-        # 8.2.2 FIX: Pure HTML <a href> for navigation tabs = INSTANT (zero server hop).
-        # More button uses NiceGUI element (needs JS toggle, no navigation).
-        # NOTE: Vue v-html strips onclick attributes, so <a href> is the only safe instant approach.
+        # 8.2.2: ALL 5 icons inside one <nav> for consistent look.
+        # Navigation tabs use <a href> = instant (zero server hop).
+        # More button rendered as <button> with id; click handler attached via JS after render
+        # (Vue v-html strips onclick, so we use addEventListener instead).
         _bottom_tabs_html = []
         for _bl, _bi, _bh in [
             ("Cards", "credit_card", "/cards"),
             ("Tx", "receipt_long", "/tx"),
             ("Add", "add_circle", "/add"),
             ("Home", "dashboard", "/"),
+            ("More", "menu", None),
         ]:
             if _bl == "Add":
                 _bottom_tabs_html.append(
                     f'<a href="/add" class="mf-tab-add" style="text-decoration:none;">'
                     f'<i class="q-icon notranslate material-icons" aria-hidden="true" role="img">add_circle</i></a>'
+                )
+            elif _bh is None:
+                # More button — id used to attach JS listener after render
+                _bottom_tabs_html.append(
+                    f'<button class="mf-tab mf-more-btn" id="mf-more-toggle-btn" type="button">'
+                    f'<i class="q-icon notranslate material-icons" aria-hidden="true" role="img">menu</i></button>'
                 )
             else:
                 _act = " is-active" if _bh == active_path else ""
@@ -4813,13 +4803,17 @@ def shell(content_fn, *, active_path: str = ""):
                     f'<a href="{_bh}" class="mf-tab{_act}" style="text-decoration:none;">'
                     f'<i class="q-icon notranslate material-icons" aria-hidden="true" role="img">{_bi}</i></a>'
                 )
-        # Render nav tabs as pure HTML (instant), but More button as NiceGUI element (needs JS handler)
-        ui.html(f'<nav class="mf-bottombar mf-bottombar-links">{"".join(_bottom_tabs_html)}</nav>')
-        # More button: NiceGUI element so click handler works (Vue strips onclick from v-html)
-        with ui.element("button").classes("mf-bottombar-more mf-tab mf-more-btn").on(
-            "click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-more-open')")
-        ):
-            ui.icon("menu")
+        ui.html(f'<nav class="mf-bottombar">{"".join(_bottom_tabs_html)}</nav>')
+        # Attach More button click handler via JS (Vue strips onclick from v-html)
+        ui.run_javascript("""
+        (function(){
+            var btn = document.getElementById('mf-more-toggle-btn');
+            if(btn) btn.addEventListener('click', function(e){
+                e.preventDefault();
+                document.documentElement.classList.toggle('mf-more-open');
+            });
+        })();
+        """)
 
         # 8.2.2: Compact "More" popup — <a> tags for Rules/Admin/About (instant nav via href)
         _more_items = []
@@ -6248,13 +6242,13 @@ def add_page():
                     ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.5;')
 
             # ── Section 1: Date & Amount ──
-            with ui.element('div').style('padding: 0 24px;'):
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
                 with ui.row().classes('items-center gap-2 mt-1 mb-2'):
                     ui.icon('event').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
                     ui.label('Date & Amount').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
                 with ui.row().classes('w-full gap-3'):
-                    d_date = ui.input(value=today().isoformat()).props("type=date autofocus outlined dense placeholder=Date").classes("flex-1")
-                    d_amount = ui.number(value=0).props("outlined dense placeholder=Amount").classes("flex-1")
+                    d_date = ui.input(value=today().isoformat()).props("type=date autofocus outlined dense").classes("flex-1 mf-no-label")
+                    d_amount = ui.number(value=0).props("outlined dense").classes("flex-1 mf-no-label")
 
             _et = entry_type.lower().strip()
             is_debit = _et in ('debit', 'expense')
@@ -6341,7 +6335,7 @@ def add_page():
 
             # ── Section 2: Payment ──
             ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
-            with ui.element('div').style('padding: 0 24px;'):
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
                 with ui.row().classes('items-center gap-2 mt-3 mb-2'):
                     ui.icon('account_balance_wallet').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
                     ui.label('Payment').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
@@ -6350,9 +6344,9 @@ def add_page():
                 if hide_method:
                     d_method = None
                 else:
-                    d_method = ui.select(methods or [""], value=(method_default if method_default in (methods or []) else "")).props("outlined").classes("w-full").style("min-height: 52px; font-size: 15px;")
+                    d_method = ui.select(methods or [""], value=(method_default if method_default in (methods or []) else ""), label="Method").props("outlined").classes("w-full").style("min-height: 52px; font-size: 15px;")
 
-                d_account = ui.select(accounts or [""], value=(account_default if account_default in (accounts or []) else "")).props("outlined").classes("w-full").style("min-height: 52px; font-size: 15px;")
+                d_account = ui.select(accounts or [""], value=(account_default if account_default in (accounts or []) else ""), label="Account").props("outlined").classes("w-full").style("min-height: 52px; font-size: 15px;")
                 d_account.props('popup-content-class="mf-menu-light"')
                 if disable_account:
                     d_account.props("disable")
@@ -6362,13 +6356,13 @@ def add_page():
 
             # ── Section 3: Category & Notes ──
             ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
-            with ui.element('div').style('padding: 0 24px;'):
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
                 with ui.row().classes('items-center gap-2 mt-3 mb-2'):
                     ui.icon('category').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
                     ui.label('Category & Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
 
-                d_category = ui.select(categories, value=(fixed_category or "Uncategorized")).props("outlined dense").classes("w-full")
-                d_notes = ui.textarea(value="").props("outlined dense rows=2 placeholder='Notes / Merchant'").classes("w-full")
+                d_category = ui.select(categories, value=(fixed_category or "Uncategorized"), label="Category").props("outlined dense").classes("w-full")
+                d_notes = ui.textarea("Notes / Merchant", value="").props("outlined dense rows=2").classes("w-full")
                 d_rec = ui.checkbox("Mark as recurring (template for future cycles)")
 
             # Receipt scan (Expense only): opens camera on mobile, runs free OCR in the browser (tesseract.js)
