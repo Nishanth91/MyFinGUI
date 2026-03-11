@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '8.1.0'
+APP_VERSION = '8.2.0'
 
 
 def log(message: str) -> None:
@@ -3292,9 +3292,10 @@ html.mf-light .q-btn__content {
   font-size: 13px !important;
 }
 
-/* Premium dialogs — instant open, NO blur for snappy iOS performance (B4) */
+/* ── Task 5: ALL dialogs/popups use SOLID opaque backgrounds ── */
+/* No transparency, no bleed-through, fully readable text */
 .q-dialog__backdrop {
-  background: rgba(0,0,0,0.45) !important;
+  background: rgba(0,0,0,0.55) !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
@@ -3304,7 +3305,7 @@ html.mf-light .q-btn__content {
 .q-dialog__inner > div {
   background: var(--mf-bg) !important;
   border: 1px solid rgba(255,255,255,0.10) !important;
-  box-shadow: 0 16px 40px rgba(0,0,0,0.30) !important;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.40) !important;
   border-radius: 22px !important;
   animation: mf-dialogIn 0.12s cubic-bezier(0.2,0.9,0.3,1) !important;
   will-change: transform, opacity;
@@ -3314,23 +3315,29 @@ html.mf-light .q-btn__content {
   to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 html.mf-light .q-dialog__backdrop {
-  background: rgba(100,100,120,0.28) !important;
+  background: rgba(100,100,120,0.38) !important;
 }
 html.mf-light .q-dialog__inner > div {
-  background: #fff !important;
-  border: 1px solid rgba(17,24,39,0.08) !important;
-  box-shadow: 0 16px 40px rgba(0,0,0,0.08) !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(17,24,39,0.10) !important;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.12) !important;
 }
-/* B5 FIX: dialog cards now use solid bg — no more see-through bleed */
-.q-dialog__inner > div .q-card {
+/* Force ALL .q-card and .my-card inside dialogs to be fully opaque */
+.q-dialog__inner > div .q-card,
+.q-dialog__inner > div .my-card,
+.q-dialog .q-card,
+.q-dialog .my-card {
   background: var(--mf-bg) !important;
   border: none !important;
   box-shadow: none !important;
 }
-html.mf-light .q-dialog__inner > div .q-card {
-  background: #fff !important;
+html.mf-light .q-dialog__inner > div .q-card,
+html.mf-light .q-dialog__inner > div .my-card,
+html.mf-light .q-dialog .q-card,
+html.mf-light .q-dialog .my-card {
+  background: #ffffff !important;
 }
-/* Kill black bar at bottom when dialog opens (B4/iOS safe-area) */
+/* Kill black bar at bottom when dialog opens (iOS safe-area) */
 body.q-body--dialog { overflow: hidden !important; }
 .q-dialog { padding-bottom: env(safe-area-inset-bottom, 0px) !important; }
 
@@ -3441,7 +3448,7 @@ html.mf-light .mf-progress {
 }
 .mf-navbtn .q-btn__content span { font-size: 10px; opacity: 0.7; font-weight: 600; }
 
-/* ── Bottom Tab Bar (mobile) — B3: instant, tactile, native-feel ── */
+/* ── Bottom Tab Bar (mobile) — instant, tactile, native-feel ── */
 .mf-bottombar {
   position: fixed;
   bottom: 0; left: 0; right: 0;
@@ -3449,11 +3456,11 @@ html.mf-light .mf-progress {
   display: none;  /* hidden by default, shown on mobile */
   align-items: stretch;
   justify-content: space-around;
-  height: calc(56px + env(safe-area-inset-bottom, 0px));
+  height: calc(64px + env(safe-area-inset-bottom, 0px));
   padding-bottom: env(safe-area-inset-bottom, 0px);
   background: var(--mf-bg);
   border-top: 1px solid var(--mf-border);
-  box-shadow: 0 -2px 12px rgba(0,0,0,0.08);
+  box-shadow: 0 -2px 16px rgba(0,0,0,0.10);
   /* GPU layer for instant rendering */
   will-change: contents;
   transform: translateZ(0);
@@ -3463,38 +3470,51 @@ html.mf-light .mf-progress {
   flex: 1;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  gap: 2px; cursor: pointer;
+  gap: 3px; cursor: pointer;
   color: var(--mf-muted);
-  text-decoration: none; font-size: 10px; font-weight: 600;
+  text-decoration: none;
+  font-size: 11px; font-weight: 700;     /* Task 2: bigger label */
   -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;      /* B3: eliminates 300ms delay */
+  touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
-  padding: 4px 0; border: none; background: none;
-  transition: none;                /* B3: instant — no transition */
+  padding: 6px 0; border: none; background: none;
+  transition: none;
   position: relative;
   overflow: hidden;
 }
-/* B3: Instant tap feedback — ripple-like scale + color flash */
+/* Instant tap feedback — scale down + accent flash */
 .mf-bottombar .mf-tab:active {
-  transform: scale(0.88);
+  transform: scale(0.85);
   color: var(--mf-accent) !important;
+  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.08);
+  border-radius: 12px;
 }
 .mf-bottombar .mf-tab:active .q-icon {
   color: var(--mf-accent) !important;
 }
-.mf-bottombar .mf-tab .q-icon { font-size: 23px; transition: none; }
+.mf-bottombar .mf-tab .q-icon {
+  font-size: 27px;     /* Task 2: bigger icons */
+  transition: none;
+}
 .mf-bottombar .mf-tab.is-active { color: var(--mf-accent); }
 .mf-bottombar .mf-tab.is-active .q-icon { color: var(--mf-accent); }
+/* Active tab indicator dot */
+.mf-bottombar .mf-tab.is-active::after {
+  content: '';
+  position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--mf-accent);
+}
 /* Floating Add button */
 .mf-bottombar .mf-tab-add {
-  position: relative; top: -10px;
-  width: 50px; height: 50px; border-radius: 50%;
+  position: relative; top: -12px;
+  width: 54px; height: 54px; border-radius: 50%;      /* Task 2: bigger */
   background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2, var(--mf-accent)));
   color: #fff !important;
   display: flex; align-items: center; justify-content: center;
-  flex: 0 0 50px;
-  box-shadow: 0 4px 14px rgba(var(--mf-accent-rgb, 91,140,255), 0.30);
+  flex: 0 0 54px;
+  box-shadow: 0 4px 16px rgba(var(--mf-accent-rgb, 91,140,255), 0.35);
   cursor: pointer; border: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
@@ -3503,10 +3523,10 @@ html.mf-light .mf-progress {
   transition: none;
 }
 .mf-bottombar .mf-tab-add:active {
-  transform: scale(0.90) translateY(-10px);
-  box-shadow: 0 2px 8px rgba(var(--mf-accent-rgb, 91,140,255), 0.50);
+  transform: scale(0.88) translateY(-12px);
+  box-shadow: 0 2px 8px rgba(var(--mf-accent-rgb, 91,140,255), 0.55);
 }
-.mf-bottombar .mf-tab-add .q-icon { font-size: 26px; color: #fff; }
+.mf-bottombar .mf-tab-add .q-icon { font-size: 28px; color: #fff; }
 
 /* ── Main area ── */
 .mf-main { flex: 1; padding: 26px 32px; }
@@ -3544,6 +3564,8 @@ html.mf-light .mf-progress {
 /* ── Mobile (≤900px): bottom bar visible, rail is overlay only ── */
 @media (max-width: 900px) {
   .mf-rail { width: 80px; }
+  /* Task 1: hide Home/Add/Tx/Cards from rail on mobile — they're on the bottom bar */
+  .mf-rail-desktop-only { display: none !important; }
   .mf-main {
     padding: 14px 10px;
     padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
@@ -3552,12 +3574,16 @@ html.mf-light .mf-progress {
   .mf-navbtn .q-btn__content span { display: none; }
   .mf-navbtn { min-height: 40px; }
 
-  /* B7 FIX: Transactions page mobile — compact table, stacked toolbar */
-  .q-table th { font-size: 11px !important; padding: 6px 8px !important; white-space: nowrap; }
-  .q-table td { font-size: 12px !important; padding: 8px 8px !important; }
-  .q-table { font-size: 12px !important; }
+  /* Task 6: Transactions page mobile — prevent clipping, compact table */
+  .mf-canvas { padding: 0 !important; max-width: 100vw !important; overflow-x: hidden !important; }
+  .mf-canvas > * { max-width: 100% !important; overflow-x: hidden !important; }
+  .mf-canvas .my-card { border-radius: 14px !important; }
+  .q-table th { font-size: 11px !important; padding: 6px 6px !important; white-space: nowrap; }
+  .q-table td { font-size: 12px !important; padding: 7px 6px !important; word-break: break-word; }
+  .q-table { font-size: 12px !important; width: 100% !important; }
+  .q-field { max-width: 100% !important; }
 
-  /* B4: Admin tiles stack nicely on small screens */
+  /* Admin tiles stack nicely on small screens */
   .mf-canvas .q-card .tile { min-width: 0; }
 }
 
@@ -3680,10 +3706,15 @@ html.mf-light .mf-progress {
 }
 
 /* Dialog cards must follow theme surface (fix light theme dark dialog) */
+/* Task 5: Dialog cards — fully solid, NO semi-transparent gradients */
 .q-dialog .my-card, .q-dialog .q-card.my-card {
-  background: linear-gradient(180deg, var(--mf-card-top), var(--mf-card-bottom)) !important;
-  border: 1px solid var(--mf-card-border) !important;
+  background: var(--mf-bg) !important;
+  border: none !important;
   color: var(--mf-text) !important;
+}
+html.mf-light .q-dialog .my-card,
+html.mf-light .q-dialog .q-card.my-card {
+  background: #ffffff !important;
 }
 
 /* Remove any numeric label rendered inside progress bars */
@@ -3991,10 +4022,10 @@ ui.add_head_html('<link rel="preconnect" href="https://fonts.googleapis.com"><li
 
 ui.add_head_html(r'''
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="FinTrackr">
 <meta name="theme-color" content="#0F1923">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, viewport-fit=cover">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png">
@@ -4005,8 +4036,14 @@ ui.add_head_html(r'''
 <link rel="apple-touch-startup-image" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1284' height='2778' viewBox='0 0 1284 2778'%3E%3Crect fill='%230F1923' width='1284' height='2778'/%3E%3Ctext x='642' y='1340' text-anchor='middle' fill='%23FBBF24' font-size='80' font-family='system-ui' font-weight='800'%3EFinTrackr%3C/text%3E%3Ccircle cx='642' cy='1210' r='45' fill='%2322C55E' opacity='0.7'/%3E%3C/svg%3E" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)">
 <link rel="apple-touch-startup-image" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1179' height='2556' viewBox='0 0 1179 2556'%3E%3Crect fill='%230F1923' width='1179' height='2556'/%3E%3Ctext x='590' y='1230' text-anchor='middle' fill='%23FBBF24' font-size='80' font-family='system-ui' font-weight='800'%3EFinTrackr%3C/text%3E%3Ccircle cx='590' cy='1110' r='45' fill='%2322C55E' opacity='0.7'/%3E%3C/svg%3E" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)">
 <style>
-/* CRITICAL: Paint dark background IMMEDIATELY — prevents iOS white flash */
-html,body{ background:#0F1923 !important; }
+/* CRITICAL: Paint dark background IMMEDIATELY — prevents iOS white flash + black bar */
+html,body{
+  background:#0F1923 !important;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  /* Task 7: extend background into safe areas to prevent black bars */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
 /* Remove ugly yellow background on browser autofill (Safari/Chrome) */
 input:-webkit-autofill,
 textarea:-webkit-autofill,
@@ -4494,7 +4531,8 @@ def shell(content_fn, *, active_path: str = ""):
         # Backdrop overlay (tap to close on mobile)
         ui.element("div").classes("mf-backdrop").on("click", lambda: ui.run_javascript("document.documentElement.classList.remove(\'mf-nav-open\')"))
 
-        # Left rail (persistent on desktop, overlay on mobile)
+        # Nav rail — on mobile only shows items NOT in bottom bar (Rules, Admin, About)
+        # On desktop shows all items as a persistent sidebar
         with ui.element("div").classes("mf-rail"):
             with ui.element("div").classes("mf-rail-card"):
                 with ui.row().classes('items-center gap-2 mb-1'):
@@ -4506,15 +4544,18 @@ def shell(content_fn, *, active_path: str = ""):
                     ui.label("FinTrackr").classes("mf-brand")
                 ui.separator().props("dark").classes("opacity-20 my-1")
 
-                nav_btn("Home", "dashboard", "/")
-                nav_btn("Add", "add_circle", "/add")
-                nav_btn("Tx", "receipt_long", "/tx")
-                nav_btn("Cards", "credit_card", "/cards")
+                # Desktop-only nav buttons (hidden on mobile via CSS class)
+                with ui.element("div").classes("mf-rail-desktop-only"):
+                    nav_btn("Home", "dashboard", "/")
+                    nav_btn("Add", "add_circle", "/add")
+                    nav_btn("Tx", "receipt_long", "/tx")
+                    nav_btn("Cards", "credit_card", "/cards")
+                # Always visible (these are what "More" reveals on mobile)
                 nav_btn("Rules", "rule", "/rules")
                 nav_btn("Admin", "settings", "/admin")
                 nav_btn("About", "info", "/about")
 
-                ui.separator().props("dark").classes("opacity-20 my-1")
+                ui.element('div').style('flex: 1;')  # push version to bottom
                 ui.label(f"v{APP_VERSION}").classes("text-xs").style("color: var(--mf-muted); text-align:center; opacity: 0.5;")
 
         # Bottom tab bar (mobile only — CSS hides on ≥901px)
@@ -4674,11 +4715,7 @@ def shell(content_fn, *, active_path: str = ""):
                         ui.button("", icon="search").props("flat round dense").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
                         ).on("click", lambda: open_search_dialog())
-                        ui.button("Add", icon="add").props("unelevated").style(
-                            "background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2)) !important; color: #fff !important;"
-                            "border-radius: 10px; font-weight: 700; padding: 6px 16px;"
-                            "box-shadow: 0 2px 10px rgba(91,140,255,0.20);"
-                        ).on("click", lambda: nav_to("/add"))
+                        # Task 4: +Add button removed — redundant with bottom nav + icon
 
             with ui.element("div").classes("mf-canvas"):
                 content_fn()
@@ -5317,10 +5354,9 @@ def dashboard_page():
 
         # Quick actions + data quality
         # Phase 4.6A: Quick actions moved into the Overview card to reduce clutter
-        # Budgets (Phase 4)
+        # Task 9: Premium Budgets section
         budgets = read_df_optional('budgets')
         if budgets is not None and not budgets.empty and (not spend.empty) and "category" in spend.columns:
-            # Map budgets
             bcols = {str(c).strip().lower(): c for c in budgets.columns}
             c_cat = bcols.get('category') or bcols.get('cat')
             c_budget = bcols.get('budget_monthly') or bcols.get('monthly_budget') or bcols.get('budget')
@@ -5332,44 +5368,104 @@ def dashboard_page():
                         continue
                     bmap[k] = parse_money(r.get(c_budget, 0), default=0.0)
                 if bmap:
-                    with ui.card().classes('my-card p-5'):
-                        ui.label('Budgets (this month)').classes('text-lg font-bold')
-                        # build progress list for categories that have a budget
-                        spend_by_cat = spend.groupby('category', as_index=False)['amount_num'].sum()
-                        # show only budgeted categories
-                        rows = []
-                        for _, r in spend_by_cat.iterrows():
-                            cat = str(r['category'])
-                            if cat in bmap and bmap[cat] > 0:
-                                rows.append((cat, float(r['amount_num']), float(bmap[cat])))
-                        # include budget categories with 0 spend yet
-                        present = set([x[0] for x in rows])
-                        for cat, bud in bmap.items():
-                            if cat not in present and bud > 0:
-                                rows.append((cat, 0.0, float(bud)))
-                        rows.sort(key=lambda x: (x[1]/x[2]) if x[2] else 0.0, reverse=True)
-                        if not rows:
-                            ui.label('No budget categories matched your spending yet.').style('color: var(--mf-muted)')
-                        else:
-                            # Phase 4.2: in-app budget alerts
-                            try:
-                                alerts80 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 0.80 and (s/b) < 1.0]
-                                alerts100 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 1.0]
-                                if alerts100:
-                                    ui.notify(f'Over budget: {alerts100[0][0]} ({currency(alerts100[0][1])} / {currency(alerts100[0][2])})', type='negative')
-                                elif alerts80:
-                                    ui.notify(f'Budget warning (80%+): {alerts80[0][0]} ({currency(alerts80[0][1])} / {currency(alerts80[0][2])})', type='warning')
-                            except Exception:
-                                pass
+                    spend_by_cat = spend.groupby('category', as_index=False)['amount_num'].sum()
+                    rows = []
+                    for _, r in spend_by_cat.iterrows():
+                        cat = str(r['category'])
+                        if cat in bmap and bmap[cat] > 0:
+                            rows.append((cat, float(r['amount_num']), float(bmap[cat])))
+                    present = set([x[0] for x in rows])
+                    for cat, bud in bmap.items():
+                        if cat not in present and bud > 0:
+                            rows.append((cat, 0.0, float(bud)))
+                    rows.sort(key=lambda x: (x[1]/x[2]) if x[2] else 0.0, reverse=True)
 
-                            for cat, spent_amt, bud_amt in rows[:10]:
-                                pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
-                                with ui.row().classes('w-full items-start justify-between'):
-                                    ui.label(cat).classes('text-sm')
-                                    with ui.column().classes('items-end'):
-                                        ui.label(f"{int(round(pct*100))}%").classes('text-xs font-bold').style('color: var(--mf-text)')
-                                        ui.label(f"{currency(spent_amt)} / {currency(bud_amt)}").classes('text-xs').style('color: var(--mf-muted)')
-                                ui.linear_progress(value=pct, show_value=False).classes('mf-budget-bar').props('size=10px')
+                    # In-app budget alerts (background notifications)
+                    try:
+                        alerts80 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 0.80 and (s/b) < 1.0]
+                        alerts100 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 1.0]
+                        if alerts100:
+                            ui.notify(f'Over budget: {alerts100[0][0]} ({currency(alerts100[0][1])} / {currency(alerts100[0][2])})', type='negative')
+                        elif alerts80:
+                            ui.notify(f'Budget warning (80%+): {alerts80[0][0]} ({currency(alerts80[0][1])} / {currency(alerts80[0][2])})', type='warning')
+                    except Exception:
+                        pass
+
+                    if rows:
+                        # Total budget summary
+                        _total_budgeted = sum(b for _, _, b in rows)
+                        _total_spent = sum(s for _, s, _ in rows)
+                        _overall_pct = min(1.0, _total_spent / _total_budgeted) if _total_budgeted > 0 else 0.0
+                        _remaining = max(0, _total_budgeted - _total_spent)
+
+                        with ui.card().classes("my-card p-0").style("overflow: hidden;"):
+                            # Accent strip
+                            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
+                            with ui.column().classes("p-5 gap-0"):
+                                # Header
+                                with ui.row().classes("items-center gap-3 mb-4"):
+                                    with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
+                                        ui.icon("account_balance_wallet").style("font-size: 20px; color: #6366f1;")
+                                    with ui.column().classes("gap-0 flex-1"):
+                                        ui.label("Budgets").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
+                                        ui.label("This month's spending vs limits").classes("text-xs").style("color: var(--mf-muted);")
+
+                                # Overall summary row
+                                _ovr_color = '#ef4444' if _overall_pct >= 1.0 else ('#f59e0b' if _overall_pct >= 0.8 else '#22c55e')
+                                with ui.element("div").style(
+                                    "padding: 14px 16px; border-radius: 14px; margin-bottom: 16px;"
+                                    "background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.10);"
+                                ):
+                                    with ui.row().classes("items-center justify-between w-full"):
+                                        with ui.column().classes("gap-0"):
+                                            ui.label("Overall").classes("text-xs font-semibold").style("color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;")
+                                            ui.label(f"{currency(_total_spent)} / {currency(_total_budgeted)}").classes("text-base font-extrabold").style("font-feature-settings: 'tnum'; letter-spacing: -0.02em;")
+                                        with ui.element("span").style(
+                                            f"background: {_ovr_color}18; color: {_ovr_color}; font-weight: 800; font-size: 14px;"
+                                            f"padding: 4px 12px; border-radius: 20px; font-feature-settings: 'tnum';"
+                                        ):
+                                            ui.label(f"{int(round(_overall_pct*100))}%")
+                                    # Overall progress bar
+                                    with ui.element("div").style(
+                                        "width: 100%; height: 6px; border-radius: 3px; margin-top: 10px;"
+                                        "background: rgba(128,128,128,0.12); overflow: hidden;"
+                                    ):
+                                        ui.element("div").style(
+                                            f"width: {min(_overall_pct, 1.0) * 100:.0f}%; height: 100%; border-radius: 3px;"
+                                            f"background: linear-gradient(90deg, #6366f1, {_ovr_color});"
+                                        )
+                                    ui.label(f"{currency(_remaining)} remaining").classes("text-xs mt-2").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
+
+                                # Individual category rows — premium list style
+                                for cat, spent_amt, bud_amt in rows[:8]:
+                                    pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
+                                    _c_color = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else 'var(--mf-accent)')
+                                    with ui.element("div").style(
+                                        "display: flex; align-items: center; gap: 14px; padding: 12px 0;"
+                                        "border-bottom: 1px solid rgba(128,128,128,0.08);"
+                                    ):
+                                        # Category icon circle
+                                        with ui.element("div").style(
+                                            f"width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
+                                            f"background: {_c_color}12; flex-shrink: 0;"
+                                        ):
+                                            ui.icon("label").style(f"font-size: 16px; color: {_c_color};")
+                                        # Category name + progress
+                                        with ui.column().classes("gap-1 flex-1").style("min-width: 0;"):
+                                            with ui.row().classes("items-baseline justify-between w-full"):
+                                                ui.label(cat).classes("text-sm font-semibold").style("color: var(--mf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;")
+                                                ui.label(f"{currency(spent_amt)}").classes("text-sm font-bold").style(f"color: {_c_color}; font-feature-settings: 'tnum'; letter-spacing: -0.02em; white-space: nowrap;")
+                                            with ui.element("div").style(
+                                                "width: 100%; height: 4px; border-radius: 2px;"
+                                                "background: rgba(128,128,128,0.10); overflow: hidden;"
+                                            ):
+                                                ui.element("div").style(
+                                                    f"width: {pct * 100:.0f}%; height: 100%; border-radius: 2px;"
+                                                    f"background: {_c_color};"
+                                                )
+                                            with ui.row().classes("items-center justify-between w-full"):
+                                                ui.label(f"{int(round(pct*100))}% used").classes("text-xs").style(f"color: var(--mf-muted);")
+                                                ui.label(f"of {currency(bud_amt)}").classes("text-xs").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
 
         # Upcoming paydays
         start = today()
@@ -5431,23 +5527,7 @@ def dashboard_page():
                     _salary_card("Nishanth", grouped.get("Nishanth", []))
                     _salary_card("Indhu", grouped.get("Indhu", []))
 
-        # Spending breakdown
-        with ui.card().classes("my-card p-5"):
-            ui.label("Spending Breakdown").classes("mf-section-title")
-            if spend.empty:
-                ui.label("No expenses this month.").style("color: var(--mf-muted)")
-            else:
-                agg = spend.groupby("category", as_index=False)["amount_num"].sum()
-                fig = px.pie(agg, names="category", values="amount_num", hole=0.55, template=plotly_template())
-                # Ensure text stays readable across light/dark themes
-                fig.update_traces(textfont_color=plotly_font_color())
-                fig.update_layout(
-                    margin=dict(l=10, r=10, t=10, b=10),
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    font_color=plotly_font_color(),
-                    legend=dict(font=dict(color=plotly_font_color())),
-                )
-                ui.plotly(fig).classes("w-full")
+        # Task 8: Spending Breakdown removed (user finds it PowerBI-like)
 
         # Top merchants (best-effort from Notes)
         with ui.card().classes("my-card p-5"):
@@ -5831,6 +5911,7 @@ def dashboard_page():
                 pass
 
         # ──── Dashboard Grid (responsive 2-col on desktop) ────
+        # Task 8: Cashflow Trend removed (user finds it PowerBI-like)
         with ui.element('div').classes('mf-dash-grid'):
             with ui.element('div'):
                 _render_insights()
@@ -5838,8 +5919,6 @@ def dashboard_page():
                 _render_recent_tx()
             with ui.element('div').classes('mf-dash-full'):
                 _render_alerts()
-            with ui.element('div').classes('mf-dash-full'):
-                _render_cashflow()
 
 
     shell(content)
@@ -9464,30 +9543,31 @@ ui.run(
     favicon=_FAVICON_SVG,
 )
 
-# Release: FinTrackr Phase 8.1
+# Release: FinTrackr Phase 8.2
 # ────────────────────────────────────────────────
-# B1 FIX (CRITICAL): Investment / LOC Draw / LOC Repay click handler — lambda
-#   parameter collision with NiceGUI's ClickEventArguments.  Changed
-#   `lambda e=etype, k=kw:` → `lambda _evt=None, et=etype, k=kw:` so the
-#   event object is absorbed by _evt and the entry-type string is preserved.
-#   ROOT CAUSE: NiceGUI .on("click") passes an event as first positional arg,
-#   overriding the default `e=etype`.  Same fix applied to Admin tile handlers
-#   and rail nav_btn.
-# B2 FIX: Removed hamburger from mobile header.  Bottom "More" tab now opens
-#   the nav rail sliding from the RIGHT for easy thumb access.  Desktop rail
-#   stays persistent on the left.
-# B3 FIX + PERF: Bottom nav bar — removed all CSS transitions, added
-#   touch-action:manipulation (kills 300ms iOS delay), instant :active scale
-#   feedback, GPU-accelerated transform layer.  All tabs feel native-instant.
-# B4 FIX: Admin page grid — wider minmax(200px,1fr), 18px gap, larger padding
-#   for desktop.  Tiles now properly centered and don't look mobile-cramped.
-# B5 FIX: Dialog .q-card background changed from `transparent` → `var(--mf-bg)`
-#   (with light-mode override to #fff).  No more see-through bleed.
-# B6 FIX: Account/Method selects in Add dialog — removed `dense` prop, added
-#   min-height:52px + font-size:15px. Global .mf-add-dialog CSS enlarges all
-#   form fields for better touch targets.
-# B7 FIX: Transactions page mobile — compact table with smaller font/padding,
-#   toolbar wraps properly, Export/Duplicates/Category-apply all fit on mobile.
-# PERF: Global touch-action:manipulation on all tiles/buttons/tabs.  Eliminated
-#   backdrop-filter and CSS transitions on all nav elements.
+# Phase 8.2 (10 UI fixes + enhancements):
+#
+# 1.  More menu (mobile): trimmed to Rules, Admin, About, Version only.
+#     Home/Add/Tx/Cards hidden from rail on mobile (already on bottom bar).
+# 2.  Bottom nav icons: enlarged (27px icons, 54px Add button), bigger labels,
+#     active indicator dot below current tab.
+# 3.  Bottom nav instant: :active scale(0.85) + accent flash, no transitions,
+#     touch-action:manipulation kills 300ms iOS delay, GPU-accelerated.
+# 4.  +Add button removed from header (redundant with bottom nav).
+# 5.  ALL popups/dialogs fully opaque: forced var(--mf-bg) on every .q-card,
+#     .my-card inside .q-dialog. No more semi-transparent bleed-through.
+#     Root cause was card gradients using rgba(255,255,255,0.10) — now overridden.
+# 6.  Transactions mobile: overflow-x:hidden on .mf-canvas, max-width:100%
+#     on all children, compact table cells, prevents left-side clipping.
+# 7.  iOS PWA black bar: changed apple-mobile-web-app-status-bar-style from
+#     "black-translucent" to "default"; body extends into safe areas.
+# 8.  Spending Breakdown & Cashflow Trend removed from home page.
+# 9.  Budgets block redesigned: accent strip, icon header, overall summary
+#     with percentage pill, individual category rows with colored progress bars,
+#     remaining amount display. Premium banking aesthetic.
+# 10. Saved as 8.2.
+#
+# Carries forward all 8.1 fixes: B1 lambda collision, B2 right-slide rail,
+# B3 perf, B4 admin layout, B5 dialog bg, B6 field sizing, B7 tx mobile.
+# ────────────────────────────────────────────────
 # ────────────────────────────────────────────────
