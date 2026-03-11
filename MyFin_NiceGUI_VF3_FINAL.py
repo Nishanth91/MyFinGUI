@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '8.0.0'
+APP_VERSION = '8.1.0'
 
 
 def log(message: str) -> None:
@@ -3271,7 +3271,25 @@ html.mf-light .q-btn__content {
   box-shadow: 0 12px 30px rgba(0,0,0,0.22);
 }
 .tile:active {
-  transform: translateY(-1px) scale(0.99);
+  transform: translateY(-1px) scale(0.97);
+}
+/* Global touch optimization — eliminate 300ms tap delay on all interactive elements */
+.tile, .my-card[style*="cursor"], .mf-tab, .mf-tab-add, .mf-navbtn, button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* B6: Dialog form fields — slightly larger for touch */
+.mf-add-dialog .q-field {
+  min-height: 48px !important;
+}
+.mf-add-dialog .q-field__native,
+.mf-add-dialog .q-field__input {
+  font-size: 15px !important;
+  padding: 6px 2px !important;
+}
+.mf-add-dialog .q-field__label {
+  font-size: 13px !important;
 }
 
 /* Premium dialogs — instant open, NO blur for snappy iOS performance (B4) */
@@ -3303,10 +3321,14 @@ html.mf-light .q-dialog__inner > div {
   border: 1px solid rgba(17,24,39,0.08) !important;
   box-shadow: 0 16px 40px rgba(0,0,0,0.08) !important;
 }
+/* B5 FIX: dialog cards now use solid bg — no more see-through bleed */
 .q-dialog__inner > div .q-card {
-  background: transparent !important;
+  background: var(--mf-bg) !important;
   border: none !important;
   box-shadow: none !important;
+}
+html.mf-light .q-dialog__inner > div .q-card {
+  background: #fff !important;
 }
 /* Kill black bar at bottom when dialog opens (B4/iOS safe-area) */
 body.q-body--dialog { overflow: hidden !important; }
@@ -3345,16 +3367,17 @@ html.mf-light .mf-progress {
    ================================ */
 .mf-shell { display: flex; min-height: 100vh; width: 100%; }
 
-/* ── Left Rail ── */
+/* ── Nav Rail ── */
+/* Desktop: persistent left rail.  Mobile: slides in from RIGHT for easy thumb access (B2). */
 .mf-rail {
   width: 86px;
   position: fixed;
-  left: 14px;
+  right: 14px;           /* B2: anchor to right edge on mobile */
   top: 14px;
   height: calc(100vh - 28px);
   padding: 0;
   z-index: 50;
-  transform: translateX(-130%);
+  transform: translateX(200%);  /* B2: hidden off-screen to the right */
   transition: transform 160ms cubic-bezier(0.2,0.9,0.3,1);
 }
 .mf-nav-open .mf-rail { transform: translateX(0); }
@@ -3402,7 +3425,15 @@ html.mf-light .mf-progress {
   border-radius: 12px !important;
   border: 1px solid transparent !important;
   text-transform: none !important;
-  transition: background 0.12s ease;
+  transition: none;               /* instant response */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.mf-navbtn:active {
+  transform: scale(0.92);
+  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.10) !important;
 }
 .mf-navbtn.is-active{
   background: rgba(var(--mf-accent-rgb, 91,140,255), 0.14) !important;
@@ -3410,7 +3441,7 @@ html.mf-light .mf-progress {
 }
 .mf-navbtn .q-btn__content span { font-size: 10px; opacity: 0.7; font-weight: 600; }
 
-/* ── Bottom Tab Bar (mobile) ── */
+/* ── Bottom Tab Bar (mobile) — B3: instant, tactile, native-feel ── */
 .mf-bottombar {
   position: fixed;
   bottom: 0; left: 0; right: 0;
@@ -3418,11 +3449,15 @@ html.mf-light .mf-progress {
   display: none;  /* hidden by default, shown on mobile */
   align-items: stretch;
   justify-content: space-around;
-  height: calc(54px + env(safe-area-inset-bottom, 0px));
+  height: calc(56px + env(safe-area-inset-bottom, 0px));
   padding-bottom: env(safe-area-inset-bottom, 0px);
   background: var(--mf-bg);
   border-top: 1px solid var(--mf-border);
   box-shadow: 0 -2px 12px rgba(0,0,0,0.08);
+  /* GPU layer for instant rendering */
+  will-change: contents;
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
 }
 .mf-bottombar .mf-tab {
   flex: 1;
@@ -3432,25 +3467,46 @@ html.mf-light .mf-progress {
   color: var(--mf-muted);
   text-decoration: none; font-size: 10px; font-weight: 600;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;      /* B3: eliminates 300ms delay */
+  user-select: none;
+  -webkit-user-select: none;
   padding: 4px 0; border: none; background: none;
-  transition: color 0.12s ease;
+  transition: none;                /* B3: instant — no transition */
+  position: relative;
+  overflow: hidden;
 }
-.mf-bottombar .mf-tab .q-icon { font-size: 22px; }
+/* B3: Instant tap feedback — ripple-like scale + color flash */
+.mf-bottombar .mf-tab:active {
+  transform: scale(0.88);
+  color: var(--mf-accent) !important;
+}
+.mf-bottombar .mf-tab:active .q-icon {
+  color: var(--mf-accent) !important;
+}
+.mf-bottombar .mf-tab .q-icon { font-size: 23px; transition: none; }
 .mf-bottombar .mf-tab.is-active { color: var(--mf-accent); }
 .mf-bottombar .mf-tab.is-active .q-icon { color: var(--mf-accent); }
 /* Floating Add button */
 .mf-bottombar .mf-tab-add {
   position: relative; top: -10px;
-  width: 48px; height: 48px; border-radius: 50%;
+  width: 50px; height: 50px; border-radius: 50%;
   background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2, var(--mf-accent)));
   color: #fff !important;
   display: flex; align-items: center; justify-content: center;
-  flex: 0 0 48px;
+  flex: 0 0 50px;
   box-shadow: 0 4px 14px rgba(var(--mf-accent-rgb, 91,140,255), 0.30);
   cursor: pointer; border: none;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: none;
 }
-.mf-bottombar .mf-tab-add .q-icon { font-size: 24px; color: #fff; }
+.mf-bottombar .mf-tab-add:active {
+  transform: scale(0.90) translateY(-10px);
+  box-shadow: 0 2px 8px rgba(var(--mf-accent-rgb, 91,140,255), 0.50);
+}
+.mf-bottombar .mf-tab-add .q-icon { font-size: 26px; color: #fff; }
 
 /* ── Main area ── */
 .mf-main { flex: 1; padding: 26px 32px; }
@@ -3473,9 +3529,12 @@ html.mf-light .mf-progress {
   gap: 20px;
 }
 
-/* ── Desktop (≥901px): persistent rail, no hamburger, no bottom bar ── */
+/* ── Desktop (≥901px): persistent LEFT rail, no hamburger, no bottom bar ── */
 @media (min-width: 901px) {
-  .mf-rail { transform: translateX(0) !important; }
+  .mf-rail {
+    left: 14px; right: auto;                 /* B2: desktop keeps rail on left */
+    transform: translateX(0) !important;
+  }
   .mf-backdrop { display: none !important; }
   .mf-main { margin-left: 100px; }
   .mf-hamburger { display: none !important; }
@@ -3487,11 +3546,19 @@ html.mf-light .mf-progress {
   .mf-rail { width: 80px; }
   .mf-main {
     padding: 14px 10px;
-    padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
   }
   .mf-bottombar { display: flex !important; }
   .mf-navbtn .q-btn__content span { display: none; }
   .mf-navbtn { min-height: 40px; }
+
+  /* B7 FIX: Transactions page mobile — compact table, stacked toolbar */
+  .q-table th { font-size: 11px !important; padding: 6px 8px !important; white-space: nowrap; }
+  .q-table td { font-size: 12px !important; padding: 8px 8px !important; }
+  .q-table { font-size: 12px !important; }
+
+  /* B4: Admin tiles stack nicely on small screens */
+  .mf-canvas .q-card .tile { min-width: 0; }
 }
 
 
@@ -4415,7 +4482,7 @@ def shell(content_fn, *, active_path: str = ""):
 
     def nav_btn(label: str, icon: str, href: str) -> None:
         cls = "mf-navbtn" + (" is-active" if href == active_path else "")
-        def go() -> None:
+        def go(_evt=None) -> None:
             try:
                 nav_to(href)
             except Exception:
@@ -4483,11 +4550,8 @@ def shell(content_fn, *, active_path: str = ""):
         with ui.element("main").classes("mf-main"):
             with ui.element("div").classes("mf-header"):
                 with ui.row().classes("items-center justify-between w-full"):
-                    # LEFT: hamburger (mobile only via CSS) + title
+                    # LEFT: title only (B2: hamburger removed — bottom "More" tab handles nav on mobile)
                     with ui.row().classes("items-center gap-3"):
-                        ui.button("", icon="menu").props("flat round dense").classes("mf-hamburger").style(
-                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
-                        ).on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-nav-open')"))
                         with ui.element("div").classes("mf-title"):
                             with ui.row().classes('items-center gap-2'):
                                 with ui.element('div').style(
@@ -5937,12 +6001,13 @@ def add_page():
                     ui.icon('account_balance_wallet').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
                     ui.label('Payment').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
 
+                # B6 FIX: larger, more readable Account/Method selects with proper min-height
                 if hide_method:
                     d_method = None
                 else:
-                    d_method = ui.select(methods or [""], value=(method_default if method_default in (methods or []) else ""), label="Method").props("outlined dense").classes("w-full")
+                    d_method = ui.select(methods or [""], value=(method_default if method_default in (methods or []) else ""), label="Method").props("outlined").classes("w-full").style("min-height: 52px; font-size: 15px;")
 
-                d_account = ui.select(accounts or [""], value=(account_default if account_default in (accounts or []) else ""), label="Account").props("outlined dense").classes("w-full")
+                d_account = ui.select(accounts or [""], value=(account_default if account_default in (accounts or []) else ""), label="Account").props("outlined").classes("w-full").style("min-height: 52px; font-size: 15px;")
                 d_account.props('popup-content-class="mf-menu-light"')
                 if disable_account:
                     d_account.props("disable")
@@ -6947,9 +7012,12 @@ def add_page():
                 "display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px;"
             ):
                 for label, icon, etype, kw, bg, accent in tiles:
+                    # B1 FIX: NiceGUI .on("click") passes ClickEventArguments as the first
+                    # positional arg, which would override the default `e=etype`.  We absorb
+                    # the event object in `_evt` so `et` always keeps the entry-type string.
                     with ui.card().classes("my-card tile p-0").style(
                         f"cursor: pointer; border: 1px solid rgba(255,255,255,0.06);"
-                    ).on("click", lambda e=etype, k=kw: open_add_dialog(e, **k)):
+                    ).on("click", lambda _evt=None, et=etype, k=kw: open_add_dialog(et, **k)):
                         with ui.column().classes("items-center justify-center p-4 gap-3").style("min-height: 105px;"):
                             with ui.element("div").classes("mf-icon-box").style(f"background: {bg};"):
                                 ui.icon(icon).style(f"font-size: 22px; color: {accent};")
@@ -6997,15 +7065,16 @@ def admin_page() -> None:
                     ("Data Tools", "cloud_download", "/data_tools", "rgba(96,165,250,0.10)", "#60a5fa"),
                     ("Reports", "assessment", "/reports", "rgba(99,102,241,0.10)", "#6366f1"),
                 ]
+                # B4 FIX: wider minmax for desktop, centered grid with proper spacing
                 with ui.element("div").style(
-                    "display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; width: 100%;"
+                    "display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 18px; width: 100%;"
                 ):
                     for label, icon, href, bg, accent in _admin_links:
                         with ui.card().classes("tile p-0").style(
                             f"cursor: pointer; border: 1px solid var(--mf-border); border-radius: 16px;"
                             f"background: rgba(255,255,255,0.03); transition: transform 0.12s ease, box-shadow 0.12s ease;"
-                        ).on("click", lambda h=href: nav_to(h)):
-                            with ui.column().classes("items-center justify-center p-5 gap-3").style("min-height: 110px;"):
+                        ).on("click", lambda _evt=None, h=href: nav_to(h)):
+                            with ui.column().classes("items-center justify-center p-6 gap-3").style("min-height: 120px;"):
                                 with ui.element("div").classes("mf-icon-box").style(f"background: {bg};"):
                                     ui.icon(icon).style(f"font-size: 22px; color: {accent};")
                                 ui.label(label).classes("text-sm font-semibold text-center")
@@ -7418,13 +7487,13 @@ def transactions_page():
                 existing_cats = []
             cat_choices = ['Uncategorized'] + sorted({*cats, *existing_cats})
 
-            with ui.row().classes('w-full items-center justify-between gap-2 mt-2'):
-                with ui.row().classes('gap-2 items-center'):
-                    ui.button('Export CSV', icon='download').props('outline').on('click', lambda: _export_csv(last_view))
-                    ui.button('Show duplicates', icon='difference').props('flat').on('click', lambda: _show_duplicates(last_view))
-                with ui.row().classes('gap-2 items-center'):
-                    fix_cat = ui.select(cat_choices, value=cat_choices[0], label='Quick set category').classes('w-64')
-                    ui.button('Apply to selected', icon='label').props('unelevated').on('click', lambda: _apply_category_selected(table, fix_cat.value))
+            # B7: mobile-friendly stacked toolbar with wrapping
+            with ui.element('div').style('display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px;'):
+                ui.button('Export CSV', icon='download').props('outline dense').style('font-size: 12px;').on('click', lambda: _export_csv(last_view))
+                ui.button('Duplicates', icon='difference').props('flat dense').style('font-size: 12px;').on('click', lambda: _show_duplicates(last_view))
+                with ui.row().classes('gap-2 items-center').style('flex-wrap: wrap;'):
+                    fix_cat = ui.select(cat_choices, value=cat_choices[0], label='Quick category').classes('').style('min-width: 160px; max-width: 220px;').props('dense outlined')
+                    ui.button('Apply', icon='label').props('unelevated dense').style('font-size: 12px;').on('click', lambda: _apply_category_selected(table, fix_cat.value))
             # Handlers for month + lock (5.12)
             def _on_month_changed(e=None):
                 mk = f_month.value or mkey
@@ -9395,4 +9464,30 @@ ui.run(
     favicon=_FAVICON_SVG,
 )
 
-# Release: FinTrackr Phase 8.0
+# Release: FinTrackr Phase 8.1
+# ────────────────────────────────────────────────
+# B1 FIX (CRITICAL): Investment / LOC Draw / LOC Repay click handler — lambda
+#   parameter collision with NiceGUI's ClickEventArguments.  Changed
+#   `lambda e=etype, k=kw:` → `lambda _evt=None, et=etype, k=kw:` so the
+#   event object is absorbed by _evt and the entry-type string is preserved.
+#   ROOT CAUSE: NiceGUI .on("click") passes an event as first positional arg,
+#   overriding the default `e=etype`.  Same fix applied to Admin tile handlers
+#   and rail nav_btn.
+# B2 FIX: Removed hamburger from mobile header.  Bottom "More" tab now opens
+#   the nav rail sliding from the RIGHT for easy thumb access.  Desktop rail
+#   stays persistent on the left.
+# B3 FIX + PERF: Bottom nav bar — removed all CSS transitions, added
+#   touch-action:manipulation (kills 300ms iOS delay), instant :active scale
+#   feedback, GPU-accelerated transform layer.  All tabs feel native-instant.
+# B4 FIX: Admin page grid — wider minmax(200px,1fr), 18px gap, larger padding
+#   for desktop.  Tiles now properly centered and don't look mobile-cramped.
+# B5 FIX: Dialog .q-card background changed from `transparent` → `var(--mf-bg)`
+#   (with light-mode override to #fff).  No more see-through bleed.
+# B6 FIX: Account/Method selects in Add dialog — removed `dense` prop, added
+#   min-height:52px + font-size:15px. Global .mf-add-dialog CSS enlarges all
+#   form fields for better touch targets.
+# B7 FIX: Transactions page mobile — compact table with smaller font/padding,
+#   toolbar wraps properly, Export/Duplicates/Category-apply all fit on mobile.
+# PERF: Global touch-action:manipulation on all tiles/buttons/tabs.  Eliminated
+#   backdrop-filter and CSS transitions on all nav elements.
+# ────────────────────────────────────────────────
