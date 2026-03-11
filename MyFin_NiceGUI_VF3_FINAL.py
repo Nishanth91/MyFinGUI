@@ -1,4 +1,3 @@
-
 # ======================================
 # FinTrackr App – Phase 4.6A (REAL FIX BUILD)
 # Changes vs P4.5: Dashboard hero, Rules selection, OCR toast timeout, richer palette
@@ -57,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '8.2.1'
+APP_VERSION = '8.2.2'
 
 
 def log(message: str) -> None:
@@ -3449,7 +3448,7 @@ html.mf-light .mf-progress {
 }
 .mf-navbtn .q-btn__content span { font-size: 10px; opacity: 0.7; font-weight: 600; }
 
-/* ── Bottom Tab Bar (mobile) — 8.2.1: icons only, instant, tactile ── */
+/* ── Bottom Tab Bar (mobile) — 8.2.2: icons only, INSTANT JS nav, tactile ── */
 .mf-bottombar {
   position: fixed;
   bottom: 0; left: 0; right: 0;
@@ -3462,9 +3461,10 @@ html.mf-light .mf-progress {
   background: var(--mf-bg);
   border-top: 1px solid var(--mf-border);
   box-shadow: 0 -2px 16px rgba(0,0,0,0.10);
-  will-change: contents;
+  will-change: transform;
   transform: translateZ(0);
   -webkit-backface-visibility: hidden;
+  contain: layout style;
 }
 .mf-bottombar .mf-tab {
   flex: 1;
@@ -3475,13 +3475,16 @@ html.mf-light .mf-progress {
   touch-action: manipulation;
   user-select: none; -webkit-user-select: none;
   padding: 8px 0; border: none; background: none;
-  transition: none;
+  transition: none !important;
   position: relative;
+  /* GPU accelerate each tab for instant paint */
+  will-change: transform;
+  transform: translateZ(0);
 }
-/* 8.2.1 Task 1: icon-only, bigger */
-.mf-bottombar .mf-tab .q-icon { font-size: 30px; transition: none; }
+/* 8.2.2: icon-only, 30px, zero transition delay */
+.mf-bottombar .mf-tab .q-icon { font-size: 30px; transition: none !important; }
 
-/* 8.2.1 Task 2: active = full icon highlight (rounded pill bg), not just a dot */
+/* Active = full icon highlight (rounded pill bg) */
 .mf-bottombar .mf-tab.is-active {
   color: var(--mf-accent);
 }
@@ -3491,13 +3494,13 @@ html.mf-light .mf-progress {
   border-radius: 12px;
   padding: 6px 14px;
 }
-/* Tap feedback — full icon lights up */
+/* Tap feedback — INSTANT scale + color (no transition) */
 .mf-bottombar .mf-tab:active {
   transform: scale(0.88);
 }
 .mf-bottombar .mf-tab:active .q-icon {
   color: var(--mf-accent) !important;
-  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.12);
+  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.18);
   border-radius: 12px;
   padding: 6px 14px;
 }
@@ -3535,8 +3538,8 @@ html.mf-light .mf-progress {
   border: 1px solid var(--mf-border);
   border-radius: 16px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.25);
-  padding: 6px;
-  min-width: 140px;
+  padding: 8px;
+  min-width: 170px;
   animation: mf-popupIn 0.1s ease-out;
 }
 @keyframes mf-popupIn {
@@ -3550,13 +3553,17 @@ html.mf-light .mf-more-popup {
 .mf-more-open .mf-more-popup { display: flex; }
 .mf-more-item {
   width: 100%;
-  border-radius: 10px !important;
+  border-radius: 12px !important;
   text-transform: none !important;
   justify-content: flex-start !important;
-  min-height: 42px;
+  min-height: 52px;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  padding: 8px 16px !important;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
+.mf-more-item .q-icon { font-size: 22px !important; }
 .mf-more-item:active {
   background: rgba(var(--mf-accent-rgb, 91,140,255), 0.10) !important;
 }
@@ -3578,16 +3585,49 @@ html.mf-light .mf-more-popup {
 /* ── Main area ── */
 .mf-main { flex: 1; padding: 26px 32px; }
 .mf-header{
-  height: 56px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 14px;
+  gap: 6px;
   max-width: 1180px;
-  margin: 0 auto 20px auto;
+  margin: 0 auto 16px auto;
+  min-height: 56px;
 }
 .mf-title .t1 { font-size: 18px; font-weight: 900; }
 .mf-title .t2 { font-size: 12px; color: var(--mf-muted); }
+/* 8.2.2: Transaction table — proper row wrapping + full-row selection */
+.mf-tx-table .q-table__container { overflow-x: hidden !important; }
+.mf-tx-table td {
+  white-space: normal !important;
+  word-break: break-word !important;
+  line-height: 1.45 !important;
+  padding: 10px 8px !important;
+}
+.mf-tx-table th { padding: 8px !important; }
+.mf-tx-table tbody tr {
+  cursor: pointer !important;
+  transition: background 0.08s ease;
+}
+.mf-tx-table tbody tr:active {
+  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.12) !important;
+}
+.mf-tx-table .q-table__bottom { padding: 6px 8px !important; }
+/* Selection checkbox column smaller on mobile */
+@media (max-width: 600px) {
+  .mf-tx-table th:first-child, .mf-tx-table td:first-child {
+    width: 32px !important; min-width: 32px !important; max-width: 32px !important;
+    padding: 4px !important;
+  }
+}
+
+/* 8.2.2: Header actions row — neat row of icon buttons under title */
+.mf-header-actions {
+  padding: 2px 0 0 0;
+}
+.mf-header-actions .q-btn {
+  width: 36px !important; height: 36px !important;
+  min-width: 36px !important; min-height: 36px !important;
+}
 .mf-canvas{
   max-width: 1180px;
   margin: 0 auto;
@@ -3614,27 +3654,44 @@ html.mf-light .mf-more-popup {
   /* Task 1: hide Home/Add/Tx/Cards from rail on mobile — they're on the bottom bar */
   .mf-rail-desktop-only { display: none !important; }
   .mf-main {
-    padding: 14px 10px;
+    padding: 10px 4px;
     padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
   }
   .mf-bottombar { display: flex !important; }
   .mf-navbtn .q-btn__content span { display: none; }
   .mf-navbtn { min-height: 40px; }
 
-  /* Task 4/6: Mobile layout — prevent ALL clipping & overflow */
+  /* 8.2.2: Mobile layout — prevent ALL clipping & overflow */
   .mf-main { overflow-x: hidden !important; }
   .mf-canvas {
     padding: 0 !important; width: 100% !important;
     max-width: 100% !important; overflow-x: hidden !important;
+    box-sizing: border-box !important; margin: 0 !important;
+  }
+  .mf-canvas > * { max-width: 100% !important; box-sizing: border-box !important; width: 100% !important; }
+  .mf-canvas .my-card {
+    border-radius: 14px !important; max-width: 100% !important;
+    width: 100% !important; margin-left: 0 !important; margin-right: 0 !important;
     box-sizing: border-box !important;
   }
-  .mf-canvas > * { max-width: 100% !important; box-sizing: border-box !important; }
-  .mf-canvas .my-card { border-radius: 14px !important; max-width: 100% !important; }
-  /* Tx page: compact table */
-  .q-table th { font-size: 11px !important; padding: 5px 4px !important; white-space: nowrap; }
-  .q-table td { font-size: 12px !important; padding: 6px 4px !important; word-break: break-word; }
-  .q-table { font-size: 12px !important; width: 100% !important; table-layout: fixed !important; }
+  .mf-canvas .q-card {
+    width: 100% !important; max-width: 100% !important;
+    margin-left: 0 !important; margin-right: 0 !important;
+    box-sizing: border-box !important;
+  }
+  /* Tx page: allow wrapping — NOT cramped single-line */
+  .q-table th { font-size: 11px !important; padding: 6px 6px !important; white-space: nowrap; }
+  .q-table td {
+    font-size: 13px !important; padding: 10px 6px !important;
+    word-break: break-word !important; white-space: normal !important;
+    line-height: 1.4 !important;
+  }
+  .q-table { font-size: 13px !important; width: 100% !important; }
   .q-table__container { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+  /* Full-row selection highlight on mobile */
+  .q-table tbody tr { cursor: pointer; }
+  .q-table tbody tr:active { background: rgba(var(--mf-accent-rgb, 91,140,255), 0.10) !important; }
+  .q-table tbody tr.selected { background: rgba(var(--mf-accent-rgb, 91,140,255), 0.14) !important; }
   /* All form fields constrained */
   .q-field { max-width: 100% !important; box-sizing: border-box !important; }
   .q-select { max-width: 100% !important; }
@@ -3674,17 +3731,28 @@ html.mf-light .mf-more-popup {
 @media (max-width: 600px){
   .mf-hide-mobile { display: none !important; }
   .mf-show-mobile { display: inline-flex !important; }
-  /* reduce header crowding */
-  .mf-header { height: auto !important; padding-top: 10px !important; padding-bottom: 10px !important; }
+  /* 8.2.2: compact header with action row below title */
+  .mf-header { height: auto !important; padding-top: 8px !important; padding-bottom: 6px !important; }
+  .mf-header-actions { padding: 0 !important; }
+  .mf-header-actions .q-btn { width: 34px !important; height: 34px !important; min-width: 34px !important; min-height: 34px !important; }
 }
 .q-menu { z-index: 99999 !important; }
 
-/* Mobile full-bleed adjustments (5.2.2) */
+/* Mobile full-bleed adjustments (8.2.2 — edge-to-edge cards) */
 @media (max-width: 600px){
   .mf-header, .mf-canvas { max-width: none !important; width: 100% !important; margin: 0 !important; }
-  .mf-main { padding-left: 0 !important; padding-right: 0 !important; }
+  .mf-main { padding-left: 4px !important; padding-right: 4px !important; }
   .mf-canvas { padding-left: 0 !important; padding-right: 0 !important; }
   .mf-header { padding-left: 10px !important; padding-right: 10px !important; }
+  /* Force ALL cards truly full-width on small screens */
+  .mf-canvas .my-card,
+  .mf-canvas .q-card,
+  .mf-canvas > * {
+    width: 100% !important; max-width: 100% !important;
+    margin-left: 0 !important; margin-right: 0 !important;
+    box-sizing: border-box !important;
+  }
+  .mf-canvas .grid { width: 100% !important; max-width: 100% !important; }
 }
 
 /* Stronger issuer tint + variants */
@@ -4058,9 +4126,10 @@ html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
   .mf-dash-grid > .mf-dash-full,
   .mf-dash-grid > :has(> .mf-dash-full) { grid-column: 1 / -1; }
 }
-/* Ensure canvas children stretch full width */
-.mf-canvas > * { width: 100% !important; min-width: 0; box-sizing: border-box !important; }
-.mf-canvas .my-card { width: 100% !important; box-sizing: border-box !important; }
+/* 8.2.2: Ensure canvas children stretch full width — always */
+.mf-canvas > * { width: 100% !important; min-width: 0; box-sizing: border-box !important; margin-left: 0 !important; margin-right: 0 !important; }
+.mf-canvas .my-card { width: 100% !important; box-sizing: border-box !important; margin-left: 0 !important; margin-right: 0 !important; }
+.mf-canvas .q-card { width: 100% !important; box-sizing: border-box !important; }
 /* KPI tiles: lighter, cleaner look (E5) */
 .kpi { border-radius: 16px !important; }
 html.mf-light .kpi {
@@ -4488,6 +4557,34 @@ window.mfSetTheme = function(name){
   }catch(e){
     try{ window.mfSetTheme("Graphite Rose"); }catch(_){}
   }
+
+  // 8.2.2: Instant touch feedback on bottom bar (touchstart fires before click)
+  document.addEventListener('touchstart', function(e) {
+    var tab = e.target.closest('.mf-tab, .mf-tab-add');
+    if (tab) {
+      tab.style.transform = 'scale(0.88)';
+      var icon = tab.querySelector('.q-icon');
+      if (icon) {
+        icon.style.color = 'var(--mf-accent)';
+        icon.style.background = 'rgba(91,140,255,0.18)';
+        icon.style.borderRadius = '12px';
+        icon.style.padding = '6px 14px';
+      }
+    }
+  }, {passive: true});
+  document.addEventListener('touchend', function(e) {
+    var tab = e.target.closest('.mf-tab, .mf-tab-add');
+    if (tab) {
+      tab.style.transform = '';
+      var icon = tab.querySelector('.q-icon');
+      if (icon && !tab.classList.contains('is-active')) {
+        icon.style.color = '';
+        icon.style.background = '';
+        icon.style.borderRadius = '';
+        icon.style.padding = '';
+      }
+    }
+  }, {passive: true});
 })();
 </script>""",
     shared=True,
@@ -4621,13 +4718,13 @@ def shell(content_fn, *, active_path: str = ""):
                 ui.label(f"v{APP_VERSION}").classes("text-xs").style("color: var(--mf-muted); text-align:center; opacity: 0.5;")
 
         # Bottom tab bar (mobile only — CSS hides on ≥901px)
-        # 8.2.1: icons only, no text labels
+        # 8.2.2: icons only, instant JS navigation (no server round-trip), Cards swapped to left
         with ui.element("nav").classes("mf-bottombar"):
             _bottom_tabs = [
-                ("Home", "dashboard", "/"),
+                ("Cards", "credit_card", "/cards"),
                 ("Tx", "receipt_long", "/tx"),
                 ("Add", "add_circle", "/add"),
-                ("Cards", "credit_card", "/cards"),
+                ("Home", "dashboard", "/"),
                 ("More", "menu", None),  # opens compact popup
             ]
             for _bl, _bi, _bh in _bottom_tabs:
@@ -4642,41 +4739,49 @@ def shell(content_fn, *, active_path: str = ""):
                     with ui.element("button").classes(_cls + " mf-more-btn").on("click", lambda: ui.run_javascript("document.documentElement.classList.toggle('mf-more-open')")):
                         ui.icon(_bi)
                 elif _is_add:
-                    with ui.element("button").classes(_cls).on("click", lambda: nav_to("/add")):
+                    # Add button — instant JS navigation
+                    with ui.element("button").classes(_cls).on("click", lambda: ui.run_javascript("window.location.href='/add'")):
                         ui.icon(_bi)
                 else:
-                    with ui.element("button").classes(_cls).on("click", lambda h=_bh: nav_to(h)):
+                    # 8.2.2: Instant client-side navigation — no Python server round-trip
+                    with ui.element("button").classes(_cls).on("click", lambda _evt=None, h=_bh: ui.run_javascript(f"window.location.href='{h}'")):
                         ui.icon(_bi)
 
-        # 8.2.1 Task 3: Compact "More" popup — floats right above hamburger icon
+        # 8.2.2: Compact "More" popup — Rules, Admin, About + Logout (moved from header)
         with ui.element("div").classes("mf-more-popup"):
             for _ml, _mi, _mh in [("Rules", "rule", "/rules"), ("Admin", "settings", "/admin"), ("About", "info", "/about")]:
                 _mcls = "mf-more-item" + (" is-active" if _mh == active_path else "")
                 def _more_go(_evt=None, h=_mh):
-                    nav_to(h)
+                    ui.run_javascript(f"window.location.href='{h}'")
                     ui.run_javascript("document.documentElement.classList.remove('mf-more-open')")
                 ui.button(_ml, icon=_mi).props("flat").classes(_mcls).on("click", _more_go)
+            # Divider + Logout
+            ui.element('div').style('height: 1px; background: var(--mf-border); margin: 4px 6px;')
+            def _more_logout(_evt=None):
+                ui.run_javascript("document.documentElement.classList.remove('mf-more-open')")
+                do_logout()
+            ui.button("Logout", icon="logout").props("flat").classes("mf-more-item").style("color: #ef4444 !important;").on("click", _more_logout)
         # Backdrop for more popup
         ui.element("div").classes("mf-more-backdrop").on("click", lambda: ui.run_javascript("document.documentElement.classList.remove('mf-more-open')"))
 
         # Main content area
         with ui.element("main").classes("mf-main"):
             with ui.element("div").classes("mf-header"):
-                with ui.row().classes("items-center justify-between w-full"):
-                    # LEFT: title only (B2: hamburger removed — bottom "More" tab handles nav on mobile)
-                    with ui.row().classes("items-center gap-3"):
-                        with ui.element("div").classes("mf-title"):
-                            with ui.row().classes('items-center gap-2'):
-                                with ui.element('div').style(
-                                    'width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center;'
-                                    'background: linear-gradient(135deg, #0F1923, #22C55E);'
-                                ):
-                                    ui.icon('insights').style('font-size: 17px; color: #FBBF24;')
-                                ui.link("FinTrackr", "/").classes("t1 text-xl md:text-2xl font-extrabold").style("color: inherit; text-decoration: none; letter-spacing: -0.03em;")
-                            
-                    # RIGHT: theme + actions
-                    with ui.row().classes("items-center gap-2"):
-                        # Theme control (desktop: inline select, mobile: palette dialog)
+                # 8.2.2: Clean two-row header — title on top, actions below
+                with ui.column().classes("w-full gap-1"):
+                    # Row 1: FinTrackr logo + title
+                    with ui.row().classes("items-center justify-between w-full"):
+                        with ui.row().classes("items-center gap-3"):
+                            with ui.element("div").classes("mf-title"):
+                                with ui.row().classes('items-center gap-2'):
+                                    with ui.element('div').style(
+                                        'width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center;'
+                                        'background: linear-gradient(135deg, #0F1923, #22C55E);'
+                                    ):
+                                        ui.icon('insights').style('font-size: 17px; color: #FBBF24;')
+                                    ui.link("FinTrackr", "/").classes("t1 text-xl md:text-2xl font-extrabold").style("color: inherit; text-decoration: none; letter-spacing: -0.03em;")
+
+                        # Desktop theme select (hidden on mobile)
                         def _open_theme_dialog():
                             with ui.dialog() as td, ui.card().classes("my-card p-0 w-full max-w-sm").style("overflow: hidden; border-radius: 24px;"):
                                 ui.element('div').classes('mf-accent-strip')
@@ -4685,10 +4790,6 @@ def shell(content_fn, *, active_path: str = ""):
                                         ui.icon("palette").style("color: var(--mf-accent); font-size: 20px;")
                                         ui.label("Theme").classes("text-base font-bold")
 
-                                    # All themes including Mint Light & Rose Light
-                                    themes = ['Midnight Blue', 'Emerald Gold', 'Graphite Rose', 'Arctic Light', 'Mint Light', 'Rose Light', 'Slate Light', 'Sand Gold']
-
-                                    # Theme color swatches for premium preview
                                     _theme_swatches = {
                                         'Midnight Blue': ('#5B8CFF', '#46E6A6'), 'Emerald Gold': ('#22C55E', '#FBBF24'),
                                         'Graphite Rose': ('#F472B6', '#A78BFA'), 'Arctic Light': ('#1D4ED8', '#0EA5E9'),
@@ -4707,7 +4808,6 @@ def shell(content_fn, *, active_path: str = ""):
                                     else:
                                         cur = str(cur)
 
-                                    # Dark themes section
                                     ui.label('Dark').classes('mf-stat-label mt-1')
                                     with ui.column().classes("w-full gap-1"):
                                         for tname in ['Midnight Blue', 'Emerald Gold', 'Graphite Rose']:
@@ -4730,7 +4830,6 @@ def shell(content_fn, *, active_path: str = ""):
                                                     if is_cur:
                                                         ui.icon("check_circle").style("color: var(--mf-accent); margin-left: auto; font-size: 18px;")
 
-                                    # Light themes section
                                     ui.label('Light').classes('mf-stat-label mt-2')
                                     with ui.column().classes("w-full gap-1"):
                                         for tname in ['Arctic Light', 'Mint Light', 'Rose Light', 'Slate Light', 'Sand Gold']:
@@ -4773,21 +4872,20 @@ def shell(content_fn, *, active_path: str = ""):
                                     theme_select.value = str(saved)
                             except Exception:
                                 pass
-                        # Theme selection sync handled on user interaction to avoid timer issues on fast navigation
+
+                    # Row 2: Action buttons — theme (mobile), search, refresh — neatly under title
+                    with ui.row().classes("items-center gap-2 mf-header-actions"):
                         ui.button("", icon="palette").props("flat round dense").classes("mf-show-mobile").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
                         ).on("click", _open_theme_dialog)
                         ui.run_javascript('window.mfSetTheme(localStorage.getItem(\"mf_theme\") || \"Midnight Blue\")')
-                        ui.button("", icon="refresh").props("flat round dense").style(
-                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
-                        ).on("click", lambda: ui.navigate.to(ui.context.client.page.path))
-                        ui.button("", icon="logout").props("flat round dense").style(
-                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
-                        ).on("click", do_logout)
                         ui.button("", icon="search").props("flat round dense").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
                         ).on("click", lambda: open_search_dialog())
-                        # Task 4: +Add button removed — redundant with bottom nav + icon
+                        ui.button("", icon="refresh").props("flat round dense").style(
+                            "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 10px;"
+                        ).on("click", lambda: ui.navigate.to(ui.context.client.page.path))
+                        # 8.2.2: Logout moved to More popup — desktop keeps it in rail
 
             with ui.element("div").classes("mf-canvas"):
                 content_fn()
@@ -6060,7 +6158,7 @@ def add_page():
                     ui.label('Date & Amount').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
                 with ui.row().classes('w-full gap-3'):
                     d_date = ui.input("Date", value=today().isoformat()).props("type=date autofocus outlined dense").classes("flex-1")
-                    d_amount = ui.number("Amount", value=0.0, format="%.2f").props("outlined dense").classes("flex-1")
+                    d_amount = ui.number("Amount", value=0).props("outlined dense").classes("flex-1")
 
             _et = entry_type.lower().strip()
             is_debit = _et in ('debit', 'expense')
@@ -6752,7 +6850,7 @@ def add_page():
                         with ui.row().classes("w-full items-center justify-between gap-2 q-mt-sm"):
                             ui.label(c).classes("text-sm font-medium")
                             pct_labels[c] = ui.label("0%").classes("text-xs").style("color: var(--mf-muted)")
-                            amt_inputs[c] = ui.number(value=0.0, format='%.2f', step=0.01).props('dense outlined prefix=$').classes('w-40')
+                            amt_inputs[c] = ui.number(value=0, step=0.01).props('dense outlined prefix=$').classes('w-40')
                             amt_inputs[c].on('update:model-value', _refresh_pcts)
 
                     def _largest_bucket() -> str:
@@ -7581,8 +7679,8 @@ def transactions_page():
                     {"name": "type", "label": "Type", "field": "type"},
                     {"name": "amount", "label": "Amount", "field": "amount", "align": "right"},
                     {"name": "category", "label": "Category", "field": "category"},
-                ], rows=[], row_key="id", selection='single').classes("w-full")
-                table.props('dense flat bordered')
+                ], rows=[], row_key="id", selection='single').classes("w-full mf-tx-table")
+                table.props('flat bordered')
 
             def _open_details(row: Dict[str, Any]) -> None:
                 with ui.dialog() as d, ui.card().classes('my-card p-4 w-[92vw] max-w-3xl'):
@@ -8868,7 +8966,7 @@ def budgets_page() -> None:
             ).classes('w-full')
 
             cat_in = ui.input('Category').classes('w-full')
-            bud_in = ui.number('Monthly budget', value=0.0, format='%.2f').classes('w-full')
+            bud_in = ui.number('Monthly budget', value=0).classes('w-full')
 
             def _refresh() -> None:
                 b = read_df_optional('budgets')
