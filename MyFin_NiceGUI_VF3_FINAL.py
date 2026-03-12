@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '8.4'
+APP_VERSION = '8.5'
 
 
 def log(message: str) -> None:
@@ -4267,6 +4267,12 @@ select:-webkit-autofill{
   caret-color: var(--mf-text) !important;
   background-color: var(--mf-bg-2) !important;
 }
+/* 8.5: Hide NiceGUI reconnect flash when switching between apps */
+.q-loading-bar { display: none !important; }
+.nicegui-reconnecting { display: none !important; }
+div[class*="nicegui"][class*="reconnect"] { display: none !important; }
+.q-dialog--seamless { display: none !important; }
+
 /* iOS launch splash overlay — covers blank page while NiceGUI hydrates */
 #mf-splash{
   position:fixed; inset:0; z-index:999999;
@@ -4603,6 +4609,30 @@ window.mfSetTheme = function(name){
 
       // Fix Plotly text colors after theme is applied
       setTimeout(()=>{ try{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }catch(e){} }, 60);
+
+      // 8.5: Force selected dropdown text to be visible — runs after every theme switch
+      try {
+        var mfText = getComputedStyle(document.documentElement).getPropertyValue('--mf-text').trim() || '#e2e8f0';
+        window.__mfSelectTextColor = mfText;
+        window.__mfFixSelectText = function() {
+          var c = window.__mfSelectTextColor || '#e2e8f0';
+          document.querySelectorAll('.q-select .q-field__native, .q-select .q-field__native span, .q-field__native span').forEach(function(el) {
+            el.style.setProperty('color', c, 'important');
+            el.style.setProperty('-webkit-text-fill-color', c, 'important');
+            el.style.setProperty('opacity', '1', 'important');
+          });
+        };
+        window.__mfFixSelectText();
+        if (!window.__mfSelectObserver) {
+          window.__mfSelectObserver = new MutationObserver(function() {
+            try { window.__mfFixSelectText(); } catch(e) {}
+          });
+          window.__mfSelectObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+          ['click','touchstart','change','focusout'].forEach(function(ev) {
+            document.addEventListener(ev, function() { setTimeout(function(){ try{ window.__mfFixSelectText(); }catch(e){} }, 50); }, true);
+          });
+        }
+      } catch(e) {}
     }catch(e){}
   };
 
@@ -5393,18 +5423,12 @@ def dashboard_page():
                     ui.label(currency(val)).classes("text-xl font-extrabold mt-2").style(f"color: {accent_color}; letter-spacing: -0.02em; font-feature-settings: 'tnum';")
                     ui.label(mkey).classes("text-xs mt-1").style("color: var(--mf-muted)")
 
-        # ──── 8.2.2: Compact Summary Cards (LOC, Investments, Intl Transfers) ────
+        # ──── 8.5: Compact Summary Cards (Investments, Intl Transfers) — LOC removed per user request ────
         try:
-            _loc_draw_total = float(amt[typ.isin(['loc draw', 'loc_draw', 'loc withdrawal', 'loc_withdrawal'])].sum())
-            _loc_repay_total = float(amt[typ.isin(['loc repay', 'loc_repay', 'loc repayment', 'loc_repayment'])].sum())
-            _loc_balance = _loc_draw_total - _loc_repay_total
             _invest_total = float(invest)
             _intl_total = float(amt[typ.isin(['international', 'international transfer', 'intl'])].sum())
 
             _summary_cards = []
-            if _loc_draw_total > 0 or _loc_repay_total > 0:
-                _summary_cards.append(('LOC Balance', 'account_balance', '#60a5fa', 'rgba(96,165,250,0.12)',
-                                       _loc_balance, f'Drawn: {currency(_loc_draw_total)}  |  Repaid: {currency(_loc_repay_total)}'))
             if _invest_total > 0:
                 _summary_cards.append(('Investments', 'show_chart', '#a855f7', 'rgba(168,85,247,0.12)',
                                        _invest_total, f'Total invested {mkey}'))
@@ -5413,7 +5437,7 @@ def dashboard_page():
                                        _intl_total, f'Total transferred {mkey}'))
 
             if _summary_cards:
-                _cols = min(len(_summary_cards), 3)
+                _cols = min(len(_summary_cards), 2)
                 with ui.element("div").classes(f"grid grid-cols-1 md:grid-cols-{_cols} gap-3 w-full"):
                     for _sc_label, _sc_icon, _sc_color, _sc_bg, _sc_val, _sc_sub in _summary_cards:
                         with ui.card().classes('my-card p-4 w-full'):
@@ -5423,9 +5447,8 @@ def dashboard_page():
                                 with ui.column().classes('gap-0 flex-1'):
                                     ui.label(_sc_label).classes('text-sm font-bold')
                                     ui.label(mkey).classes('text-xs').style('color: var(--mf-muted);')
-                                _val_color = '#ef4444' if (_sc_label == 'LOC Balance' and _sc_val > 0) else _sc_color
                                 ui.label(currency(_sc_val)).classes('text-lg font-extrabold').style(
-                                    f'color: {_val_color}; font-feature-settings: "tnum"; letter-spacing: -0.02em;'
+                                    f'color: {_sc_color}; font-feature-settings: "tnum"; letter-spacing: -0.02em;'
                                 )
                             ui.label(_sc_sub).classes('text-xs mt-2').style('color: var(--mf-muted);')
         except Exception:
@@ -7468,6 +7491,82 @@ def add_page():
         loc_dlg.open()
 
     # ──────────────────────────────────────────────────────────────────────
+    # 8.5: CC Repay — rebuilt from scratch, standalone dialog
+    # ──────────────────────────────────────────────────────────────────────
+    def open_cc_repay_dialog():
+        # Only the 4 credit cards (NOT Line of Credit — that's handled by LOC dialog)
+        CC_CARDS = [
+            'CanadianTire Mastercard - Black',
+            'CanadianTire Mastercard - Grey',
+            'RBC VISA',
+            'RBC Mastercard',
+        ]
+
+        cc_dlg = ui.dialog()
+        with cc_dlg, ui.card().classes("my-card mf-add-dialog").style(
+            "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
+        ):
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #eab308, #eab30866); border-radius: 24px 24px 0 0;')
+            with ui.element('div').style('padding: 20px 24px 16px 24px;'):
+                with ui.row().classes('items-center gap-3'):
+                    with ui.element('div').style(
+                        'width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center;'
+                        'background: rgba(251,191,36,0.18); border: 1px solid rgba(251,191,36,0.22);'
+                    ):
+                        ui.icon('credit_card').style('font-size: 22px; color: #eab308;')
+                    with ui.column().classes('gap-0'):
+                        ui.label('CC Repayment').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                        ui.label('Record a credit card payment').classes('text-xs').style('color: var(--mf-muted);')
+                    ui.element('div').style('flex: 1;')
+                    ui.button('', icon='close', on_click=cc_dlg.close).props('flat round dense').style('opacity: 0.5;')
+
+            # Date & Amount
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('w-full gap-3'):
+                    cc_date = ui.input(value=today().isoformat()).props("type=date outlined dense").classes("flex-1 mf-no-label")
+                    cc_amount = ui.number(value=0).props("outlined dense").classes("flex-1 mf-no-label")
+
+            # Card selection
+            ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-2 mt-3 mb-2'):
+                    ui.icon('credit_card').style('font-size: 15px; color: #eab308; opacity: 0.7;')
+                    ui.label('Card').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
+                cc_card = ui.select(CC_CARDS, value=CC_CARDS[0], label='Credit Card').props('outlined behavior="menu"').classes('w-full').style('min-height: 52px;')
+                cc_card.props('hint="Select which card you paid"')
+                cc_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
+
+            # Actions
+            with ui.row().classes("w-full justify-end gap-3").style("padding: 14px 24px 12px 24px;"):
+                ui.button("Cancel", on_click=cc_dlg.close).props("flat").style("border-radius: 10px;")
+                def _save_cc_repay():
+                    dd = parse_date(cc_date.value) or today()
+                    amt_val = float(to_float(cc_amount.value))
+                    if amt_val <= 0:
+                        ui.notify("Enter a valid amount", type="warning")
+                        return
+                    _card = str(cc_card.value).strip()
+                    _notes_str = str(cc_notes.value or "").strip()
+                    tx_id = sha16(f"Family|{dd.isoformat()}|CC Repay|{amt_val}|Card|{_card}|CC Repay|{_notes_str}|{dt.datetime.now().isoformat()}")
+                    append_tx(
+                        tx_id=tx_id, date_=dd, owner="Family",
+                        type_="CC Repay", amount=amt_val,
+                        method="Card", account=_card,
+                        category="CC Repay",
+                        notes=_notes_str,
+                        recurring_id=""
+                    )
+                    invalidate('transactions')
+                    ui.notify(f"CC payment of {currency(amt_val)} to {_card} saved", type="positive")
+                    cc_dlg.close()
+                ui.button("Save", on_click=_save_cc_repay, icon="check").props("unelevated").style(
+                    "background: linear-gradient(135deg, #eab308, #eab308cc) !important; color: #fff !important;"
+                    "font-weight: 700; border-radius: 12px; padding: 8px 32px;"
+                )
+        ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
+        cc_dlg.open()
+
+    # ──────────────────────────────────────────────────────────────────────
     # 8.2.2: Invest — custom dialog with investment account picker
     # ──────────────────────────────────────────────────────────────────────
     def open_invest_dialog():
@@ -7641,7 +7740,7 @@ def add_page():
                 ("Expense",        "shopping_cart",   "Debit",      {},  "rgba(239,68,68,0.10)",  "#ef4444"),
                 ("Income",         "trending_up",     "Credit",     {},  "rgba(34,197,94,0.10)",  "#22c55e"),
                 ("Invest",         "show_chart",      "__INVEST__", {},  "rgba(168,85,247,0.10)", "#a855f7"),
-                ("CC Repay",       "credit_card",     "CC Repay",   {},  "rgba(251,191,36,0.10)", "#eab308"),
+                ("CC Repay",       "credit_card",     "__CC_REPAY__", {},  "rgba(251,191,36,0.10)", "#eab308"),
                 ("Line of Credit", "account_balance", "__LOC__",    {},  "rgba(96,165,250,0.10)", "#60a5fa"),
                 ("Intl Transfer",  "public",          "__INTL__",   {},  "rgba(244,114,182,0.10)","#f472b6"),
             ]
@@ -7653,6 +7752,8 @@ def add_page():
                     open_invest_dialog()
                 elif et == '__INTL__':
                     open_intl_dialog()
+                elif et == '__CC_REPAY__':
+                    open_cc_repay_dialog()
                 else:
                     open_add_dialog(et, **k)
 
@@ -8574,10 +8675,12 @@ def cards_page() -> None:
 
                 scope = txu[cycle_mask].copy()
 
-                spend_mask = (scope['type_norm'].isin(['debit','expense','spend'])) & (scope.get('account','').astype(str).str.strip() == card_key)
+                # 8.5: Include LOC Draw as utilization for LOC cards, and LOC Repay as repayment
+                _acct_match = scope.get('account','').astype(str).str.strip() == card_key
+                spend_mask = (scope['type_norm'].isin(['debit','expense','spend','loc draw','loc_draw','loc withdrawal','loc_withdrawal'])) & _acct_match
                 util_used = float(scope.loc[spend_mask, 'amount_num'].sum())
 
-                repay_mask = (scope['type_norm'].isin(['credit card repay','cc repay','credit card repayment','cc repayment'])) & (scope.get('account','').astype(str).str.strip() == card_key)
+                repay_mask = (scope['type_norm'].isin(['credit card repay','cc repay','credit card repayment','cc repayment','loc repay','loc_repay','loc repayment','loc_repayment'])) & _acct_match
                 util_paid = float(scope.loc[repay_mask, 'amount_num'].sum())
 
             balance = max(0.0, util_used - util_paid)
@@ -10107,11 +10210,12 @@ ui.run(
     storage_secret=STORAGE_SECRET or "PLEASE_SET_NICEGUI_STORAGE_SECRET",
     title=APP_TITLE,
     favicon=_FAVICON_SVG,
+    reconnect_timeout=30,
 )
 
-# Release: FinTrackr Phase 8.2.1
+# Release: FinTrackr Phase 8.5
 # ────────────────────────────────────────────────
-# Phase 8.2.1 (6 UI refinements):
+# Phase 8.5 (6 UI refinements):
 #
 # 1.  Bottom bar: icons only — removed all text labels (Home, Tx, Cards, More).
 #     Icons enlarged to 30px. Cleaner, more spacious look.
