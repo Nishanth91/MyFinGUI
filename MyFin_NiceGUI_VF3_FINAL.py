@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '8.2.2'
+APP_VERSION = '8.3'
 
 
 def log(message: str) -> None:
@@ -4088,6 +4088,22 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 /* Force every NiceGUI wrapper div inside dialog to be full-width */
 .mf-add-dialog div[class*="nicegui"] { width: 100% !important; }
 .mf-add-dialog > div > div { width: 100% !important; }
+/* 8.2.2: Fix selected value text invisible in select dropdowns */
+.mf-add-dialog .q-field__native span,
+.mf-add-dialog .q-select .q-field__native,
+.mf-add-dialog .q-select .q-field__native > span,
+.mf-add-dialog .q-field--auto-height .q-field__native > span,
+.mf-add-dialog .q-field__native {
+  color: var(--mf-text) !important;
+  opacity: 1 !important;
+  -webkit-text-fill-color: var(--mf-text) !important;
+}
+html.mf-light .mf-add-dialog .q-field__native span,
+html.mf-light .mf-add-dialog .q-select .q-field__native,
+html.mf-light .mf-add-dialog .q-select .q-field__native > span {
+  color: var(--mf-text) !important;
+  -webkit-text-fill-color: var(--mf-text) !important;
+}
 
 /* Upload bar theming */
 .mf-add-dialog .q-uploader__header,
@@ -5374,6 +5390,43 @@ def dashboard_page():
                     ui.label(currency(val)).classes("text-xl font-extrabold mt-2").style(f"color: {accent_color}; letter-spacing: -0.02em; font-feature-settings: 'tnum';")
                     ui.label(mkey).classes("text-xs mt-1").style("color: var(--mf-muted)")
 
+        # ──── 8.2.2: Compact Summary Cards (LOC, Investments, Intl Transfers) ────
+        try:
+            _loc_draw_total = float(amt[typ.isin(['loc draw', 'loc_draw', 'loc withdrawal', 'loc_withdrawal'])].sum())
+            _loc_repay_total = float(amt[typ.isin(['loc repay', 'loc_repay', 'loc repayment', 'loc_repayment'])].sum())
+            _loc_balance = _loc_draw_total - _loc_repay_total
+            _invest_total = float(invest)
+            _intl_total = float(amt[typ.isin(['international', 'international transfer', 'intl'])].sum())
+
+            _summary_cards = []
+            if _loc_draw_total > 0 or _loc_repay_total > 0:
+                _summary_cards.append(('LOC Balance', 'account_balance', '#60a5fa', 'rgba(96,165,250,0.12)',
+                                       _loc_balance, f'Drawn: {currency(_loc_draw_total)}  |  Repaid: {currency(_loc_repay_total)}'))
+            if _invest_total > 0:
+                _summary_cards.append(('Investments', 'show_chart', '#a855f7', 'rgba(168,85,247,0.12)',
+                                       _invest_total, f'Total invested {mkey}'))
+            if _intl_total > 0:
+                _summary_cards.append(('Intl Transfers', 'public', '#f472b6', 'rgba(244,114,182,0.12)',
+                                       _intl_total, f'Total transferred {mkey}'))
+
+            if _summary_cards:
+                _cols = min(len(_summary_cards), 3)
+                with ui.element("div").classes(f"grid grid-cols-1 md:grid-cols-{_cols} gap-3 w-full"):
+                    for _sc_label, _sc_icon, _sc_color, _sc_bg, _sc_val, _sc_sub in _summary_cards:
+                        with ui.card().classes('my-card p-4 w-full'):
+                            with ui.row().classes('items-center gap-3'):
+                                with ui.element('div').classes('mf-icon-box').style(f'background: {_sc_bg};'):
+                                    ui.icon(_sc_icon).style(f'font-size: 20px; color: {_sc_color};')
+                                with ui.column().classes('gap-0 flex-1'):
+                                    ui.label(_sc_label).classes('text-sm font-bold')
+                                    ui.label(mkey).classes('text-xs').style('color: var(--mf-muted);')
+                                _val_color = '#ef4444' if (_sc_label == 'LOC Balance' and _sc_val > 0) else _sc_color
+                                ui.label(currency(_sc_val)).classes('text-lg font-extrabold').style(
+                                    f'color: {_val_color}; font-feature-settings: "tnum"; letter-spacing: -0.02em;'
+                                )
+                            ui.label(_sc_sub).classes('text-xs mt-2').style('color: var(--mf-muted);')
+        except Exception:
+            pass
 
         # ──── Financial Health Score ────
         try:
@@ -6218,6 +6271,8 @@ def add_page():
             'loc_repay': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
             'loc repayment': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
             'loc_repayment': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
+            'international': ('#f472b6', 'public', 'International Transfer'),
+            'international transfer': ('#f472b6', 'public', 'International Transfer'),
         }
         _accent, _dicon, _dlabel = _dlg_accents.get(entry_type.lower(), ('#6366f1', 'add_circle', entry_type))
 
@@ -6281,6 +6336,7 @@ def add_page():
             fixed_method = None
             hide_method = False
             disable_account = False
+            hide_category = False
             fixed_category = preset_category
 
             if is_income:
@@ -6296,6 +6352,13 @@ def add_page():
             if is_cc_repay:
                 fixed_method = 'Card'
                 hide_method = True
+                hide_category = True
+                fixed_category = 'CC Repay'
+                # 8.2.2: Restrict CC Repay to only credit card / LOC accounts
+                CC_REPAY_ACCOUNTS = ["RBC Line of Credit", "RBC VISA", "RBC MasterCard", "CT - Black", "CT - grey"]
+                accounts = [a for a in accounts if a in CC_REPAY_ACCOUNTS]
+                if not accounts:
+                    accounts = CC_REPAY_ACCOUNTS
             if is_loc_draw:
                 if not fixed_method:
                     fixed_method = preset_method or 'Card'
@@ -6345,8 +6408,12 @@ def add_page():
                     d_method = None
                 else:
                     d_method = ui.select(methods or [""], value=(method_default if method_default in (methods or []) else ""), label="Method").props("outlined").classes("w-full").style("min-height: 52px; font-size: 15px;")
+                    if is_debit:
+                        d_method.props('hint="Select payment method"')
 
                 d_account = ui.select(accounts or [""], value=(account_default if account_default in (accounts or []) else ""), label="Account").props("outlined").classes("w-full").style("min-height: 52px; font-size: 15px;")
+                if is_debit:
+                    d_account.props('hint="Choose your account"')
                 d_account.props('popup-content-class="mf-menu-light"')
                 if disable_account:
                     d_account.props("disable")
@@ -6355,15 +6422,24 @@ def add_page():
                     ui.label(f"Method: {fixed_method}").classes("text-xs").style("color: var(--mf-muted); margin-top:-6px;")
 
             # ── Section 3: Category & Notes ──
-            ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
+            # 8.2.2: hide_category=True for CC Repay (not an expense, no category needed)
+            if not hide_category:
+                ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
             with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
-                with ui.row().classes('items-center gap-2 mt-3 mb-2'):
-                    ui.icon('category').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
-                    ui.label('Category & Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
+                if not hide_category:
+                    with ui.row().classes('items-center gap-2 mt-3 mb-2'):
+                        ui.icon('category').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
+                        ui.label('Category & Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
 
                 d_category = ui.select(categories, value=(fixed_category or "Uncategorized"), label="Category").props("outlined dense").classes("w-full")
+                if hide_category:
+                    d_category.set_visibility(False)
+                if is_debit:
+                    d_category.props('hint="Pick a spending category"')
                 d_notes = ui.textarea("Notes / Merchant", value="").props("outlined dense rows=2").classes("w-full")
                 d_rec = ui.checkbox("Mark as recurring (template for future cycles)")
+                if hide_category:
+                    d_rec.set_visibility(False)
 
             # Receipt scan (Expense only): opens camera on mobile, runs free OCR in the browser (tesseract.js)
             if entry_type.lower() == 'debit':
@@ -7312,6 +7388,195 @@ def add_page():
         ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
         dlg.open()
 
+    # ──────────────────────────────────────────────────────────────────────
+    # 8.2.2: Line of Credit — intermediate dialog (Withdrawal / Repayment)
+    # ──────────────────────────────────────────────────────────────────────
+    def open_loc_dialog():
+        loc_dlg = ui.dialog()
+        with loc_dlg, ui.card().classes("my-card mf-add-dialog").style(
+            "width: 400px; max-width: 95vw; padding: 0; border-radius: 24px;"
+        ):
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #60a5fa, #60a5fa66); border-radius: 24px 24px 0 0;')
+            with ui.element('div').style('padding: 20px 24px 16px 24px;'):
+                with ui.row().classes('items-center gap-3'):
+                    with ui.element('div').style(
+                        'width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center;'
+                        'background: rgba(96,165,250,0.18); border: 1px solid rgba(96,165,250,0.22);'
+                    ):
+                        ui.icon('account_balance').style('font-size: 22px; color: #60a5fa;')
+                    with ui.column().classes('gap-0'):
+                        ui.label('Line of Credit').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                        ui.label('Choose transaction type').classes('text-xs').style('color: var(--mf-muted);')
+                    ui.element('div').style('flex: 1;')
+                    ui.button('', icon='close', on_click=loc_dlg.close).props('flat round dense').style('opacity: 0.5;')
+
+            with ui.element('div').style('padding: 0 24px 20px 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                loc_type = ui.select(
+                    ['Withdrawal', 'Repayment'], value='Withdrawal', label='Transaction Type'
+                ).props('outlined').classes('w-full')
+
+                with ui.row().classes('w-full justify-end gap-3 mt-4'):
+                    ui.button('Cancel', on_click=loc_dlg.close).props('flat').style('border-radius: 10px;')
+                    def _loc_proceed():
+                        loc_dlg.close()
+                        if loc_type.value == 'Withdrawal':
+                            open_add_dialog('LOC Draw', preset_category='LOC Utilization', preset_method='Card', preset_account='Line of Credit')
+                        else:
+                            open_add_dialog('LOC Repay', preset_category='Repayment', preset_method='Bank', preset_account='Line of Credit')
+                    ui.button('Continue', on_click=_loc_proceed, icon='arrow_forward').props('unelevated').style(
+                        'background: linear-gradient(135deg, #60a5fa, #60a5facc) !important; color: #fff !important;'
+                        'font-weight: 700; border-radius: 12px; padding: 8px 24px;'
+                    )
+        loc_dlg.open()
+
+    # ──────────────────────────────────────────────────────────────────────
+    # 8.2.2: Invest — custom dialog with investment account picker
+    # ──────────────────────────────────────────────────────────────────────
+    def open_invest_dialog():
+        INVEST_ACCOUNTS = ['FHSA', 'TFSA', 'RRSP', 'Indhu-TFSA']
+        _all_accts = accounts_list()
+        _source_accts = [a for a in _all_accts if a not in INVEST_ACCOUNTS]
+        if 'Bank' not in _source_accts:
+            _source_accts.insert(0, 'Bank')
+
+        inv_dlg = ui.dialog()
+        with inv_dlg, ui.card().classes("my-card mf-add-dialog").style(
+            "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
+        ):
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #a855f7, #a855f766); border-radius: 24px 24px 0 0;')
+            with ui.element('div').style('padding: 20px 24px 16px 24px;'):
+                with ui.row().classes('items-center gap-3'):
+                    with ui.element('div').style(
+                        'width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center;'
+                        'background: rgba(168,85,247,0.18); border: 1px solid rgba(168,85,247,0.22);'
+                    ):
+                        ui.icon('show_chart').style('font-size: 22px; color: #a855f7;')
+                    with ui.column().classes('gap-0'):
+                        ui.label('Add Investment').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                        ui.label('Choose investment account & amount').classes('text-xs').style('color: var(--mf-muted);')
+                    ui.element('div').style('flex: 1;')
+                    ui.button('', icon='close', on_click=inv_dlg.close).props('flat round dense').style('opacity: 0.5;')
+
+            # Date & Amount
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('w-full gap-3'):
+                    inv_date = ui.input(value=today().isoformat()).props("type=date outlined dense").classes("flex-1 mf-no-label")
+                    inv_amount = ui.number(value=0).props("outlined dense").classes("flex-1 mf-no-label")
+
+            # Investment account & Source
+            ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-2 mt-3 mb-2'):
+                    ui.icon('savings').style('font-size: 15px; color: #a855f7; opacity: 0.7;')
+                    ui.label('Investment Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
+                inv_account = ui.select(INVEST_ACCOUNTS, value='TFSA', label='Investment Account').props('outlined').classes('w-full').style('min-height: 52px;')
+                inv_account.props('hint="Where to invest (FHSA, TFSA, RRSP...)"')
+                inv_source = ui.select(_source_accts, value='Bank', label='Source Account').props('outlined').classes('w-full').style('min-height: 52px;')
+                inv_source.props('hint="Where money comes from"')
+                inv_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
+
+            # Actions
+            with ui.row().classes("w-full justify-end gap-3").style("padding: 14px 24px 12px 24px;"):
+                ui.button("Cancel", on_click=inv_dlg.close).props("flat").style("border-radius: 10px;")
+                def _save_invest():
+                    dd = parse_date(inv_date.value) or today()
+                    amt_val = float(to_float(inv_amount.value))
+                    if amt_val <= 0:
+                        ui.notify("Enter a valid amount", type="warning")
+                        return
+                    _notes_str = str(inv_notes.value or "").strip()
+                    if inv_source.value:
+                        _notes_str = ((_notes_str + " " if _notes_str else "") + f"[from {inv_source.value}]")
+                    tx_id = sha16(f"Family|{dd.isoformat()}|Investment|{amt_val}|Bank|{inv_account.value}|Investment|{_notes_str}|{dt.datetime.now().isoformat()}")
+                    append_tx(
+                        tx_id=tx_id, date_=dd, owner="Family",
+                        type_="Investment", amount=amt_val,
+                        method="Bank", account=str(inv_account.value),
+                        category="Investment",
+                        notes=_notes_str,
+                        recurring_id=""
+                    )
+                    invalidate('transactions')
+                    ui.notify(f"Investment of {currency(amt_val)} to {inv_account.value} saved", type="positive")
+                    inv_dlg.close()
+                ui.button("Save", on_click=_save_invest, icon="check").props("unelevated").style(
+                    "background: linear-gradient(135deg, #a855f7, #a855f7cc) !important; color: #fff !important;"
+                    "font-weight: 700; border-radius: 12px; padding: 8px 32px;"
+                )
+        ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
+        inv_dlg.open()
+
+    # ──────────────────────────────────────────────────────────────────────
+    # 8.2.2: International Transfer — custom dialog (CAD only)
+    # ──────────────────────────────────────────────────────────────────────
+    def open_intl_dialog():
+        INTL_SOURCES = ['Bank', 'CT - grey']
+
+        intl_dlg = ui.dialog()
+        with intl_dlg, ui.card().classes("my-card mf-add-dialog").style(
+            "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
+        ):
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #f472b6, #f472b666); border-radius: 24px 24px 0 0;')
+            with ui.element('div').style('padding: 20px 24px 16px 24px;'):
+                with ui.row().classes('items-center gap-3'):
+                    with ui.element('div').style(
+                        'width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center;'
+                        'background: rgba(244,114,182,0.18); border: 1px solid rgba(244,114,182,0.22);'
+                    ):
+                        ui.icon('public').style('font-size: 22px; color: #f472b6;')
+                    with ui.column().classes('gap-0'):
+                        ui.label('International Transfer').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                        ui.label('Record international transfer (CAD)').classes('text-xs').style('color: var(--mf-muted);')
+                    ui.element('div').style('flex: 1;')
+                    ui.button('', icon='close', on_click=intl_dlg.close).props('flat round dense').style('opacity: 0.5;')
+
+            # Date & Amount
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('w-full gap-3'):
+                    intl_date = ui.input(value=today().isoformat()).props("type=date outlined dense").classes("flex-1 mf-no-label")
+                    intl_amount = ui.number(value=0).props("outlined dense").classes("flex-1 mf-no-label")
+                ui.label('Amount in CAD').classes('text-xs').style('color: var(--mf-muted); margin-top: -4px;')
+
+            # Withdrawal source
+            ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-2 mt-3 mb-2'):
+                    ui.icon('public').style('font-size: 15px; color: #f472b6; opacity: 0.7;')
+                    ui.label('Transfer Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
+                intl_source = ui.select(INTL_SOURCES, value='Bank', label='Withdrawal Source').props('outlined').classes('w-full').style('min-height: 52px;')
+                intl_source.props('hint="Bank or CT - grey card only"')
+                intl_notes = ui.textarea("Notes / Recipient", value="").props("outlined dense rows=2").classes("w-full")
+
+            # Actions
+            with ui.row().classes("w-full justify-end gap-3").style("padding: 14px 24px 12px 24px;"):
+                ui.button("Cancel", on_click=intl_dlg.close).props("flat").style("border-radius: 10px;")
+                def _save_intl():
+                    dd = parse_date(intl_date.value) or today()
+                    amt_val = float(to_float(intl_amount.value))
+                    if amt_val <= 0:
+                        ui.notify("Enter a valid amount", type="warning")
+                        return
+                    _notes_str = str(intl_notes.value or "").strip()
+                    tx_id = sha16(f"Family|{dd.isoformat()}|International|{amt_val}|{intl_source.value}|{intl_source.value}|International Transfer|{_notes_str}|{dt.datetime.now().isoformat()}")
+                    append_tx(
+                        tx_id=tx_id, date_=dd, owner="Family",
+                        type_="International", amount=amt_val,
+                        method=str(intl_source.value),
+                        account=str(intl_source.value),
+                        category="International Transfer",
+                        notes=_notes_str,
+                        recurring_id=""
+                    )
+                    invalidate('transactions')
+                    ui.notify(f"International transfer of {currency(amt_val)} saved", type="positive")
+                    intl_dlg.close()
+                ui.button("Save", on_click=_save_intl, icon="check").props("unelevated").style(
+                    "background: linear-gradient(135deg, #f472b6, #f472b6cc) !important; color: #fff !important;"
+                    "font-weight: 700; border-radius: 12px; padding: 8px 32px;"
+                )
+        ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
+        intl_dlg.open()
+
     def content():
         # --- Hero: Scan Receipt (premium gradient card) ---
         with ui.card().classes("my-card p-0").style(
@@ -7338,25 +7603,33 @@ def add_page():
         with ui.card().classes("my-card p-5"):
             ui.label("Quick Add").classes("mf-section-title")
 
+            # 8.2.2: Reorganized tile grid — merged LOC, renamed Invest, added Intl Transfer
             tiles = [
-                ("Expense",   "shopping_cart",    "Debit",      {},  "rgba(239,68,68,0.10)",  "#ef4444"),
-                ("Income",    "trending_up",      "Credit",     {},  "rgba(34,197,94,0.10)",  "#22c55e"),
-                ("Investment","show_chart",       "Investment", {},  "rgba(168,85,247,0.10)", "#a855f7"),
-                ("CC Repay",  "credit_card",      "CC Repay",   {},  "rgba(251,191,36,0.10)", "#eab308"),
-                ("LOC Draw",  "account_balance",  "LOC Draw",   {"preset_category": "LOC Utilization", "preset_method": "Card", "preset_account": "Line of Credit"}, "rgba(96,165,250,0.10)", "#60a5fa"),
-                ("LOC Repay", "swap_horiz",       "LOC Repay",  {"preset_category": "Repayment", "preset_method": "Bank", "preset_account": "Line of Credit"}, "rgba(45,212,191,0.10)", "#2dd4bf"),
+                ("Expense",        "shopping_cart",   "Debit",      {},  "rgba(239,68,68,0.10)",  "#ef4444"),
+                ("Income",         "trending_up",     "Credit",     {},  "rgba(34,197,94,0.10)",  "#22c55e"),
+                ("Invest",         "show_chart",      "__INVEST__", {},  "rgba(168,85,247,0.10)", "#a855f7"),
+                ("CC Repay",       "credit_card",     "CC Repay",   {},  "rgba(251,191,36,0.10)", "#eab308"),
+                ("Line of Credit", "account_balance", "__LOC__",    {},  "rgba(96,165,250,0.10)", "#60a5fa"),
+                ("Intl Transfer",  "public",          "__INTL__",   {},  "rgba(244,114,182,0.10)","#f472b6"),
             ]
+
+            def _tile_click(et, k):
+                if et == '__LOC__':
+                    open_loc_dialog()
+                elif et == '__INVEST__':
+                    open_invest_dialog()
+                elif et == '__INTL__':
+                    open_intl_dialog()
+                else:
+                    open_add_dialog(et, **k)
 
             with ui.element("div").classes("w-full").style(
                 "display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px;"
             ):
                 for label, icon, etype, kw, bg, accent in tiles:
-                    # B1 FIX: NiceGUI .on("click") passes ClickEventArguments as the first
-                    # positional arg, which would override the default `e=etype`.  We absorb
-                    # the event object in `_evt` so `et` always keeps the entry-type string.
                     with ui.card().classes("my-card tile p-0").style(
                         f"cursor: pointer; border: 1px solid rgba(255,255,255,0.06);"
-                    ).on("click", lambda _evt=None, et=etype, k=kw: open_add_dialog(et, **k)):
+                    ).on("click", lambda _evt=None, et=etype, k=kw: _tile_click(et, k)):
                         with ui.column().classes("items-center justify-center p-4 gap-3").style("min-height: 105px;"):
                             with ui.element("div").classes("mf-icon-box").style(f"background: {bg};"):
                                 ui.icon(icon).style(f"font-size: 22px; color: {accent};")
