@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '8.3'
+APP_VERSION = '8.4'
 
 
 def log(message: str) -> None:
@@ -3057,8 +3057,9 @@ html.mf-light .q-menu .q-item:hover {
 .q-item, .q-item__label, .q-item__section, .q-field__native, .q-field__label, .q-field__prefix, .q-field__suffix {
   color: var(--mf-text) !important;
 }
-.q-item--active, .q-item--active .q-item__label { 
-  color: var(--mf-text) !important;
+.q-item--active, .q-item--active .q-item__label {
+  color: var(--mf-accent) !important;
+  background: transparent !important;
 }
 
 
@@ -3176,7 +3177,8 @@ html.mf-light .q-field__control {
   background: rgba(0,0,0,0.03) !important;
 }
 .q-item--active {
-  background: rgba(91,140,255,0.16) !important;
+  color: var(--mf-accent) !important;
+  background: transparent !important;
 }
 
 
@@ -3860,8 +3862,8 @@ a.mf-more-item.is-active:visited {
   color: var(--mf-text) !important;
 }
 .q-item--active, .q-item--active .q-item__label {
-  color: var(--mf-text) !important;
-  background: rgba(120,160,255,0.18) !important;
+  color: var(--mf-accent) !important;
+  background: transparent !important;
 }
 .q-item:hover, .q-item.q-manual-focusable--focused {
   background: rgba(120,160,255,0.14) !important;
@@ -4088,19 +4090,27 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 /* Force every NiceGUI wrapper div inside dialog to be full-width */
 .mf-add-dialog div[class*="nicegui"] { width: 100% !important; }
 .mf-add-dialog > div > div { width: 100% !important; }
-/* 8.2.2: Fix selected value text invisible in select dropdowns */
+/* 8.4: Fix selected value text invisible in select dropdowns — comprehensive */
+.mf-add-dialog .q-field__native,
 .mf-add-dialog .q-field__native span,
+.mf-add-dialog .q-field__native .q-field__input,
 .mf-add-dialog .q-select .q-field__native,
 .mf-add-dialog .q-select .q-field__native > span,
 .mf-add-dialog .q-field--auto-height .q-field__native > span,
-.mf-add-dialog .q-field__native {
+.mf-add-dialog .q-field__native .q-chip__content,
+.mf-add-dialog .q-field__native .q-chip,
+.q-select .q-field__native,
+.q-select .q-field__native > span,
+.q-field__native span {
   color: var(--mf-text) !important;
   opacity: 1 !important;
   -webkit-text-fill-color: var(--mf-text) !important;
 }
 html.mf-light .mf-add-dialog .q-field__native span,
 html.mf-light .mf-add-dialog .q-select .q-field__native,
-html.mf-light .mf-add-dialog .q-select .q-field__native > span {
+html.mf-light .mf-add-dialog .q-select .q-field__native > span,
+html.mf-light .q-select .q-field__native,
+html.mf-light .q-select .q-field__native > span {
   color: var(--mf-text) !important;
   -webkit-text-fill-color: var(--mf-text) !important;
 }
@@ -5013,25 +5023,18 @@ def owners_list() -> List[str]:
 
 
 def accounts_list() -> List[str]:
-    """Return known accounts from transactions + cards sheets + sensible defaults."""
-    accts: set[str] = set()
-    # 1) From past transactions
-    tx = cached_df("transactions")
-    if not tx.empty and "account" in tx.columns:
-        accts |= set(tx["account"].astype(str).tolist())
-    # 2) From cards sheet (card_name = account key, method_name = payment label)
-    try:
-        cards = cached_df("cards")
-        if not cards.empty:
-            for col in ("card_name", "method_name"):
-                if col in cards.columns:
-                    accts |= set(cards[col].astype(str).tolist())
-    except Exception:
-        pass
-    # 3) Defaults so Investment / LOC / Income always have an account to select
-    accts |= {"Bank", "Line of Credit"}
-    accts = {a.strip() for a in accts if a and a.strip()}
-    return sorted(accts)
+    """Return the canonical set of accounts.
+    8.4: Cleaned up to only valid accounts — no redundant entries."""
+    # Canonical accounts — the ONLY valid accounts in the system
+    VALID_ACCOUNTS = [
+        "Bank",
+        "CanadianTire Mastercard - Black",
+        "CanadianTire Mastercard - Grey",
+        "RBC VISA",
+        "RBC Mastercard",
+        "RBC Line of Credit",
+    ]
+    return VALID_ACCOUNTS
 
 
 def categories_list() -> List[str]:
@@ -6354,8 +6357,8 @@ def add_page():
                 hide_method = True
                 hide_category = True
                 fixed_category = 'CC Repay'
-                # 8.2.2: Restrict CC Repay to only credit card / LOC accounts
-                CC_REPAY_ACCOUNTS = ["RBC Line of Credit", "RBC VISA", "RBC MasterCard", "CT - Black", "CT - grey"]
+                # 8.4: Restrict CC Repay to only credit card / LOC accounts
+                CC_REPAY_ACCOUNTS = ["RBC Line of Credit", "RBC VISA", "RBC Mastercard", "CanadianTire Mastercard - Black", "CanadianTire Mastercard - Grey"]
                 accounts = [a for a in accounts if a in CC_REPAY_ACCOUNTS]
                 if not accounts:
                     accounts = CC_REPAY_ACCOUNTS
@@ -6393,6 +6396,9 @@ def add_page():
             # Ensure defaults are valid options (NiceGUI select raises if value not in options)
             if method_default and method_default not in methods:
                 methods = [method_default] + [m for m in methods if m != method_default]
+            # 8.4: For CC Repay, force default to first valid CC account (not a stale last_debit_account)
+            if is_cc_repay and account_default not in (accounts or []):
+                account_default = accounts[0] if accounts else ""
             if account_default and account_default not in (accounts or []):
                 accounts = [account_default] + [a for a in (accounts or []) if a != account_default]
 
@@ -6407,11 +6413,11 @@ def add_page():
                 if hide_method:
                     d_method = None
                 else:
-                    d_method = ui.select(methods or [""], value=(method_default if method_default in (methods or []) else ""), label="Method").props("outlined").classes("w-full").style("min-height: 52px; font-size: 15px;")
+                    d_method = ui.select(methods or [""], value=(method_default if method_default in (methods or []) else ""), label="Method").props('outlined behavior="menu"').classes("w-full").style("min-height: 52px; font-size: 15px;")
                     if is_debit:
                         d_method.props('hint="Select payment method"')
 
-                d_account = ui.select(accounts or [""], value=(account_default if account_default in (accounts or []) else ""), label="Account").props("outlined").classes("w-full").style("min-height: 52px; font-size: 15px;")
+                d_account = ui.select(accounts or [""], value=(account_default if account_default in (accounts or []) else ""), label="Account").props('outlined behavior="menu"').classes("w-full").style("min-height: 52px; font-size: 15px;")
                 if is_debit:
                     d_account.props('hint="Choose your account"')
                 d_account.props('popup-content-class="mf-menu-light"')
@@ -6431,7 +6437,7 @@ def add_page():
                         ui.icon('category').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
                         ui.label('Category & Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
 
-                d_category = ui.select(categories, value=(fixed_category or "Uncategorized"), label="Category").props("outlined dense").classes("w-full")
+                d_category = ui.select(categories, value=(fixed_category or "Uncategorized"), label="Category").props('outlined dense behavior="menu"').classes("w-full")
                 if hide_category:
                     d_category.set_visibility(False)
                 if is_debit:
@@ -7389,12 +7395,12 @@ def add_page():
         dlg.open()
 
     # ──────────────────────────────────────────────────────────────────────
-    # 8.2.2: Line of Credit — intermediate dialog (Withdrawal / Repayment)
+    # 8.4: Line of Credit — full dialog with date, amount, type selector
     # ──────────────────────────────────────────────────────────────────────
     def open_loc_dialog():
         loc_dlg = ui.dialog()
         with loc_dlg, ui.card().classes("my-card mf-add-dialog").style(
-            "width: 400px; max-width: 95vw; padding: 0; border-radius: 24px;"
+            "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #60a5fa, #60a5fa66); border-radius: 24px 24px 0 0;')
             with ui.element('div').style('padding: 20px 24px 16px 24px;'):
@@ -7406,27 +7412,59 @@ def add_page():
                         ui.icon('account_balance').style('font-size: 22px; color: #60a5fa;')
                     with ui.column().classes('gap-0'):
                         ui.label('Line of Credit').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
-                        ui.label('Choose transaction type').classes('text-xs').style('color: var(--mf-muted);')
+                        ui.label('Record LOC withdrawal or repayment').classes('text-xs').style('color: var(--mf-muted);')
                     ui.element('div').style('flex: 1;')
                     ui.button('', icon='close', on_click=loc_dlg.close).props('flat round dense').style('opacity: 0.5;')
 
-            with ui.element('div').style('padding: 0 24px 20px 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+            # Date & Amount
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('w-full gap-3'):
+                    loc_date = ui.input(value=today().isoformat()).props("type=date outlined dense").classes("flex-1 mf-no-label")
+                    loc_amount = ui.number(value=0).props("outlined dense").classes("flex-1 mf-no-label")
+
+            # Transaction type
+            ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-2 mt-3 mb-2'):
+                    ui.icon('swap_horiz').style('font-size: 15px; color: #60a5fa; opacity: 0.7;')
+                    ui.label('Transaction Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
                 loc_type = ui.select(
                     ['Withdrawal', 'Repayment'], value='Withdrawal', label='Transaction Type'
-                ).props('outlined').classes('w-full')
+                ).props('outlined behavior="menu"').classes('w-full')
+                loc_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
 
-                with ui.row().classes('w-full justify-end gap-3 mt-4'):
-                    ui.button('Cancel', on_click=loc_dlg.close).props('flat').style('border-radius: 10px;')
-                    def _loc_proceed():
-                        loc_dlg.close()
-                        if loc_type.value == 'Withdrawal':
-                            open_add_dialog('LOC Draw', preset_category='LOC Utilization', preset_method='Card', preset_account='Line of Credit')
-                        else:
-                            open_add_dialog('LOC Repay', preset_category='Repayment', preset_method='Bank', preset_account='Line of Credit')
-                    ui.button('Continue', on_click=_loc_proceed, icon='arrow_forward').props('unelevated').style(
-                        'background: linear-gradient(135deg, #60a5fa, #60a5facc) !important; color: #fff !important;'
-                        'font-weight: 700; border-radius: 12px; padding: 8px 24px;'
+            # Actions
+            with ui.row().classes("w-full justify-end gap-3").style("padding: 14px 24px 12px 24px;"):
+                ui.button("Cancel", on_click=loc_dlg.close).props("flat").style("border-radius: 10px;")
+                def _save_loc():
+                    dd = parse_date(loc_date.value) or today()
+                    amt_val = float(to_float(loc_amount.value))
+                    if amt_val <= 0:
+                        ui.notify("Enter a valid amount", type="warning")
+                        return
+                    is_withdraw = loc_type.value == 'Withdrawal'
+                    _type = 'LOC Draw' if is_withdraw else 'LOC Repay'
+                    _method = 'Card' if is_withdraw else 'Bank'
+                    _category = 'LOC Utilization' if is_withdraw else 'Repayment'
+                    _notes_str = str(loc_notes.value or "").strip()
+                    tx_id = sha16(f"Family|{dd.isoformat()}|{_type}|{amt_val}|{_method}|RBC Line of Credit|{_category}|{_notes_str}|{dt.datetime.now().isoformat()}")
+                    append_tx(
+                        tx_id=tx_id, date_=dd, owner="Family",
+                        type_=_type, amount=amt_val,
+                        method=_method, account="RBC Line of Credit",
+                        category=_category,
+                        notes=_notes_str,
+                        recurring_id=""
                     )
+                    invalidate('transactions')
+                    _action = "withdrawal" if is_withdraw else "repayment"
+                    ui.notify(f"LOC {_action} of {currency(amt_val)} saved", type="positive")
+                    loc_dlg.close()
+                ui.button("Save", on_click=_save_loc, icon="check").props("unelevated").style(
+                    "background: linear-gradient(135deg, #60a5fa, #60a5facc) !important; color: #fff !important;"
+                    "font-weight: 700; border-radius: 12px; padding: 8px 32px;"
+                )
+        ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
         loc_dlg.open()
 
     # ──────────────────────────────────────────────────────────────────────
@@ -7434,10 +7472,6 @@ def add_page():
     # ──────────────────────────────────────────────────────────────────────
     def open_invest_dialog():
         INVEST_ACCOUNTS = ['FHSA', 'TFSA', 'RRSP', 'Indhu-TFSA']
-        _all_accts = accounts_list()
-        _source_accts = [a for a in _all_accts if a not in INVEST_ACCOUNTS]
-        if 'Bank' not in _source_accts:
-            _source_accts.insert(0, 'Bank')
 
         inv_dlg = ui.dialog()
         with inv_dlg, ui.card().classes("my-card mf-add-dialog").style(
@@ -7469,10 +7503,9 @@ def add_page():
                 with ui.row().classes('items-center gap-2 mt-3 mb-2'):
                     ui.icon('savings').style('font-size: 15px; color: #a855f7; opacity: 0.7;')
                     ui.label('Investment Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
-                inv_account = ui.select(INVEST_ACCOUNTS, value='TFSA', label='Investment Account').props('outlined').classes('w-full').style('min-height: 52px;')
+                inv_account = ui.select(INVEST_ACCOUNTS, value='TFSA', label='Investment Account').props('outlined behavior="menu"').classes('w-full').style('min-height: 52px;')
                 inv_account.props('hint="Where to invest (FHSA, TFSA, RRSP...)"')
-                inv_source = ui.select(_source_accts, value='Bank', label='Source Account').props('outlined').classes('w-full').style('min-height: 52px;')
-                inv_source.props('hint="Where money comes from"')
+                inv_source = ui.select(['Bank'], value='Bank', label='Source Account').props('outlined behavior="menu" disable').classes('w-full').style('min-height: 52px; opacity: 0.6;')
                 inv_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
 
             # Actions
@@ -7510,7 +7543,7 @@ def add_page():
     # 8.2.2: International Transfer — custom dialog (CAD only)
     # ──────────────────────────────────────────────────────────────────────
     def open_intl_dialog():
-        INTL_SOURCES = ['Bank', 'CT - grey']
+        INTL_SOURCES = ['Bank', 'CanadianTire Mastercard - Grey']
 
         intl_dlg = ui.dialog()
         with intl_dlg, ui.card().classes("my-card mf-add-dialog").style(
@@ -7543,7 +7576,7 @@ def add_page():
                 with ui.row().classes('items-center gap-2 mt-3 mb-2'):
                     ui.icon('public').style('font-size: 15px; color: #f472b6; opacity: 0.7;')
                     ui.label('Transfer Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
-                intl_source = ui.select(INTL_SOURCES, value='Bank', label='Withdrawal Source').props('outlined').classes('w-full').style('min-height: 52px;')
+                intl_source = ui.select(INTL_SOURCES, value='Bank', label='Withdrawal Source').props('outlined behavior="menu"').classes('w-full').style('min-height: 52px;')
                 intl_source.props('hint="Bank or CT - grey card only"')
                 intl_notes = ui.textarea("Notes / Recipient", value="").props("outlined dense rows=2").classes("w-full")
 
