@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '8.5'
+APP_VERSION = '8.6'
 
 
 def log(message: str) -> None:
@@ -2823,7 +2823,7 @@ def passkey_login(username: str = "") -> None:
           return Uint8Array.from(atob(s), c => c.charCodeAt(0));
         }};
         const bufToB64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)))
-            .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/g,'');
+            .replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/g,'');
 
         const publicKey = {{
           challenge: b64urlToBuf(opts.challenge),
@@ -4090,29 +4090,31 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 /* Force every NiceGUI wrapper div inside dialog to be full-width */
 .mf-add-dialog div[class*="nicegui"] { width: 100% !important; }
 .mf-add-dialog > div > div { width: 100% !important; }
-/* 8.4: Fix selected value text invisible in select dropdowns — comprehensive */
-.mf-add-dialog .q-field__native,
-.mf-add-dialog .q-field__native span,
-.mf-add-dialog .q-field__native .q-field__input,
-.mf-add-dialog .q-select .q-field__native,
-.mf-add-dialog .q-select .q-field__native > span,
-.mf-add-dialog .q-field--auto-height .q-field__native > span,
-.mf-add-dialog .q-field__native .q-chip__content,
-.mf-add-dialog .q-field__native .q-chip,
+/* 8.6: NUCLEAR FIX — force ALL select field text visible via every selector */
+.q-field__native,
+.q-field__native *,
+.q-field__native span,
 .q-select .q-field__native,
-.q-select .q-field__native > span,
-.q-field__native span {
+.q-select .q-field__native *,
+.q-field--auto-height .q-field__native *,
+.mf-add-dialog .q-field__native,
+.mf-add-dialog .q-field__native *,
+.q-field__control-container .q-field__native,
+.q-field__control-container .q-field__native * {
   color: var(--mf-text) !important;
+  -webkit-text-fill-color: var(--mf-text) !important;
   opacity: 1 !important;
-  -webkit-text-fill-color: var(--mf-text) !important;
 }
-html.mf-light .mf-add-dialog .q-field__native span,
-html.mf-light .mf-add-dialog .q-select .q-field__native,
-html.mf-light .mf-add-dialog .q-select .q-field__native > span,
-html.mf-light .q-select .q-field__native,
-html.mf-light .q-select .q-field__native > span {
+/* Quasar dark mode overrides — neutralize them */
+.q-dark .q-field__native,
+.q-dark .q-field__native *,
+.body--dark .q-field__native,
+.body--dark .q-field__native *,
+.q-field--dark .q-field__native,
+.q-field--dark .q-field__native * {
   color: var(--mf-text) !important;
   -webkit-text-fill-color: var(--mf-text) !important;
+  opacity: 1 !important;
 }
 
 /* Upload bar theming */
@@ -4439,7 +4441,7 @@ ui.add_head_html(
         const toast = (msg) => { try { (window.mfToast ? window.mfToast(msg) : console.log(msg)); } catch(e) {} };
 
         const bufToB64Url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)))
-          .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+          .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/g, '');
         const b64UrlToBuf = (b64url) => {
           const pad = '='.repeat((4 - (b64url.length % 4)) % 4);
           const b64 = (b64url + pad).replace(/-/g, '+').replace(/_/g, '/');
@@ -4610,26 +4612,38 @@ window.mfSetTheme = function(name){
       // Fix Plotly text colors after theme is applied
       setTimeout(()=>{ try{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }catch(e){} }, 60);
 
-      // 8.5: Force selected dropdown text to be visible — runs after every theme switch
+      // 8.6: NUCLEAR — force select text visible via inline styles + polling interval
       try {
         var mfText = getComputedStyle(document.documentElement).getPropertyValue('--mf-text').trim() || '#e2e8f0';
         window.__mfSelectTextColor = mfText;
         window.__mfFixSelectText = function() {
           var c = window.__mfSelectTextColor || '#e2e8f0';
-          document.querySelectorAll('.q-select .q-field__native, .q-select .q-field__native span, .q-field__native span').forEach(function(el) {
-            el.style.setProperty('color', c, 'important');
-            el.style.setProperty('-webkit-text-fill-color', c, 'important');
-            el.style.setProperty('opacity', '1', 'important');
+          // Target EVERYTHING inside .q-field__native — the span, any child, the element itself
+          document.querySelectorAll('.q-field__native, .q-field__native *, .q-select .q-field__native, .q-select .q-field__native *, .q-field__control-container .q-field__native *').forEach(function(el) {
+            if (el.style) {
+              el.style.setProperty('color', c, 'important');
+              el.style.setProperty('-webkit-text-fill-color', c, 'important');
+              el.style.setProperty('opacity', '1', 'important');
+            }
           });
         };
+        // Run immediately
         window.__mfFixSelectText();
-        if (!window.__mfSelectObserver) {
-          window.__mfSelectObserver = new MutationObserver(function() {
+        // Set up polling interval (runs every 500ms — catches all Vue re-renders)
+        if (!window.__mfSelectInterval) {
+          window.__mfSelectInterval = setInterval(function() {
             try { window.__mfFixSelectText(); } catch(e) {}
-          });
-          window.__mfSelectObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
-          ['click','touchstart','change','focusout'].forEach(function(ev) {
-            document.addEventListener(ev, function() { setTimeout(function(){ try{ window.__mfFixSelectText(); }catch(e){} }, 50); }, true);
+          }, 500);
+        }
+        // Also fire on user interactions for instant response
+        if (!window.__mfSelectEvents) {
+          window.__mfSelectEvents = true;
+          ['click','touchstart','touchend','change','focusout','input','pointerup'].forEach(function(ev) {
+            document.addEventListener(ev, function() {
+              setTimeout(function(){ try{ window.__mfFixSelectText(); }catch(e){} }, 30);
+              setTimeout(function(){ try{ window.__mfFixSelectText(); }catch(e){} }, 150);
+              setTimeout(function(){ try{ window.__mfFixSelectText(); }catch(e){} }, 400);
+            }, true);
           });
         }
       } catch(e) {}
@@ -8514,7 +8528,7 @@ def security_page() -> None:
                     }}
                     const opts = await optRes.json();
                     const b64urlToBuf = (s) => { s=(s||'').replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='='; return Uint8Array.from(atob(s), c=>c.charCodeAt(0)); };
-                    const bufToB64url = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/g,'');
+                    const bufToB64url = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/g,'');
                     const pubKey = {{
                       challenge: b64urlToBuf(opts.challenge),
                       rp: opts.rp,
@@ -10213,27 +10227,21 @@ ui.run(
     reconnect_timeout=30,
 )
 
-# Release: FinTrackr Phase 8.5
+# Release: FinTrackr Phase 8.6
 # ────────────────────────────────────────────────
-# Phase 8.5 (6 UI refinements):
+# Phase 8.6 (3 fixes):
 #
-# 1.  Bottom bar: icons only — removed all text labels (Home, Tx, Cards, More).
-#     Icons enlarged to 30px. Cleaner, more spacious look.
-# 2.  Active tab: full icon highlight with rounded pill background
-#     (rgba accent bg + border-radius + padding) instead of small dot.
-#     Tap feedback also shows pill highlight on press.
-# 3.  More menu: replaced full-height right rail with compact floating popup
-#     that appears right above the hamburger icon. Shows only Rules, Admin,
-#     About. Uses mf-more-open class instead of mf-nav-open for mobile.
-#     Popup animates in with scale+fade, closes on backdrop tap.
-# 4.  Transactions page mobile: aggressive overflow containment —
-#     .mf-main overflow-x:hidden, .mf-canvas 100% width + box-sizing,
-#     table-layout:fixed, .w-40 elements flex to 48% max on mobile,
-#     .q-table__container gets overflow-x:auto for horizontal scroll.
-# 5.  Budgets section: explicit w-full + width:100% + box-sizing on card.
-#     Global .mf-canvas .my-card gets box-sizing:border-box for all cards.
-# 6.  Version bumped to 8.2.1.
+# 1.  Dropdown text visibility — NUCLEAR fix: wildcard CSS selectors
+#     (.q-field__native *, .q-dark .q-field__native *) with !important
+#     color + -webkit-text-fill-color + opacity:1.  JS polling every
+#     500 ms forces inline styles on all select field text. Multi-delay
+#     event listeners (30/150/400 ms) on click, touch, change, focusout,
+#     input, pointerup guarantee text stays visible after selection.
+# 2.  SyntaxWarning fix — escaped backslashes in JavaScript regex
+#     patterns (/\+/g, /\//g) inside Python triple-quoted strings
+#     at three passkey helper locations (bufToB64url / bufToB64Url).
+#     Eliminates Python 3.12+ "invalid escape sequence '\+'" warnings.
+# 3.  Version bumped to 8.6.
 #
-# Carries forward all 8.2 + 8.1 fixes.
-# ────────────────────────────────────────────────
+# Carries forward all 8.5 + 8.4 + 8.3 + 8.2 + 8.1 fixes.
 # ────────────────────────────────────────────────
