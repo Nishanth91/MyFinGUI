@@ -4090,22 +4090,32 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 /* Force every NiceGUI wrapper div inside dialog to be full-width */
 .mf-add-dialog div[class*="nicegui"] { width: 100% !important; }
 .mf-add-dialog > div > div { width: 100% !important; }
-/* 8.7: Backup CSS — ensure select text matches app theme color.
-   Primary fix is ui.dark_mode() telling Quasar the correct mode. */
-.q-field__native,
-.q-field__native > span {
+/* 8.7: Force select field text visible — belt-and-suspenders with input-style prop.
+   The .mf-select class is added to every dialog select for targeted styling. */
+.mf-select .q-field__native,
+.mf-select .q-field__native > span,
+.mf-select .q-field__native > div,
+.mf-select .q-field__input {
   color: var(--mf-text) !important;
   -webkit-text-fill-color: var(--mf-text) !important;
   opacity: 1 !important;
 }
-/* 8.7: Prevent dropdown menus from triggering dialog scroll-into-view jumps */
-.mf-add-dialog .q-menu,
-.mf-add-dialog .q-select__dialog {
-  overflow-anchor: none !important;
+/* Also catch Quasar dark overrides on the field wrapper */
+.mf-select.q-field .q-field__control {
+  color: var(--mf-text) !important;
 }
-.mf-add-dialog {
-  scroll-behavior: auto !important;
-  overflow-anchor: none !important;
+/* Dialog-mode popup styling — clean list */
+.mf-select-popup {
+  background: var(--mf-bg-2, #0B1020) !important;
+  color: var(--mf-text) !important;
+  border: 1px solid var(--mf-border) !important;
+  border-radius: 16px !important;
+}
+.mf-select-popup .q-item__label {
+  color: var(--mf-text) !important;
+}
+html.mf-light .mf-select-popup {
+  background: var(--mf-menu-bg, #fff) !important;
 }
 
 /* Upload bar theming */
@@ -4603,8 +4613,16 @@ window.mfSetTheme = function(name){
       // Fix Plotly text colors after theme is applied
       setTimeout(()=>{ try{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }catch(e){} }, 60);
 
-      // 8.7: Removed JS polling/interval hacks. Root fix is ui.dark_mode()
-      // which tells Quasar the correct mode at render time.
+      // 8.7: After theme change, force text color on .mf-select fields (one-shot, not polling)
+      setTimeout(function(){
+        try {
+          var c = getComputedStyle(document.documentElement).getPropertyValue('--mf-text').trim() || '#e2e8f0';
+          document.querySelectorAll('.mf-select .q-field__native, .mf-select .q-field__native > span, .mf-select .q-field__native > div').forEach(function(el) {
+            el.style.setProperty('color', c, 'important');
+            el.style.setProperty('-webkit-text-fill-color', c, 'important');
+          });
+        } catch(e) {}
+      }, 100);
     }catch(e){}
   };
 
@@ -6417,14 +6435,31 @@ def add_page():
                 if hide_method:
                     d_method = None
                 else:
-                    d_method = ui.select(methods or [""], value=(method_default if method_default in (methods or []) else ""), label="Method").props('outlined popup-content-style="max-height:220px" transition-show="none" transition-hide="none"').classes("w-full").style("min-height: 52px; font-size: 15px;")
+                    d_method = ui.select(
+                        methods or [""],
+                        value=(method_default if method_default in (methods or []) else ""),
+                        label="Method",
+                    ).props(
+                        'outlined behavior="dialog" '
+                        'popup-content-class="mf-select-popup" '
+                        'popup-content-style="max-height:50vh" '
+                        'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
+                    ).classes("w-full mf-select").style("min-height: 52px; font-size: 15px; color: var(--mf-text);")
                     if is_debit:
                         d_method.props('hint="Select payment method"')
 
-                d_account = ui.select(accounts or [""], value=(account_default if account_default in (accounts or []) else ""), label="Account").props('outlined popup-content-style="max-height:220px" transition-show="none" transition-hide="none"').classes("w-full").style("min-height: 52px; font-size: 15px;")
+                d_account = ui.select(
+                    accounts or [""],
+                    value=(account_default if account_default in (accounts or []) else ""),
+                    label="Account",
+                ).props(
+                    'outlined behavior="dialog" '
+                    'popup-content-class="mf-select-popup" '
+                    'popup-content-style="max-height:50vh" '
+                    'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
+                ).classes("w-full mf-select").style("min-height: 52px; font-size: 15px; color: var(--mf-text);")
                 if is_debit:
                     d_account.props('hint="Choose your account"')
-                d_account.props('popup-content-class="mf-menu-light"')
                 if disable_account:
                     d_account.props("disable")
 
@@ -6441,7 +6476,16 @@ def add_page():
                         ui.icon('category').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
                         ui.label('Category & Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
 
-                d_category = ui.select(categories, value=(fixed_category or "Uncategorized"), label="Category").props('outlined dense popup-content-style="max-height:220px" transition-show="none" transition-hide="none"').classes("w-full")
+                d_category = ui.select(
+                    categories,
+                    value=(fixed_category or "Uncategorized"),
+                    label="Category",
+                ).props(
+                    'outlined dense behavior="dialog" '
+                    'popup-content-class="mf-select-popup" '
+                    'popup-content-style="max-height:50vh" '
+                    'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
+                ).classes("w-full mf-select")
                 if hide_category:
                     d_category.set_visibility(False)
                 if is_debit:
@@ -7434,7 +7478,12 @@ def add_page():
                     ui.label('Transaction Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
                 loc_type = ui.select(
                     ['Withdrawal', 'Repayment'], value='Withdrawal', label='Transaction Type'
-                ).props('outlined popup-content-style="max-height:220px" transition-show="none" transition-hide="none"').classes('w-full')
+                ).props(
+                    'outlined behavior="dialog" '
+                    'popup-content-class="mf-select-popup" '
+                    'popup-content-style="max-height:50vh" '
+                    'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
+                ).classes('w-full mf-select')
                 loc_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
 
             # Actions
@@ -7513,7 +7562,14 @@ def add_page():
                 with ui.row().classes('items-center gap-2 mt-3 mb-2'):
                     ui.icon('credit_card').style('font-size: 15px; color: #eab308; opacity: 0.7;')
                     ui.label('Card').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
-                cc_card = ui.select(CC_CARDS, value=CC_CARDS[0], label='Credit Card').props('outlined popup-content-style="max-height:220px" transition-show="none" transition-hide="none"').classes('w-full').style('min-height: 52px;')
+                cc_card = ui.select(
+                    CC_CARDS, value=CC_CARDS[0], label='Credit Card'
+                ).props(
+                    'outlined behavior="dialog" '
+                    'popup-content-class="mf-select-popup" '
+                    'popup-content-style="max-height:50vh" '
+                    'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
+                ).classes('w-full mf-select').style('min-height: 52px;')
                 cc_card.props('hint="Select which card you paid"')
                 cc_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
 
@@ -7583,9 +7639,23 @@ def add_page():
                 with ui.row().classes('items-center gap-2 mt-3 mb-2'):
                     ui.icon('savings').style('font-size: 15px; color: #a855f7; opacity: 0.7;')
                     ui.label('Investment Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
-                inv_account = ui.select(INVEST_ACCOUNTS, value='TFSA', label='Investment Account').props('outlined popup-content-style="max-height:220px" transition-show="none" transition-hide="none"').classes('w-full').style('min-height: 52px;')
+                inv_account = ui.select(
+                    INVEST_ACCOUNTS, value='TFSA', label='Investment Account'
+                ).props(
+                    'outlined behavior="dialog" '
+                    'popup-content-class="mf-select-popup" '
+                    'popup-content-style="max-height:50vh" '
+                    'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
+                ).classes('w-full mf-select').style('min-height: 52px;')
                 inv_account.props('hint="Where to invest (FHSA, TFSA, RRSP...)"')
-                inv_source = ui.select(['Bank'], value='Bank', label='Source Account').props('outlined disable popup-content-style="max-height:220px" transition-show="none" transition-hide="none"').classes('w-full').style('min-height: 52px; opacity: 0.6;')
+                inv_source = ui.select(
+                    ['Bank'], value='Bank', label='Source Account'
+                ).props(
+                    'outlined disable behavior="dialog" '
+                    'popup-content-class="mf-select-popup" '
+                    'popup-content-style="max-height:50vh" '
+                    'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
+                ).classes('w-full mf-select').style('min-height: 52px; opacity: 0.6;')
                 inv_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
 
             # Actions
@@ -7656,7 +7726,14 @@ def add_page():
                 with ui.row().classes('items-center gap-2 mt-3 mb-2'):
                     ui.icon('public').style('font-size: 15px; color: #f472b6; opacity: 0.7;')
                     ui.label('Transfer Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
-                intl_source = ui.select(INTL_SOURCES, value='Bank', label='Withdrawal Source').props('outlined popup-content-style="max-height:220px" transition-show="none" transition-hide="none"').classes('w-full').style('min-height: 52px;')
+                intl_source = ui.select(
+                    INTL_SOURCES, value='Bank', label='Withdrawal Source'
+                ).props(
+                    'outlined behavior="dialog" '
+                    'popup-content-class="mf-select-popup" '
+                    'popup-content-style="max-height:50vh" '
+                    'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
+                ).classes('w-full mf-select').style('min-height: 52px;')
                 intl_source.props('hint="Bank or CT - grey card only"')
                 intl_notes = ui.textarea("Notes / Recipient", value="").props("outlined dense rows=2").classes("w-full")
 
@@ -10196,20 +10273,25 @@ ui.run(
 
 # Release: FinTrackr Phase 8.7
 # ────────────────────────────────────────────────
-# Phase 8.7 (2 fixes):
+# Phase 8.7 — Clean dropdown rewrite (3-layer fix):
 #
-# 1.  Dropdown text invisible after selection — ROOT CAUSE FIXED.
-#     ui.dark_mode() was never called, so NiceGUI defaulted to light
-#     mode. Quasar rendered dark text on dark backgrounds = invisible.
-#     Fix: added ui.dark_mode(True/False) in shell() driven by the
-#     user's stored theme preference. Removed the 500 ms JS polling,
-#     event listeners, and wildcard CSS hacks (no longer needed).
-#     Kept a minimal backup CSS rule for .q-field__native.
-# 2.  Desktop dropdown jumping / flickering — removed behavior="menu"
-#     (was causing repositioning feedback loops inside scrollable
-#     dialogs). Replaced with constrained popup-content-style
-#     max-height:220px + transition-show/hide="none" on all dialog
-#     selects. Added overflow-anchor:none CSS on dialog containers.
+# 1.  Dropdown text invisible — NEW STRATEGY (replaced 5 failed attempts).
+#     Layer A: ui.dark_mode(True/False) in shell() so Quasar knows the
+#              correct mode at page-render time.
+#     Layer B: Quasar `input-style` prop on every dialog ui.select —
+#              sets color via Vue's own reactivity (won't fight itself):
+#              input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"
+#     Layer C: CSS class `.mf-select` on every dialog select with
+#              targeted rules for .q-field__native, > span, > div.
+#     Removed: 500ms JS polling, MutationObserver, wildcard * selectors,
+#              multi-delay event listeners — all replaced by the above.
+#
+# 2.  Desktop dropdown jumping — switched ALL dialog selects to
+#     behavior="dialog" (centered option picker instead of positioned
+#     floating menu). Eliminates anchor-repositioning feedback loops
+#     entirely. popup-content-class="mf-select-popup" for themed styling.
+#
+# 3.  ui.dark_mode() added to shell() (theme-aware) and login page.
 #
 # Carries forward all 8.6 + 8.5 + 8.4 + 8.3 fixes.
 # ────────────────────────────────────────────────
