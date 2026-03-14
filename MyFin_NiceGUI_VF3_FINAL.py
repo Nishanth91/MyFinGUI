@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '8.7'
+APP_VERSION = '8.8'
 
 
 def log(message: str) -> None:
@@ -4118,6 +4118,22 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 /* scrollbar for chip grids */
 .mf-chip-scroll::-webkit-scrollbar { width: 4px; }
 .mf-chip-scroll::-webkit-scrollbar-thumb { background: var(--mf-border); border-radius: 4px; }
+/* 8.8: Category dropdown fallback (9+ options) */
+.mf-cat-dropdown .q-field__control {
+  border-radius: 12px !important;
+  min-height: 42px !important;
+  border-color: var(--mf-border) !important;
+}
+.mf-cat-dropdown .q-field__native,
+.mf-cat-dropdown .q-field__native span {
+  color: var(--mf-text) !important;
+  -webkit-text-fill-color: var(--mf-text) !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+}
+.mf-cat-dropdown .q-select__dropdown-icon {
+  color: var(--mf-muted) !important;
+}
 
 /* Upload bar theming */
 .mf-add-dialog .q-uploader__header,
@@ -6261,8 +6277,59 @@ def add_page():
         return
 
     # ── 8.7: Custom chip-select — completely replaces Quasar q-select ──
-    def _chip_select(options, value, label=None, hint=None, scrollable=False, disabled=False):
-        """Chip-based option picker. Returns object with .value property."""
+    def _chip_select(options, value, label=None, hint=None, scrollable=False, disabled=False, max_chips=8):
+        """Chip-based option picker.  Falls back to a styled dropdown when
+        len(options) > max_chips so high-cardinality fields stay compact.
+        Returns object with .value / .props() / .on() / .set_visibility()."""
+
+        # ── DROPDOWN MODE (9+ options — e.g. Category) ──────────────
+        if len(options) > max_chips:
+            _dd_cbs: list = []
+            _dd_container = ui.column().classes('w-full gap-1')
+            with _dd_container:
+                if label:
+                    ui.label(label).classes('text-xs font-medium').style(
+                        'color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;'
+                    )
+                _sel_el = ui.select(
+                    options=list(options),
+                    value=(value if value in options else options[0]),
+                ).props('outlined dense options-dense').classes('w-full mf-cat-dropdown')
+                if disabled:
+                    _sel_el.props('disable')
+                if hint:
+                    ui.label(hint).classes('text-xs').style('color: var(--mf-muted); opacity: 0.6;')
+
+            # fire registered callbacks when user picks a new value
+            def _dd_changed(e):
+                for cb in _dd_cbs:
+                    try:
+                        cb(_sel_el.value)
+                    except Exception:
+                        pass
+            _sel_el.on('update:model-value', _dd_changed)
+
+            class _SelDropdown:
+                @property
+                def value(self_):
+                    return _sel_el.value
+                @value.setter
+                def value(self_, v):
+                    _sel_el.value = v
+                def set_visibility(self_, visible):
+                    _dd_container.set_visibility(visible)
+                def on_change(self_, fn):
+                    _dd_cbs.append(fn)
+                    return self_
+                def props(self_, prop_str=''):
+                    _sel_el.props(prop_str)
+                    return self_
+                def on(self_, event, fn):
+                    _dd_cbs.append(lambda v: fn(v))
+                    return self_
+            return _SelDropdown()
+
+        # ── CHIP MODE (≤8 options — Method, Account, etc.) ──────────
         _state = {'value': value, 'disabled': disabled}
         _chips: dict = {}
         _cbs: list = []
@@ -6389,7 +6456,7 @@ def add_page():
                         ui.label(f"Add {_dlabel}").classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
                         ui.label('Fill in the details below').classes('text-xs').style('color: var(--mf-muted);')
                     ui.element('div').style('flex: 1;')
-                    ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.5;')
+                    ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.7;')
 
             # ── Section 1: Date & Amount ──
             with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
@@ -6536,7 +6603,6 @@ def add_page():
                     value=(fixed_category or "Uncategorized"),
                     label="Category",
                     hint="Pick a spending category" if is_debit else None,
-                    scrollable=(len(categories or []) > 8),
                 )
                 if hide_category:
                     d_category.set_visibility(False)
@@ -7478,7 +7544,7 @@ def add_page():
 
             # Sticky footer so Save/Cancel never get pushed off-screen on mobile
             with ui.row().classes("w-full justify-end gap-3 sticky bottom-0").style(
-                "padding: 14px 24px 12px 24px; margin: 8px 0 0 0;"
+                "padding: 14px 24px 12px 24px;"
                 "background: var(--mf-card-top); border-top: 1px solid var(--mf-border);"
                 "border-radius: 0 0 24px 24px;"
             ):
@@ -7512,7 +7578,7 @@ def add_page():
                         ui.label('Line of Credit').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
                         ui.label('Record LOC withdrawal or repayment').classes('text-xs').style('color: var(--mf-muted);')
                     ui.element('div').style('flex: 1;')
-                    ui.button('', icon='close', on_click=loc_dlg.close).props('flat round dense').style('opacity: 0.5;')
+                    ui.button('', icon='close', on_click=loc_dlg.close).props('flat round dense').style('opacity: 0.7;')
 
             # Date & Amount
             with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
@@ -7593,7 +7659,7 @@ def add_page():
                         ui.label('CC Repayment').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
                         ui.label('Record a credit card payment').classes('text-xs').style('color: var(--mf-muted);')
                     ui.element('div').style('flex: 1;')
-                    ui.button('', icon='close', on_click=cc_dlg.close).props('flat round dense').style('opacity: 0.5;')
+                    ui.button('', icon='close', on_click=cc_dlg.close).props('flat round dense').style('opacity: 0.7;')
 
             # Date & Amount
             with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
@@ -7665,7 +7731,7 @@ def add_page():
                         ui.label('Add Investment').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
                         ui.label('Choose investment account & amount').classes('text-xs').style('color: var(--mf-muted);')
                     ui.element('div').style('flex: 1;')
-                    ui.button('', icon='close', on_click=inv_dlg.close).props('flat round dense').style('opacity: 0.5;')
+                    ui.button('', icon='close', on_click=inv_dlg.close).props('flat round dense').style('opacity: 0.7;')
 
             # Date & Amount
             with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
@@ -7741,7 +7807,7 @@ def add_page():
                         ui.label('International Transfer').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
                         ui.label('Record international transfer (CAD)').classes('text-xs').style('color: var(--mf-muted);')
                     ui.element('div').style('flex: 1;')
-                    ui.button('', icon='close', on_click=intl_dlg.close).props('flat round dense').style('opacity: 0.5;')
+                    ui.button('', icon='close', on_click=intl_dlg.close).props('flat round dense').style('opacity: 0.7;')
 
             # Date & Amount
             with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
@@ -10332,4 +10398,28 @@ ui.run(
 #     no floating menu positioning needed at all.
 #
 # Carries forward all 8.6 + 8.5 + 8.4 + 8.3 fixes.
+# ────────────────────────────────────────────────
+#
+# Release: FinTrackr Phase 8.8
+# ────────────────────────────────────────────────
+# Phase 8.8 — Visual cleanup & dialog spacing:
+#
+# 1.  Smart dropdown fallback in _chip_select():
+#     - Added max_chips=8 parameter
+#     - When len(options) > 8, renders a styled ui.select dropdown
+#       instead of chips (eliminates 15-25+ category chip clutter)
+#     - _SelDropdown wrapper preserves same API (.value, .props, .on, etc.)
+#     - CSS class .mf-cat-dropdown for rounded, themed dropdown styling
+#     - Chips still used for low-count fields (Method, Account, etc.)
+#
+# 2.  Dialog footer spacing fix:
+#     - Removed margin: 8px 0 0 0 from sticky footer in open_add_dialog
+#     - Eliminates empty gap between content and Save/Cancel buttons
+#
+# 3.  Close button visibility:
+#     - Increased opacity from 0.5 to 0.7 on all 5 dialog close buttons
+#
+# 4.  Cleaned up d_category scrollable parameter (no longer needed)
+#
+# Carries forward all 8.7 + 8.6 + 8.5 + 8.4 + 8.3 fixes.
 # ────────────────────────────────────────────────
