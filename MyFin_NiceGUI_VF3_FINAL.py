@@ -4118,22 +4118,21 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 /* scrollbar for chip grids */
 .mf-chip-scroll::-webkit-scrollbar { width: 4px; }
 .mf-chip-scroll::-webkit-scrollbar-thumb { background: var(--mf-border); border-radius: 4px; }
-/* 8.8: Category dropdown fallback (9+ options) */
-.mf-cat-dropdown .q-field__control {
-  border-radius: 12px !important;
-  min-height: 42px !important;
-  border-color: var(--mf-border) !important;
+/* 8.8: Compact mini-chips for high-cardinality fields (9+ options, e.g. Category) */
+.mf-chip.mini {
+  padding: 4px 11px;
+  font-size: 11.5px;
+  border-radius: 14px;
+  border-width: 1px;
 }
-.mf-cat-dropdown .q-field__native,
-.mf-cat-dropdown .q-field__native span {
-  color: var(--mf-text) !important;
-  -webkit-text-fill-color: var(--mf-text) !important;
-  font-size: 14px !important;
-  font-weight: 500 !important;
+.mf-chip-compact {
+  gap: 5px !important;
+  max-height: 120px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
-.mf-cat-dropdown .q-select__dropdown-icon {
-  color: var(--mf-muted) !important;
-}
+.mf-chip-compact::-webkit-scrollbar { width: 3px; }
+.mf-chip-compact::-webkit-scrollbar-thumb { background: var(--mf-border); border-radius: 3px; }
 
 /* Upload bar theming */
 .mf-add-dialog .q-uploader__header,
@@ -6278,58 +6277,16 @@ def add_page():
 
     # ── 8.7: Custom chip-select — completely replaces Quasar q-select ──
     def _chip_select(options, value, label=None, hint=None, scrollable=False, disabled=False, max_chips=8):
-        """Chip-based option picker.  Falls back to a styled dropdown when
-        len(options) > max_chips so high-cardinality fields stay compact.
+        """Chip-based option picker.  Uses compact mini-chips in a scrollable
+        container when len(options) > max_chips (e.g. Category with 15-25+ items).
         Returns object with .value / .props() / .on() / .set_visibility()."""
 
-        # ── DROPDOWN MODE (9+ options — e.g. Category) ──────────────
-        if len(options) > max_chips:
-            _dd_cbs: list = []
-            _dd_container = ui.column().classes('w-full gap-1')
-            with _dd_container:
-                if label:
-                    ui.label(label).classes('text-xs font-medium').style(
-                        'color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;'
-                    )
-                _sel_el = ui.select(
-                    options=list(options),
-                    value=(value if value in options else options[0]),
-                ).props('outlined dense options-dense').classes('w-full mf-cat-dropdown')
-                if disabled:
-                    _sel_el.props('disable')
-                if hint:
-                    ui.label(hint).classes('text-xs').style('color: var(--mf-muted); opacity: 0.6;')
+        # Auto-enable compact scrollable mode for high-cardinality fields
+        _compact = len(options) > max_chips
+        if _compact:
+            scrollable = True
 
-            # fire registered callbacks when user picks a new value
-            def _dd_changed(e):
-                for cb in _dd_cbs:
-                    try:
-                        cb(_sel_el.value)
-                    except Exception:
-                        pass
-            _sel_el.on('update:model-value', _dd_changed)
-
-            class _SelDropdown:
-                @property
-                def value(self_):
-                    return _sel_el.value
-                @value.setter
-                def value(self_, v):
-                    _sel_el.value = v
-                def set_visibility(self_, visible):
-                    _dd_container.set_visibility(visible)
-                def on_change(self_, fn):
-                    _dd_cbs.append(fn)
-                    return self_
-                def props(self_, prop_str=''):
-                    _sel_el.props(prop_str)
-                    return self_
-                def on(self_, event, fn):
-                    _dd_cbs.append(lambda v: fn(v))
-                    return self_
-            return _SelDropdown()
-
-        # ── CHIP MODE (≤8 options — Method, Account, etc.) ──────────
+        # ── CHIP MODE ────────────────────────────────────────────────
         _state = {'value': value, 'disabled': disabled}
         _chips: dict = {}
         _cbs: list = []
@@ -6355,10 +6312,12 @@ def add_page():
                 ui.label(label).classes('text-xs font-medium').style(
                     'color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;'
                 )
-            _row_cls = 'mf-chip-row' + (' mf-chip-scroll' if scrollable else '')
+            _row_cls = 'mf-chip-row' + (' mf-chip-scroll' if scrollable else '') + (' mf-chip-compact' if _compact else '')
             with ui.element('div').classes(_row_cls):
                 for opt in options:
                     _cls = 'mf-chip'
+                    if _compact:
+                        _cls += ' mini'
                     if opt == value:
                         _cls += ' active'
                     if disabled:
@@ -6443,15 +6402,15 @@ def add_page():
             # Premium dialog header — accent strip + header area with background
             ui.element('div').style(f'height: 4px; background: linear-gradient(90deg, {_accent}, {_accent}66); border-radius: 24px 24px 0 0;')
             with ui.element('div').style(
-                f'padding: 20px 24px 16px 24px;'
+                f'padding: 14px 24px 10px 24px;'
                 f'background: linear-gradient(180deg, {_accent}0A, transparent);'
             ):
-                with ui.row().classes('items-center gap-3'):
+                with ui.row().classes('items-center gap-3 w-full'):
                     with ui.element('div').style(
-                        f'width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center;'
+                        f'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
                         f'background: {_accent}18; border: 1px solid {_accent}22;'
                     ):
-                        ui.icon(_dicon).style(f'font-size: 22px; color: {_accent};')
+                        ui.icon(_dicon).style(f'font-size: 18px; color: {_accent};')
                     with ui.column().classes('gap-0'):
                         ui.label(f"Add {_dlabel}").classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
                         ui.label('Fill in the details below').classes('text-xs').style('color: var(--mf-muted);')
@@ -7567,13 +7526,13 @@ def add_page():
             "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #60a5fa, #60a5fa66); border-radius: 24px 24px 0 0;')
-            with ui.element('div').style('padding: 20px 24px 16px 24px;'):
-                with ui.row().classes('items-center gap-3'):
+            with ui.element('div').style('padding: 14px 24px 10px 24px;'):
+                with ui.row().classes('items-center gap-3 w-full'):
                     with ui.element('div').style(
-                        'width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center;'
+                        'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
                         'background: rgba(96,165,250,0.18); border: 1px solid rgba(96,165,250,0.22);'
                     ):
-                        ui.icon('account_balance').style('font-size: 22px; color: #60a5fa;')
+                        ui.icon('account_balance').style('font-size: 18px; color: #60a5fa;')
                     with ui.column().classes('gap-0'):
                         ui.label('Line of Credit').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
                         ui.label('Record LOC withdrawal or repayment').classes('text-xs').style('color: var(--mf-muted);')
@@ -7648,13 +7607,13 @@ def add_page():
             "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #eab308, #eab30866); border-radius: 24px 24px 0 0;')
-            with ui.element('div').style('padding: 20px 24px 16px 24px;'):
-                with ui.row().classes('items-center gap-3'):
+            with ui.element('div').style('padding: 14px 24px 10px 24px;'):
+                with ui.row().classes('items-center gap-3 w-full'):
                     with ui.element('div').style(
-                        'width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center;'
+                        'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
                         'background: rgba(251,191,36,0.18); border: 1px solid rgba(251,191,36,0.22);'
                     ):
-                        ui.icon('credit_card').style('font-size: 22px; color: #eab308;')
+                        ui.icon('credit_card').style('font-size: 18px; color: #eab308;')
                     with ui.column().classes('gap-0'):
                         ui.label('CC Repayment').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
                         ui.label('Record a credit card payment').classes('text-xs').style('color: var(--mf-muted);')
@@ -7720,13 +7679,13 @@ def add_page():
             "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #a855f7, #a855f766); border-radius: 24px 24px 0 0;')
-            with ui.element('div').style('padding: 20px 24px 16px 24px;'):
-                with ui.row().classes('items-center gap-3'):
+            with ui.element('div').style('padding: 14px 24px 10px 24px;'):
+                with ui.row().classes('items-center gap-3 w-full'):
                     with ui.element('div').style(
-                        'width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center;'
+                        'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
                         'background: rgba(168,85,247,0.18); border: 1px solid rgba(168,85,247,0.22);'
                     ):
-                        ui.icon('show_chart').style('font-size: 22px; color: #a855f7;')
+                        ui.icon('show_chart').style('font-size: 18px; color: #a855f7;')
                     with ui.column().classes('gap-0'):
                         ui.label('Add Investment').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
                         ui.label('Choose investment account & amount').classes('text-xs').style('color: var(--mf-muted);')
@@ -7796,13 +7755,13 @@ def add_page():
             "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #f472b6, #f472b666); border-radius: 24px 24px 0 0;')
-            with ui.element('div').style('padding: 20px 24px 16px 24px;'):
-                with ui.row().classes('items-center gap-3'):
+            with ui.element('div').style('padding: 14px 24px 10px 24px;'):
+                with ui.row().classes('items-center gap-3 w-full'):
                     with ui.element('div').style(
-                        'width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center;'
+                        'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
                         'background: rgba(244,114,182,0.18); border: 1px solid rgba(244,114,182,0.22);'
                     ):
-                        ui.icon('public').style('font-size: 22px; color: #f472b6;')
+                        ui.icon('public').style('font-size: 18px; color: #f472b6;')
                     with ui.column().classes('gap-0'):
                         ui.label('International Transfer').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
                         ui.label('Record international transfer (CAD)').classes('text-xs').style('color: var(--mf-muted);')
@@ -10404,22 +10363,27 @@ ui.run(
 # ────────────────────────────────────────────────
 # Phase 8.8 — Visual cleanup & dialog spacing:
 #
-# 1.  Smart dropdown fallback in _chip_select():
-#     - Added max_chips=8 parameter
-#     - When len(options) > 8, renders a styled ui.select dropdown
-#       instead of chips (eliminates 15-25+ category chip clutter)
-#     - _SelDropdown wrapper preserves same API (.value, .props, .on, etc.)
-#     - CSS class .mf-cat-dropdown for rounded, themed dropdown styling
-#     - Chips still used for low-count fields (Method, Account, etc.)
+# 1.  Compact mini-chips for high-cardinality fields (Category):
+#     - Added max_chips=8 parameter to _chip_select()
+#     - When len(options) > 8, renders compact mini-chips (.mf-chip.mini)
+#       with smaller padding (4px 11px), smaller font (11.5px), tighter gap (5px)
+#     - Scrollable container with max-height: 120px
+#     - NO ui.select/q-select used anywhere — avoids invisible text bug
+#     - Chips still used at normal size for low-count fields (Method, Account, etc.)
 #
-# 2.  Dialog footer spacing fix:
+# 2.  Dialog header spacing tightened (all 5 dialogs):
+#     - Header padding: 20px 24px 16px → 14px 24px 10px (less vertical space)
+#     - Icon box: 44x44 → 36x36, icon font: 22px → 18px (more compact)
+#     - Added w-full to header row for proper X button alignment
+#
+# 3.  Dialog footer spacing fix:
 #     - Removed margin: 8px 0 0 0 from sticky footer in open_add_dialog
 #     - Eliminates empty gap between content and Save/Cancel buttons
 #
-# 3.  Close button visibility:
+# 4.  Close button visibility:
 #     - Increased opacity from 0.5 to 0.7 on all 5 dialog close buttons
 #
-# 4.  Cleaned up d_category scrollable parameter (no longer needed)
+# 5.  Cleaned up d_category scrollable parameter (no longer needed)
 #
 # Carries forward all 8.7 + 8.6 + 8.5 + 8.4 + 8.3 fixes.
 # ────────────────────────────────────────────────
