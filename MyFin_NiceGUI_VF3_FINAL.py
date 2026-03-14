@@ -4090,33 +4090,34 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 /* Force every NiceGUI wrapper div inside dialog to be full-width */
 .mf-add-dialog div[class*="nicegui"] { width: 100% !important; }
 .mf-add-dialog > div > div { width: 100% !important; }
-/* 8.7: Force select field text visible — belt-and-suspenders with input-style prop.
-   The .mf-select class is added to every dialog select for targeted styling. */
-.mf-select .q-field__native,
-.mf-select .q-field__native > span,
-.mf-select .q-field__native > div,
-.mf-select .q-field__input {
-  color: var(--mf-text) !important;
-  -webkit-text-fill-color: var(--mf-text) !important;
-  opacity: 1 !important;
+/* 8.7: Custom chip-select — replaces Quasar q-select entirely */
+.mf-chip-row {
+  display: flex; flex-wrap: wrap; gap: 8px;
 }
-/* Also catch Quasar dark overrides on the field wrapper */
-.mf-select.q-field .q-field__control {
-  color: var(--mf-text) !important;
+.mf-chip-row.mf-chip-scroll {
+  max-height: 140px; overflow-y: auto; padding-right: 4px;
 }
-/* Dialog-mode popup styling — clean list */
-.mf-select-popup {
-  background: var(--mf-bg-2, #0B1020) !important;
-  color: var(--mf-text) !important;
-  border: 1px solid var(--mf-border) !important;
-  border-radius: 16px !important;
+.mf-chip {
+  border-radius: 20px; padding: 7px 16px; font-size: 13px;
+  font-weight: 400; cursor: pointer; white-space: nowrap;
+  user-select: none; transition: all 0.12s ease;
+  border: 1.5px solid var(--mf-border);
+  background: var(--mf-surface);
+  color: var(--mf-text);
 }
-.mf-select-popup .q-item__label {
-  color: var(--mf-text) !important;
+.mf-chip:hover { border-color: var(--mf-accent); }
+.mf-chip.active {
+  border-color: var(--mf-accent) !important;
+  background: color-mix(in srgb, var(--mf-accent) 14%, transparent);
+  color: var(--mf-accent); font-weight: 600;
 }
-html.mf-light .mf-select-popup {
-  background: var(--mf-menu-bg, #fff) !important;
+.mf-chip.disabled {
+  opacity: 0.45; cursor: not-allowed;
 }
+.mf-chip.disabled:hover { border-color: var(--mf-border); }
+/* scrollbar for chip grids */
+.mf-chip-scroll::-webkit-scrollbar { width: 4px; }
+.mf-chip-scroll::-webkit-scrollbar-thumb { background: var(--mf-border); border-radius: 4px; }
 
 /* Upload bar theming */
 .mf-add-dialog .q-uploader__header,
@@ -4613,16 +4614,7 @@ window.mfSetTheme = function(name){
       // Fix Plotly text colors after theme is applied
       setTimeout(()=>{ try{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }catch(e){} }, 60);
 
-      // 8.7: After theme change, force text color on .mf-select fields (one-shot, not polling)
-      setTimeout(function(){
-        try {
-          var c = getComputedStyle(document.documentElement).getPropertyValue('--mf-text').trim() || '#e2e8f0';
-          document.querySelectorAll('.mf-select .q-field__native, .mf-select .q-field__native > span, .mf-select .q-field__native > div').forEach(function(el) {
-            el.style.setProperty('color', c, 'important');
-            el.style.setProperty('-webkit-text-fill-color', c, 'important');
-          });
-        } catch(e) {}
-      }, 100);
+      // 8.7: Dropdowns replaced with custom chip-select — no q-select JS hacks needed.
     }catch(e){}
   };
 
@@ -6268,6 +6260,84 @@ def add_page():
         nav_to("/login")
         return
 
+    # ── 8.7: Custom chip-select — completely replaces Quasar q-select ──
+    def _chip_select(options, value, label=None, hint=None, scrollable=False, disabled=False):
+        """Chip-based option picker. Returns object with .value property."""
+        _state = {'value': value, 'disabled': disabled}
+        _chips: dict = {}
+        _cbs: list = []
+
+        def _pick(opt):
+            if _state['disabled'] or _state['value'] == opt:
+                return
+            old = _state['value']
+            _state['value'] = opt
+            if old in _chips:
+                _chips[old].classes(remove='active')
+            if opt in _chips:
+                _chips[opt].classes(add='active')
+            for cb in _cbs:
+                try:
+                    cb(opt)
+                except Exception:
+                    pass
+
+        _container = ui.column().classes('w-full gap-1')
+        with _container:
+            if label:
+                ui.label(label).classes('text-xs font-medium').style(
+                    'color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;'
+                )
+            _row_cls = 'mf-chip-row' + (' mf-chip-scroll' if scrollable else '')
+            with ui.element('div').classes(_row_cls):
+                for opt in options:
+                    _cls = 'mf-chip'
+                    if opt == value:
+                        _cls += ' active'
+                    if disabled:
+                        _cls += ' disabled'
+                    chip = ui.element('div').classes(_cls)
+                    if not disabled:
+                        chip.on('click', lambda _, o=opt: _pick(o))
+                    with chip:
+                        ui.label(str(opt)).style('pointer-events: none;')
+                    _chips[opt] = chip
+            if hint:
+                ui.label(hint).classes('text-xs').style('color: var(--mf-muted); opacity: 0.6;')
+
+        class _Sel:
+            @property
+            def value(self_):
+                return _state['value']
+            @value.setter
+            def value(self_, v):
+                if v in _chips:
+                    _pick(v)
+                else:
+                    # Allow setting value to text not in options (e.g. split label)
+                    _state['value'] = v
+            def set_visibility(self_, visible):
+                _container.set_visibility(visible)
+            def on_change(self_, fn):
+                _cbs.append(fn)
+                return self_
+            def props(self_, prop_str=''):
+                """Compatibility shim — handles 'disable'/'enable' props."""
+                if 'disable' in prop_str and 'remove' not in prop_str:
+                    _state['disabled'] = True
+                    for c in _chips.values():
+                        c.classes(add='disabled')
+                elif 'enable' in prop_str or 'remove' in prop_str:
+                    _state['disabled'] = False
+                    for c in _chips.values():
+                        c.classes(remove='disabled')
+                return self_
+            def on(self_, event, fn):
+                """Compatibility shim — maps any change event to on_change."""
+                _cbs.append(lambda v: fn(v))
+                return self_
+        return _Sel()
+
     def open_add_dialog(entry_type: str, *, preset_category: str | None = None, preset_method: str | None = None, preset_account: str | None = None, auto_scan: bool = False):
         rules = load_rules()
         owners = owners_list()
@@ -6431,37 +6501,22 @@ def add_page():
                     ui.icon('account_balance_wallet').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
                     ui.label('Payment').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
 
-                # B6 FIX: larger, more readable Account/Method selects with proper min-height
+                # 8.7: Chip-based selects — no Quasar q-select
                 if hide_method:
                     d_method = None
                 else:
-                    d_method = ui.select(
-                        methods or [""],
-                        value=(method_default if method_default in (methods or []) else ""),
-                        label="Method",
-                    ).props(
-                        'outlined behavior="dialog" '
-                        'popup-content-class="mf-select-popup" '
-                        'popup-content-style="max-height:50vh" '
-                        'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
-                    ).classes("w-full mf-select").style("min-height: 52px; font-size: 15px; color: var(--mf-text);")
-                    if is_debit:
-                        d_method.props('hint="Select payment method"')
+                    d_method = _chip_select(
+                        methods or ["Other"], value=(method_default if method_default in (methods or []) else (methods or ["Other"])[0]),
+                        label="Payment Method",
+                        hint="Select payment method" if is_debit else None,
+                    )
 
-                d_account = ui.select(
-                    accounts or [""],
-                    value=(account_default if account_default in (accounts or []) else ""),
+                d_account = _chip_select(
+                    accounts or ["Bank"], value=(account_default if account_default in (accounts or []) else (accounts or ["Bank"])[0]),
                     label="Account",
-                ).props(
-                    'outlined behavior="dialog" '
-                    'popup-content-class="mf-select-popup" '
-                    'popup-content-style="max-height:50vh" '
-                    'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
-                ).classes("w-full mf-select").style("min-height: 52px; font-size: 15px; color: var(--mf-text);")
-                if is_debit:
-                    d_account.props('hint="Choose your account"')
-                if disable_account:
-                    d_account.props("disable")
+                    hint="Choose your account" if is_debit else None,
+                    disabled=disable_account,
+                )
 
                 if hide_method and fixed_method:
                     ui.label(f"Method: {fixed_method}").classes("text-xs").style("color: var(--mf-muted); margin-top:-6px;")
@@ -6476,20 +6531,15 @@ def add_page():
                         ui.icon('category').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
                         ui.label('Category & Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
 
-                d_category = ui.select(
-                    categories,
+                d_category = _chip_select(
+                    categories or ["Uncategorized"],
                     value=(fixed_category or "Uncategorized"),
                     label="Category",
-                ).props(
-                    'outlined dense behavior="dialog" '
-                    'popup-content-class="mf-select-popup" '
-                    'popup-content-style="max-height:50vh" '
-                    'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
-                ).classes("w-full mf-select")
+                    hint="Pick a spending category" if is_debit else None,
+                    scrollable=(len(categories or []) > 8),
+                )
                 if hide_category:
                     d_category.set_visibility(False)
-                if is_debit:
-                    d_category.props('hint="Pick a spending category"')
                 d_notes = ui.textarea("Notes / Merchant", value="").props("outlined dense rows=2").classes("w-full")
                 d_rec = ui.checkbox("Mark as recurring (template for future cycles)")
                 if hide_category:
@@ -7476,14 +7526,9 @@ def add_page():
                 with ui.row().classes('items-center gap-2 mt-3 mb-2'):
                     ui.icon('swap_horiz').style('font-size: 15px; color: #60a5fa; opacity: 0.7;')
                     ui.label('Transaction Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
-                loc_type = ui.select(
-                    ['Withdrawal', 'Repayment'], value='Withdrawal', label='Transaction Type'
-                ).props(
-                    'outlined behavior="dialog" '
-                    'popup-content-class="mf-select-popup" '
-                    'popup-content-style="max-height:50vh" '
-                    'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
-                ).classes('w-full mf-select')
+                loc_type = _chip_select(
+                    ['Withdrawal', 'Repayment'], value='Withdrawal', label='Transaction Type',
+                )
                 loc_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
 
             # Actions
@@ -7562,15 +7607,10 @@ def add_page():
                 with ui.row().classes('items-center gap-2 mt-3 mb-2'):
                     ui.icon('credit_card').style('font-size: 15px; color: #eab308; opacity: 0.7;')
                     ui.label('Card').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
-                cc_card = ui.select(
-                    CC_CARDS, value=CC_CARDS[0], label='Credit Card'
-                ).props(
-                    'outlined behavior="dialog" '
-                    'popup-content-class="mf-select-popup" '
-                    'popup-content-style="max-height:50vh" '
-                    'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
-                ).classes('w-full mf-select').style('min-height: 52px;')
-                cc_card.props('hint="Select which card you paid"')
+                cc_card = _chip_select(
+                    CC_CARDS, value=CC_CARDS[0],
+                    hint="Select which card you paid",
+                )
                 cc_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
 
             # Actions
@@ -7639,23 +7679,13 @@ def add_page():
                 with ui.row().classes('items-center gap-2 mt-3 mb-2'):
                     ui.icon('savings').style('font-size: 15px; color: #a855f7; opacity: 0.7;')
                     ui.label('Investment Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
-                inv_account = ui.select(
-                    INVEST_ACCOUNTS, value='TFSA', label='Investment Account'
-                ).props(
-                    'outlined behavior="dialog" '
-                    'popup-content-class="mf-select-popup" '
-                    'popup-content-style="max-height:50vh" '
-                    'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
-                ).classes('w-full mf-select').style('min-height: 52px;')
-                inv_account.props('hint="Where to invest (FHSA, TFSA, RRSP...)"')
-                inv_source = ui.select(
-                    ['Bank'], value='Bank', label='Source Account'
-                ).props(
-                    'outlined disable behavior="dialog" '
-                    'popup-content-class="mf-select-popup" '
-                    'popup-content-style="max-height:50vh" '
-                    'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
-                ).classes('w-full mf-select').style('min-height: 52px; opacity: 0.6;')
+                inv_account = _chip_select(
+                    INVEST_ACCOUNTS, value='TFSA', label='Investment Account',
+                    hint="Where to invest (FHSA, TFSA, RRSP...)",
+                )
+                inv_source = _chip_select(
+                    ['Bank'], value='Bank', label='Source Account', disabled=True,
+                )
                 inv_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
 
             # Actions
@@ -7726,15 +7756,10 @@ def add_page():
                 with ui.row().classes('items-center gap-2 mt-3 mb-2'):
                     ui.icon('public').style('font-size: 15px; color: #f472b6; opacity: 0.7;')
                     ui.label('Transfer Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
-                intl_source = ui.select(
-                    INTL_SOURCES, value='Bank', label='Withdrawal Source'
-                ).props(
-                    'outlined behavior="dialog" '
-                    'popup-content-class="mf-select-popup" '
-                    'popup-content-style="max-height:50vh" '
-                    'input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"'
-                ).classes('w-full mf-select').style('min-height: 52px;')
-                intl_source.props('hint="Bank or CT - grey card only"')
+                intl_source = _chip_select(
+                    INTL_SOURCES, value='Bank', label='Withdrawal Source',
+                    hint="Bank or CT - grey card only",
+                )
                 intl_notes = ui.textarea("Notes / Recipient", value="").props("outlined dense rows=2").classes("w-full")
 
             # Actions
@@ -10273,25 +10298,38 @@ ui.run(
 
 # Release: FinTrackr Phase 8.7
 # ────────────────────────────────────────────────
-# Phase 8.7 — Clean dropdown rewrite (3-layer fix):
+# Phase 8.7 — COMPLETE dropdown redesign:
 #
-# 1.  Dropdown text invisible — NEW STRATEGY (replaced 5 failed attempts).
-#     Layer A: ui.dark_mode(True/False) in shell() so Quasar knows the
-#              correct mode at page-render time.
-#     Layer B: Quasar `input-style` prop on every dialog ui.select —
-#              sets color via Vue's own reactivity (won't fight itself):
-#              input-style="color: var(--mf-text); -webkit-text-fill-color: var(--mf-text);"
-#     Layer C: CSS class `.mf-select` on every dialog select with
-#              targeted rules for .q-field__native, > span, > div.
-#     Removed: 500ms JS polling, MutationObserver, wildcard * selectors,
-#              multi-delay event listeners — all replaced by the above.
+# Quasar q-select REMOVED from all Add-page dialogs. Replaced with
+# custom chip-based selector (`_chip_select`) built from plain HTML
+# div elements + CSS. Zero Quasar dependency for selection UI.
 #
-# 2.  Desktop dropdown jumping — switched ALL dialog selects to
-#     behavior="dialog" (centered option picker instead of positioned
-#     floating menu). Eliminates anchor-repositioning feedback loops
-#     entirely. popup-content-class="mf-select-popup" for themed styling.
+# 1.  _chip_select() — new Python helper in add_page():
+#     - Renders options as clickable styled chips (div + label)
+#     - Selected chip gets accent border + tinted background
+#     - Exposes .value property (compatible with all save logic)
+#     - Supports: label, hint, disabled, scrollable (for many options)
+#     - CSS: .mf-chip / .mf-chip.active / .mf-chip.disabled
+#     - Compat shims: .props('disable'), .on(event, fn) for existing code
+#     - Value setter handles out-of-options text (e.g. split label)
+#     - NO q-select, NO q-menu, NO Vue reactivity issues
 #
-# 3.  ui.dark_mode() added to shell() (theme-aware) and login page.
+# 2.  Replaced ALL 8 dialog selects across 5 dialogs:
+#     - open_add_dialog: Method, Account, Category
+#     - open_cc_repay_dialog: Card
+#     - open_loc_dialog: Transaction Type
+#     - open_invest_dialog: Account, Source (disabled)
+#     - open_intl_dialog: Source
+#
+# 3.  Removed all previous dropdown hacks:
+#     - Removed: nuclear CSS wildcard selectors
+#     - Removed: 500ms JS polling interval + event listeners
+#     - Removed: behavior="menu" / behavior="dialog" props
+#     - Removed: input-style / -webkit-text-fill-color hacks
+#     - Kept: ui.dark_mode() in shell() (still useful for other components)
+#
+# 4.  Dropdown jumping eliminated — chips are inline elements,
+#     no floating menu positioning needed at all.
 #
 # Carries forward all 8.6 + 8.5 + 8.4 + 8.3 fixes.
 # ────────────────────────────────────────────────
