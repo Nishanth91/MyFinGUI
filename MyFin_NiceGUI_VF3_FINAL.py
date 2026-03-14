@@ -4121,10 +4121,10 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 /* 8.8: Custom pure-HTML dropdown for high-cardinality fields (Category) */
 .mf-dd-trigger {
   display: flex; align-items: center; gap: 8px;
-  padding: 9px 14px; border-radius: 12px;
+  padding: 11px 16px; border-radius: 12px;
   border: 1.5px solid var(--mf-border);
   background: var(--mf-surface); color: var(--mf-text);
-  font-size: 14px; font-weight: 500; cursor: pointer;
+  font-size: 15px; font-weight: 500; cursor: pointer;
   transition: border-color 0.15s;
   user-select: none; width: 100%; box-sizing: border-box;
 }
@@ -4133,15 +4133,15 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 .mf-dd-trigger.open .mf-dd-arrow { transform: rotate(180deg); }
 .mf-dd-trigger.disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
 .mf-dd-panel {
-  max-height: 180px; overflow-y: auto;
+  max-height: 220px; overflow-y: auto;
   border: 1px solid var(--mf-border); border-radius: 12px;
   background: var(--mf-surface); margin-top: 4px;
-  padding: 4px;
+  padding: 5px;
 }
 .mf-dd-panel::-webkit-scrollbar { width: 4px; }
 .mf-dd-panel::-webkit-scrollbar-thumb { background: var(--mf-border); border-radius: 4px; }
 .mf-dd-item {
-  padding: 8px 14px; border-radius: 8px; font-size: 13px;
+  padding: 10px 16px; border-radius: 8px; font-size: 14px;
   color: var(--mf-text); cursor: pointer; transition: background 0.1s;
 }
 .mf-dd-item:hover { background: color-mix(in srgb, var(--mf-accent) 10%, transparent); }
@@ -5105,7 +5105,7 @@ def categories_list() -> List[str]:
 
 def methods_list() -> List[str]:
     cards = cached_df("cards")
-    methods = set(["Debit", "Card", "Bank", "Other"])
+    methods = set(["Debit", "Card", "Bank"])
     if not cards.empty and "method_name" in cards.columns:
         methods |= set(cards["method_name"].astype(str).tolist())
     return sorted({m.strip() for m in methods if m and m.strip()})
@@ -6522,7 +6522,7 @@ def add_page():
             # Premium dialog header — accent strip + header area with background
             ui.element('div').style(f'height: 4px; background: linear-gradient(90deg, {_accent}, {_accent}66); border-radius: 24px 24px 0 0;')
             with ui.element('div').style(
-                f'padding: 14px 24px 10px 24px; width: 100%; box-sizing: border-box;'
+                f'padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'
                 f'background: linear-gradient(180deg, {_accent}0A, transparent);'
             ):
                 with ui.row().classes('items-center gap-3').style('width: 100%;'):
@@ -6613,7 +6613,7 @@ def add_page():
                 if not fixed_category:
                     fixed_category = preset_category or 'Repayment'
 
-            default_method = ("Card" if is_debit else ("Bank" if (is_income or is_invest or is_loc_repay) else ("Card" if is_loc_draw else "Other")))
+            default_method = ("Card" if is_debit else ("Bank" if (is_income or is_invest or is_loc_repay) else ("Card" if is_loc_draw else "Bank")))
 
             # Presets override remembered defaults.
             method_default = (fixed_method or preset_method or (last_debit_method if (is_debit and last_debit_method in methods) else default_method))
@@ -6652,7 +6652,7 @@ def add_page():
                     d_method = None
                 else:
                     d_method = _chip_select(
-                        methods or ["Other"], value=(method_default if method_default in (methods or []) else (methods or ["Other"])[0]),
+                        methods or ["Bank"], value=(method_default if method_default in (methods or []) else (methods or ["Bank"])[0]),
                         label="Payment Method",
                         hint="Select payment method" if is_debit else None,
                     )
@@ -7479,7 +7479,7 @@ def add_page():
 
                 owner = "Family"
 
-                method = str(((d_method.value if d_method is not None else method_default) or "Other")).strip()
+                method = str(((d_method.value if d_method is not None else method_default) or "Bank")).strip()
 
                 account = str(d_account.value or "").strip()
 
@@ -7646,7 +7646,7 @@ def add_page():
             "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #60a5fa, #60a5fa66); border-radius: 24px 24px 0 0;')
-            with ui.element('div').style('padding: 14px 24px 10px 24px; width: 100%; box-sizing: border-box;'):
+            with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
                 with ui.row().classes('items-center gap-3').style('width: 100%;'):
                     with ui.element('div').style(
                         'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
@@ -7727,7 +7727,7 @@ def add_page():
             "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #eab308, #eab30866); border-radius: 24px 24px 0 0;')
-            with ui.element('div').style('padding: 14px 24px 10px 24px; width: 100%; box-sizing: border-box;'):
+            with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
                 with ui.row().classes('items-center gap-3').style('width: 100%;'):
                     with ui.element('div').style(
                         'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
@@ -7799,7 +7799,7 @@ def add_page():
             "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #a855f7, #a855f766); border-radius: 24px 24px 0 0;')
-            with ui.element('div').style('padding: 14px 24px 10px 24px; width: 100%; box-sizing: border-box;'):
+            with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
                 with ui.row().classes('items-center gap-3').style('width: 100%;'):
                     with ui.element('div').style(
                         'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
@@ -7875,7 +7875,7 @@ def add_page():
             "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #f472b6, #f472b666); border-radius: 24px 24px 0 0;')
-            with ui.element('div').style('padding: 14px 24px 10px 24px; width: 100%; box-sizing: border-box;'):
+            with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
                 with ui.row().classes('items-center gap-3').style('width: 100%;'):
                     with ui.element('div').style(
                         'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
