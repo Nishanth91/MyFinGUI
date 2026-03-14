@@ -4118,21 +4118,37 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 /* scrollbar for chip grids */
 .mf-chip-scroll::-webkit-scrollbar { width: 4px; }
 .mf-chip-scroll::-webkit-scrollbar-thumb { background: var(--mf-border); border-radius: 4px; }
-/* 8.8: Compact mini-chips for high-cardinality fields (9+ options, e.g. Category) */
-.mf-chip.mini {
-  padding: 4px 11px;
-  font-size: 11.5px;
-  border-radius: 14px;
-  border-width: 1px;
+/* 8.8: Custom pure-HTML dropdown for high-cardinality fields (Category) */
+.mf-dd-trigger {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 14px; border-radius: 12px;
+  border: 1.5px solid var(--mf-border);
+  background: var(--mf-surface); color: var(--mf-text);
+  font-size: 14px; font-weight: 500; cursor: pointer;
+  transition: border-color 0.15s;
+  user-select: none; width: 100%; box-sizing: border-box;
 }
-.mf-chip-compact {
-  gap: 5px !important;
-  max-height: 120px;
-  overflow-y: auto;
-  padding-right: 4px;
+.mf-dd-trigger:hover { border-color: var(--mf-accent); }
+.mf-dd-trigger.open { border-color: var(--mf-accent); }
+.mf-dd-trigger.open .mf-dd-arrow { transform: rotate(180deg); }
+.mf-dd-trigger.disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+.mf-dd-panel {
+  max-height: 180px; overflow-y: auto;
+  border: 1px solid var(--mf-border); border-radius: 12px;
+  background: var(--mf-surface); margin-top: 4px;
+  padding: 4px;
 }
-.mf-chip-compact::-webkit-scrollbar { width: 3px; }
-.mf-chip-compact::-webkit-scrollbar-thumb { background: var(--mf-border); border-radius: 3px; }
+.mf-dd-panel::-webkit-scrollbar { width: 4px; }
+.mf-dd-panel::-webkit-scrollbar-thumb { background: var(--mf-border); border-radius: 4px; }
+.mf-dd-item {
+  padding: 8px 14px; border-radius: 8px; font-size: 13px;
+  color: var(--mf-text); cursor: pointer; transition: background 0.1s;
+}
+.mf-dd-item:hover { background: color-mix(in srgb, var(--mf-accent) 10%, transparent); }
+.mf-dd-item.active {
+  background: color-mix(in srgb, var(--mf-accent) 14%, transparent);
+  color: var(--mf-accent); font-weight: 600;
+}
 
 /* Upload bar theming */
 .mf-add-dialog .q-uploader__header,
@@ -4833,6 +4849,11 @@ def shell(content_fn, *, active_path: str = ""):
 
                 ui.element('div').style('flex: 1;')  # push version to bottom
                 ui.label(f"v{APP_VERSION}").classes("text-xs").style("color: var(--mf-muted); text-align:center; opacity: 0.5;")
+                # 8.8: Desktop logout button (visible only on desktop via mf-rail-desktop-only parent)
+                with ui.element("div").classes("mf-rail-desktop-only").style("margin-top: 8px;"):
+                    ui.button("Logout", icon="logout", on_click=do_logout).props("flat dense").style(
+                        "color: #ef4444; font-size: 12px; font-weight: 600; width: 100%; border-radius: 10px; text-transform: none;"
+                    )
 
         # Bottom tab bar (mobile only — CSS hides on ≥901px)
         # 8.2.2: ALL 5 icons inside one <nav> for consistent look.
@@ -5403,12 +5424,15 @@ def dashboard_page():
                 ui.separator().classes('opacity-10')
 
                 with ui.row().classes('gap-2 flex-wrap'):
+                    def _goto_add(mode):
+                        app.storage.user['add_auto_open'] = mode
+                        nav_to('/add')
                     ui.button('Add expense', icon='remove_circle_outline').props('unelevated').style(
                         'background: var(--mf-accent) !important; color: #fff !important; border-radius: 10px; font-weight: 600; padding: 6px 16px;'
-                    ).on('click', lambda: nav_to('/add?mode=expense'))
+                    ).on('click', lambda: _goto_add('expense'))
                     ui.button('Add income', icon='add_circle_outline').props('outline').style(
                         'border-radius: 10px; font-weight: 600; padding: 6px 16px;'
-                    ).on('click', lambda: nav_to('/add?mode=income'))
+                    ).on('click', lambda: _goto_add('income'))
                     ui.button('Transactions', icon='receipt_long').props('flat').style(
                         'border-radius: 10px; font-weight: 500;'
                     ).on('click', lambda: nav_to('/tx'))
@@ -6277,16 +6301,114 @@ def add_page():
 
     # ── 8.7: Custom chip-select — completely replaces Quasar q-select ──
     def _chip_select(options, value, label=None, hint=None, scrollable=False, disabled=False, max_chips=8):
-        """Chip-based option picker.  Uses compact mini-chips in a scrollable
-        container when len(options) > max_chips (e.g. Category with 15-25+ items).
+        """Chip-based option picker.  For high-cardinality fields (>max_chips)
+        renders a custom pure-HTML dropdown instead.
         Returns object with .value / .props() / .on() / .set_visibility()."""
 
-        # Auto-enable compact scrollable mode for high-cardinality fields
-        _compact = len(options) > max_chips
-        if _compact:
-            scrollable = True
+        _use_dropdown = len(options) > max_chips
 
-        # ── CHIP MODE ────────────────────────────────────────────────
+        # ── CUSTOM DROPDOWN MODE (9+ options — e.g. Category) ────────
+        if _use_dropdown:
+            _dd_state = {'value': value, 'disabled': disabled, 'open': False}
+            _dd_cbs: list = []
+            _dd_items: dict = {}
+
+            _dd_container = ui.column().classes('w-full gap-1')
+            with _dd_container:
+                if label:
+                    ui.label(label).classes('text-xs font-medium').style(
+                        'color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;'
+                    )
+
+                # Trigger button — shows current value + arrow
+                _trigger = ui.element('div').classes('mf-dd-trigger')
+                with _trigger:
+                    _dd_label = ui.label(str(value)).style('pointer-events:none; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;')
+                    ui.icon('expand_more').classes('mf-dd-arrow').style('pointer-events:none; font-size:20px; color:var(--mf-muted); transition:transform 0.15s;')
+
+                # Options panel — hidden until clicked
+                _panel = ui.element('div').classes('mf-dd-panel')
+                _panel.style('display:none;')
+                with _panel:
+                    for opt in options:
+                        _cls = 'mf-dd-item'
+                        if opt == value:
+                            _cls += ' active'
+                        item = ui.element('div').classes(_cls)
+                        with item:
+                            ui.label(str(opt)).style('pointer-events:none;')
+                        _dd_items[opt] = item
+
+                if hint:
+                    ui.label(hint).classes('text-xs').style('color: var(--mf-muted); opacity: 0.6;')
+
+            def _dd_toggle():
+                if _dd_state['disabled']:
+                    return
+                _dd_state['open'] = not _dd_state['open']
+                if _dd_state['open']:
+                    _panel.style('display:block;')
+                    _trigger.classes(add='open')
+                else:
+                    _panel.style('display:none;')
+                    _trigger.classes(remove='open')
+
+            def _dd_pick(opt):
+                if _dd_state['disabled'] or _dd_state['value'] == opt:
+                    _dd_state['open'] = False
+                    _panel.style('display:none;')
+                    _trigger.classes(remove='open')
+                    return
+                old = _dd_state['value']
+                _dd_state['value'] = opt
+                _dd_label.text = str(opt)
+                if old in _dd_items:
+                    _dd_items[old].classes(remove='active')
+                if opt in _dd_items:
+                    _dd_items[opt].classes(add='active')
+                _dd_state['open'] = False
+                _panel.style('display:none;')
+                _trigger.classes(remove='open')
+                for cb in _dd_cbs:
+                    try:
+                        cb(opt)
+                    except Exception:
+                        pass
+
+            _trigger.on('click', lambda _: _dd_toggle())
+            for opt in options:
+                _dd_items[opt].on('click', lambda _, o=opt: _dd_pick(o))
+
+            class _SelDropdown:
+                @property
+                def value(self_):
+                    return _dd_state['value']
+                @value.setter
+                def value(self_, v):
+                    if v in _dd_items:
+                        _dd_pick(v)
+                    else:
+                        _dd_state['value'] = v
+                        _dd_label.text = str(v)
+                def set_visibility(self_, visible):
+                    _dd_container.set_visibility(visible)
+                def on_change(self_, fn):
+                    _dd_cbs.append(fn)
+                    return self_
+                def props(self_, prop_str=''):
+                    if 'disable' in prop_str and 'remove' not in prop_str:
+                        _dd_state['disabled'] = True
+                        _trigger.classes(add='disabled')
+                    elif 'enable' in prop_str or 'remove' in prop_str:
+                        _dd_state['disabled'] = False
+                        _trigger.classes(remove='disabled')
+                    return self_
+                def on(self_, event, fn):
+                    _dd_cbs.append(lambda v: fn(v))
+                    return self_
+            return _SelDropdown()
+
+        # ── CHIP MODE (≤8 options — Method, Account, etc.) ──────────
         _state = {'value': value, 'disabled': disabled}
         _chips: dict = {}
         _cbs: list = []
@@ -6312,12 +6434,10 @@ def add_page():
                 ui.label(label).classes('text-xs font-medium').style(
                     'color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;'
                 )
-            _row_cls = 'mf-chip-row' + (' mf-chip-scroll' if scrollable else '') + (' mf-chip-compact' if _compact else '')
+            _row_cls = 'mf-chip-row' + (' mf-chip-scroll' if scrollable else '')
             with ui.element('div').classes(_row_cls):
                 for opt in options:
                     _cls = 'mf-chip'
-                    if _compact:
-                        _cls += ' mini'
                     if opt == value:
                         _cls += ' active'
                     if disabled:
@@ -6402,10 +6522,10 @@ def add_page():
             # Premium dialog header — accent strip + header area with background
             ui.element('div').style(f'height: 4px; background: linear-gradient(90deg, {_accent}, {_accent}66); border-radius: 24px 24px 0 0;')
             with ui.element('div').style(
-                f'padding: 14px 24px 10px 24px;'
+                f'padding: 14px 24px 10px 24px; width: 100%; box-sizing: border-box;'
                 f'background: linear-gradient(180deg, {_accent}0A, transparent);'
             ):
-                with ui.row().classes('items-center gap-3 w-full'):
+                with ui.row().classes('items-center gap-3').style('width: 100%;'):
                     with ui.element('div').style(
                         f'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
                         f'background: {_accent}18; border: 1px solid {_accent}22;'
@@ -7526,8 +7646,8 @@ def add_page():
             "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #60a5fa, #60a5fa66); border-radius: 24px 24px 0 0;')
-            with ui.element('div').style('padding: 14px 24px 10px 24px;'):
-                with ui.row().classes('items-center gap-3 w-full'):
+            with ui.element('div').style('padding: 14px 24px 10px 24px; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-3').style('width: 100%;'):
                     with ui.element('div').style(
                         'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
                         'background: rgba(96,165,250,0.18); border: 1px solid rgba(96,165,250,0.22);'
@@ -7607,8 +7727,8 @@ def add_page():
             "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #eab308, #eab30866); border-radius: 24px 24px 0 0;')
-            with ui.element('div').style('padding: 14px 24px 10px 24px;'):
-                with ui.row().classes('items-center gap-3 w-full'):
+            with ui.element('div').style('padding: 14px 24px 10px 24px; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-3').style('width: 100%;'):
                     with ui.element('div').style(
                         'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
                         'background: rgba(251,191,36,0.18); border: 1px solid rgba(251,191,36,0.22);'
@@ -7679,8 +7799,8 @@ def add_page():
             "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #a855f7, #a855f766); border-radius: 24px 24px 0 0;')
-            with ui.element('div').style('padding: 14px 24px 10px 24px;'):
-                with ui.row().classes('items-center gap-3 w-full'):
+            with ui.element('div').style('padding: 14px 24px 10px 24px; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-3').style('width: 100%;'):
                     with ui.element('div').style(
                         'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
                         'background: rgba(168,85,247,0.18); border: 1px solid rgba(168,85,247,0.22);'
@@ -7755,8 +7875,8 @@ def add_page():
             "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #f472b6, #f472b666); border-radius: 24px 24px 0 0;')
-            with ui.element('div').style('padding: 14px 24px 10px 24px;'):
-                with ui.row().classes('items-center gap-3 w-full'):
+            with ui.element('div').style('padding: 14px 24px 10px 24px; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-3').style('width: 100%;'):
                     with ui.element('div').style(
                         'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
                         'background: rgba(244,114,182,0.18); border: 1px solid rgba(244,114,182,0.22);'
@@ -7888,9 +8008,19 @@ def add_page():
                         ui.label("Auto-generated on due date").classes("text-xs").style("color: var(--mf-muted)")
                 ui.button("Run Now", icon="autorenew", on_click=lambda: ui.notify(f"Created {generate_recurring_for_date(today())} entries", type="positive")).props("outline").style("white-space: nowrap; border-radius: 10px;")
 
+    # 8.8: Auto-open dialog when arriving from Home page quick-add buttons
+    _auto_mode = str(app.storage.user.pop('add_auto_open', '') or '').strip().lower()
+
+    def _auto_open():
+        if _auto_mode == 'expense':
+            open_add_dialog('Debit')
+        elif _auto_mode == 'income':
+            open_add_dialog('Credit')
+
     shell(content)
 
-
+    if _auto_mode:
+        ui.timer(0.3, _auto_open, once=True)
 
 
 @ui.page("/admin")
@@ -10361,29 +10491,35 @@ ui.run(
 #
 # Release: FinTrackr Phase 8.8
 # ────────────────────────────────────────────────
-# Phase 8.8 — Visual cleanup & dialog spacing:
+# Phase 8.8 — Visual cleanup, dialog fixes, UX improvements:
 #
-# 1.  Compact mini-chips for high-cardinality fields (Category):
-#     - Added max_chips=8 parameter to _chip_select()
-#     - When len(options) > 8, renders compact mini-chips (.mf-chip.mini)
-#       with smaller padding (4px 11px), smaller font (11.5px), tighter gap (5px)
-#     - Scrollable container with max-height: 120px
-#     - NO ui.select/q-select used anywhere — avoids invisible text bug
-#     - Chips still used at normal size for low-count fields (Method, Account, etc.)
+# 1.  Custom pure-HTML dropdown for Category (9+ options):
+#     - Built from scratch: clickable trigger + scrollable options panel
+#     - CSS: .mf-dd-trigger, .mf-dd-panel, .mf-dd-item, .mf-dd-item.active
+#     - NO ui.select / q-select used — permanently avoids invisible text bug
+#     - _SelDropdown wrapper preserves .value/.props/.on/.set_visibility API
+#     - Chips still used for low-count fields (Method, Account, LOC Type, etc.)
 #
-# 2.  Dialog header spacing tightened (all 5 dialogs):
-#     - Header padding: 20px 24px 16px → 14px 24px 10px (less vertical space)
-#     - Icon box: 44x44 → 36x36, icon font: 22px → 18px (more compact)
-#     - Added w-full to header row for proper X button alignment
+# 2.  Dialog header layout fixed (all 5 dialogs):
+#     - Header outer div: added width: 100%; box-sizing: border-box
+#     - Header row: explicit style('width: 100%') for full-width stretch
+#     - Header padding: 20px 24px 16px → 14px 24px 10px (tighter)
+#     - Icon box: 44x44 → 36x36, icon font: 22px → 18px (compact)
 #
 # 3.  Dialog footer spacing fix:
 #     - Removed margin: 8px 0 0 0 from sticky footer in open_add_dialog
-#     - Eliminates empty gap between content and Save/Cancel buttons
 #
-# 4.  Close button visibility:
-#     - Increased opacity from 0.5 to 0.7 on all 5 dialog close buttons
+# 4.  Close button visibility: opacity 0.5 → 0.7 (all 5 dialogs)
 #
-# 5.  Cleaned up d_category scrollable parameter (no longer needed)
+# 5.  Home page quick-add buttons now auto-open dialogs:
+#     - "Add expense" → navigates to /add AND opens Expense dialog
+#     - "Add income" → navigates to /add AND opens Income dialog
+#     - Uses app.storage.user['add_auto_open'] + ui.timer(0.3s)
+#
+# 6.  Desktop logout button added to sidebar (mf-rail):
+#     - Red "Logout" button below version label
+#     - Visible only on desktop (mf-rail-desktop-only class)
+#     - Calls do_logout() (same as mobile logout)
 #
 # Carries forward all 8.7 + 8.6 + 8.5 + 8.4 + 8.3 fixes.
 # ────────────────────────────────────────────────
