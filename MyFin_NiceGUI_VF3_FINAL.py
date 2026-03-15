@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '8.8'
+APP_VERSION = '9.0'
 
 
 def log(message: str) -> None:
@@ -2315,6 +2315,7 @@ def create_or_update_recurring_template(
     rid = sha16(key)
 
     # if exists: update core fields
+    _header_cache.pop('recurring', None)
     if not rdf.empty and (rdf["recurring_id"].astype(str) == rid).any():
         update_row_by_id("recurring", "recurring_id", rid, {
             "owner": owner,
@@ -2332,20 +2333,26 @@ def create_or_update_recurring_template(
         return rid
 
     # new template
-    append_row("recurring", {
-        "recurring_id": rid,
-        "owner": owner,
-        "type": type_,
-        "amount": amount,
-        "method": method,
-        "account": account,
-        "category": category,
-        "notes": notes,
-        "day_of_month": str(day_of_month),
-        "start_date": start_date.isoformat(),
-        "active": "TRUE" if active else "FALSE",
-        "last_generated_month": "",
-    })
+    # Force-refresh header cache for recurring to avoid stale data
+    _header_cache.pop('recurring', None)
+    try:
+        append_row("recurring", {
+            "recurring_id": rid,
+            "owner": owner,
+            "type": type_,
+            "amount": amount,
+            "method": method,
+            "account": account,
+            "category": category,
+            "notes": notes,
+            "day_of_month": str(day_of_month),
+            "start_date": start_date.isoformat(),
+            "active": "TRUE" if active else "FALSE",
+            "last_generated_month": "",
+        })
+    except Exception as e:
+        _logger.error("Failed to append recurring template: %s", e)
+        raise
     invalidate("recurring")
     return rid
 
@@ -4047,10 +4054,10 @@ html.mf-light .mf-tag { background: rgba(17,24,39,0.04); }
 
 /* Smooth page transitions */
 .mf-canvas {
-  animation: mf-fadeIn 0.3s ease;
+  animation: mf-fadein 0.25s ease-out;
 }
-@keyframes mf-fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
+@keyframes mf-fadein {
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -5338,7 +5345,8 @@ def dashboard_page():
         income = amt[typ.isin(["credit", "income"])].sum()
         expense = amt[typ.isin(["debit", "expense"])].sum()
         invest = amt[typ.isin(["investment"])].sum()
-        net = income - expense - invest
+        intl = amt[typ.isin(['international', 'international transfer', 'intl'])].sum()
+        net = income - expense - invest - intl
 
 
         # --- Pay-period view (smarter than calendar month for end-of-month salaries) ---
@@ -5368,6 +5376,26 @@ def dashboard_page():
                 prev_pay = start_d - dt.timedelta(days=14)
             if next_pay is None:
                 next_pay = start_d + dt.timedelta(days=14)
+            # Determine whose payday
+            _pay_owner = ''
+            try:
+                _abhi_dates = set()
+                _y, _m = next_pay.year, next_pay.month
+                for _offset in range(-1, 2):
+                    _ym = _m + _offset
+                    _yy = _y
+                    if _ym < 1: _ym = 12; _yy -= 1
+                    elif _ym > 12: _ym = 1; _yy += 1
+                    _abhi_dates.update(abhi_pay_dates_for_month(_yy, _ym))
+                _indhu_dates = set(wife_pay_dates_between(next_pay - dt.timedelta(days=3), next_pay + dt.timedelta(days=3)))
+                _is_abhi = next_pay in _abhi_dates
+                _is_indhu = next_pay in _indhu_dates
+                if _is_abhi and _is_indhu: _pay_owner = 'Both'
+                elif _is_abhi: _pay_owner = 'Abhi'
+                elif _is_indhu: _pay_owner = 'Indhu'
+            except Exception:
+                pass
+
             pp_start = prev_pay
             pp_end = next_pay
 
@@ -5378,11 +5406,12 @@ def dashboard_page():
             income_pp = pamt[ptyp.isin(['credit','income'])].sum()
             expense_pp = pamt[ptyp.isin(['debit','expense'])].sum()
             invest_pp = pamt[ptyp.isin(['investment'])].sum()
-            net_pp = income_pp - expense_pp - invest_pp
+            intl_pp = pamt[ptyp.isin(['international', 'international transfer', 'intl'])].sum()
+            net_pp = income_pp - expense_pp - invest_pp - intl_pp
         except Exception:
             pp_start = today() - dt.timedelta(days=14)
             pp_end = today() + dt.timedelta(days=14)
-            income_pp = expense_pp = invest_pp = net_pp = 0.0
+            income_pp = expense_pp = invest_pp = intl_pp = net_pp = 0.0
 
         # Expenses for this month (reused by budgets + breakdown)
         spend = mtx[mtx["type_l"].isin(["debit", "expense"])].copy()
@@ -5397,11 +5426,21 @@ def dashboard_page():
         except Exception:
             days_to_next = None
 
+        # Time-based greeting
+        _hour = datetime.datetime.now().hour
+        if _hour < 12: _greeting = 'Good morning'
+        elif _hour < 17: _greeting = 'Good afternoon'
+        else: _greeting = 'Good evening'
+
+        # Daily average spending this month
+        _daily_avg = round(expense / max(today().day, 1), 2) if expense > 0 else 0.0
+
         # Premium Hero Card
         with ui.card().classes('my-card p-0 mf-budget').style('overflow: hidden;'):
             # Accent strip at top
             ui.element('div').classes('mf-accent-strip').style('height: 3px;')
             with ui.column().classes('p-6 gap-4'):
+                ui.label(f'{_greeting}').classes('text-sm font-medium').style('color: var(--mf-muted); margin-bottom: 4px;')
                 with ui.row().classes('w-full items-start justify-between'):
                     with ui.column().classes('gap-1'):
                         ui.label('Pay Period Net').classes('mf-stat-label')
@@ -5410,14 +5449,18 @@ def dashboard_page():
                         with ui.row().classes('items-center gap-2 mt-1'):
                             ui.icon('date_range').style('font-size: 14px; color: var(--mf-muted);')
                             ui.label(f"{pp_start.strftime('%b %d')} — {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
+                        with ui.row().classes('items-center gap-2 mt-1'):
+                            ui.icon('local_fire_department').style('font-size: 14px; color: #ef4444;')
+                            ui.label(f"Daily avg: {currency(_daily_avg)}").classes('text-xs').style('color: var(--mf-muted)')
                     if next_pay:
                         with ui.column().classes('items-end gap-1'):
                             ui.label('Next Payday').classes('mf-stat-label')
+                            if _pay_owner:
+                                ui.label(_pay_owner).classes('text-xs font-semibold').style(f'color: var(--mf-accent); margin-top: -2px;')
                             ui.label(next_pay.strftime('%b %d')).classes('text-2xl font-extrabold').style('letter-spacing: -0.02em;')
                             if days_to_next is not None:
                                 _badge_bg = 'rgba(34,197,94,0.14)' if days_to_next <= 7 else 'rgba(255,255,255,0.06)'
                                 _badge_color = '#22c55e' if days_to_next <= 7 else 'var(--mf-text)'
-                                ui.element('span').classes('mf-tag').style(f'background: {_badge_bg}; color: {_badge_color};').text = f"{days_to_next}d away"
                                 with ui.element('span').classes('mf-tag').style(f'background: {_badge_bg}; color: {_badge_color};'):
                                     ui.label(f"{days_to_next}d away").classes('text-xs font-semibold')
 
@@ -5437,31 +5480,28 @@ def dashboard_page():
                         'border-radius: 10px; font-weight: 500;'
                     ).on('click', lambda: nav_to('/tx'))
 
-        # KPI tiles (premium bank-style grid)
-        with ui.element("div").classes("grid grid-cols-2 md:grid-cols-4 gap-3 w-full"):
-            for label, val, icon, accent_color, icon_bg in [
-                ("Income", income, "trending_up", "#22c55e", "rgba(34,197,94,0.12)"),
-                ("Expenses", expense, "trending_down", "#ef4444", "rgba(239,68,68,0.12)"),
-                ("Investments", invest, "savings", "#3b82f6", "rgba(59,130,246,0.12)"),
-                ("Net", net, "insights", "#a855f7", "rgba(168,85,247,0.12)"),
-            ]:
-                with ui.card().classes("my-card p-4 w-full").style("min-height: 100px;"):
-                    with ui.row().classes("items-center gap-2"):
-                        with ui.element("div").classes("mf-icon-box").style(f"background: {icon_bg};"):
-                            ui.icon(icon).style(f"font-size: 20px; color: {accent_color};")
-                        ui.label(label).classes("mf-stat-label")
-                    ui.label(currency(val)).classes("text-xl font-extrabold mt-2").style(f"color: {accent_color}; letter-spacing: -0.02em; font-feature-settings: 'tnum';")
-                    ui.label(mkey).classes("text-xs mt-1").style("color: var(--mf-muted)")
+        # Consolidated Financial Pulse card
+        with ui.card().classes('my-card p-5'):
+            ui.label('Financial Pulse').classes('text-xs font-medium').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;')
+            with ui.element("div").classes("grid grid-cols-2 md:grid-cols-4 gap-4 w-full"):
+                for _fp_label, _fp_val, _fp_icon, _fp_accent, _fp_bg in [
+                    ("Income", income, "trending_up", "#22c55e", "rgba(34,197,94,0.12)"),
+                    ("Expenses", expense, "trending_down", "#ef4444", "rgba(239,68,68,0.12)"),
+                    ("Intl Transfer", intl, "public", "#f472b6", "rgba(244,114,182,0.12)"),
+                    ("Net", net, "insights", "#a855f7" if net >= 0 else "#ef4444", "rgba(168,85,247,0.12)"),
+                ]:
+                    with ui.column().classes('gap-1'):
+                        with ui.row().classes("items-center gap-2"):
+                            with ui.element("div").style(f"width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: {_fp_bg};"):
+                                ui.icon(_fp_icon).style(f"font-size: 16px; color: {_fp_accent};")
+                            ui.label(_fp_label).classes("text-xs font-medium").style("color: var(--mf-muted);")
+                        ui.label(currency(_fp_val)).classes("text-lg font-extrabold").style(f"color: {_fp_accent}; letter-spacing: -0.02em; font-feature-settings: 'tnum';")
 
-        # ──── 8.5: Compact Summary Cards (Investments, Intl Transfers) — LOC removed per user request ────
+        # ──── 9.0: Compact Summary Cards (Intl Transfers only) ────
         try:
-            _invest_total = float(invest)
             _intl_total = float(amt[typ.isin(['international', 'international transfer', 'intl'])].sum())
 
             _summary_cards = []
-            if _invest_total > 0:
-                _summary_cards.append(('Investments', 'show_chart', '#a855f7', 'rgba(168,85,247,0.12)',
-                                       _invest_total, f'Total invested {mkey}'))
             if _intl_total > 0:
                 _summary_cards.append(('Intl Transfers', 'public', '#f472b6', 'rgba(244,114,182,0.12)',
                                        _intl_total, f'Total transferred {mkey}'))
@@ -5620,71 +5660,43 @@ def dashboard_page():
         except Exception:
             pass  # Health score is optional
 
-        # Pay period breakdown
-        with ui.card().classes('my-card p-5'):
-            ui.label('Pay Period Breakdown').classes('mf-section-title')
-            with ui.element("div").classes("grid grid-cols-2 md:grid-cols-4 gap-3 w-full"):
-                for label, val, icon, accent in [
-                    ('Income', income_pp, "payments", "#22c55e"),
-                    ('Expenses', expense_pp, "receipt_long", "#ef4444"),
-                    ('Investments', invest_pp, "account_balance", "#3b82f6"),
-                    ('Net', net_pp, "timeline", "#a855f7"),
-                ]:
-                    with ui.element("div").style(
-                        "padding: 14px; border-radius: 14px; border: 1px solid var(--mf-border);"
-                        "background: rgba(255,255,255,0.02);"
-                    ):
-                        ui.label(label).classes('mf-stat-label')
-                        ui.label(currency(val)).classes('text-lg font-bold mt-1').style(f'color: {accent}; font-feature-settings: "tnum";')
-                        ui.label(f"{pp_start.strftime('%b %d')} — {pp_end.strftime('%b %d')}").classes('text-xs mt-1').style('color: var(--mf-muted)')
+        # Pay period breakdown removed in v9.0
 
 
-        # ──── Smart Alerts ────
+        # ──── Smart Alert Banners (slim, at top — v9.0) ────
+        # Alert logic kept but rendered as slim banners instead of a full card
+        _alert_banners_data: list[tuple[str, str, str, str]] = []
         try:
-            _alerts: list[tuple[str, str, str, str]] = []  # (icon, message, severity, action_path)
-
-            # 1. Uncategorized transactions this month
             if not spend.empty and 'category' in spend.columns:
                 _uncat = spend[spend['category'].astype(str).str.strip().isin(['', 'Uncategorized', 'nan'])]
                 if len(_uncat) > 0:
-                    _alerts.append(('label_off', f'{len(_uncat)} uncategorized transaction{"s" if len(_uncat) != 1 else ""} this month', 'warning', '/tx'))
-
-            # 2. Unusually large transactions (>3x average daily spend)
+                    _alert_banners_data.append(('label_off', f'{len(_uncat)} uncategorized transaction{"s" if len(_uncat) != 1 else ""} this month', 'warning', '/tx'))
             if not spend.empty:
                 _avg_txn = float(spend['amount_num'].mean())
                 _large = spend[spend['amount_num'] > (_avg_txn * 3)]
                 if len(_large) > 0:
                     _top = _large.sort_values('amount_num', ascending=False).iloc[0]
-                    _alerts.append(('priority_high', f'Large transaction: {currency(float(_top["amount_num"]))} on {_top.get("date","")}', 'info', '/tx'))
-
-            # 3. Spending pace alert (on track to exceed last month?)
+                    _alert_banners_data.append(('priority_high', f'Large transaction: {currency(float(_top["amount_num"]))} on {_top.get("date","")}', 'info', '/tx'))
             try:
                 _today_d = today()
                 _day_of_month = _today_d.day
                 _days_in_month = calendar.monthrange(_today_d.year, _today_d.month)[1]
                 _projected = float(expense) / max(_day_of_month, 1) * _days_in_month if expense > 0 else 0
-                # Compare against last month
                 _last_mk = month_key(_today_d.replace(day=1) - dt.timedelta(days=1)) if _today_d.month > 1 else month_key(dt.date(_today_d.year - 1, 12, 1))
                 _last_spend = tx[tx['type_l'].isin(['debit', 'expense']) & (tx['month'] == _last_mk)]
                 _last_total = float(_last_spend['amount_num'].sum()) if not _last_spend.empty else 0
                 if _last_total > 0 and _projected > _last_total * 1.2:
                     _pct_over = int(round((_projected / _last_total - 1) * 100))
-                    _alerts.append(('speed', f'Spending pace {_pct_over}% above last month (projected {currency(_projected)})', 'warning', '/reports'))
+                    _alert_banners_data.append(('speed', f'Spending pace {_pct_over}% above last month (projected {currency(_projected)})', 'warning', '/reports'))
             except Exception:
                 pass
-
-            # 4. No income recorded this month
             if income == 0:
-                _alerts.append(('info', 'No income recorded this month yet', 'info', '/add'))
-
-            # 5. Duplicate transactions warning
+                _alert_banners_data.append(('info', 'No income recorded this month yet', 'info', '/add'))
             if not spend.empty and 'notes' in spend.columns:
                 _dup_keys = spend.apply(lambda r: f"{r.get('date','')}|{r['amount_num']}|{str(r.get('notes','')).strip()}", axis=1)
                 _dup_count = int(_dup_keys.duplicated(keep=False).sum())
                 if _dup_count >= 4:
-                    _alerts.append(('difference', f'{_dup_count // 2}+ possible duplicate transactions', 'warning', '/tx'))
-
-            # 6. Credit card near limit
+                    _alert_banners_data.append(('difference', f'{_dup_count // 2}+ possible duplicate transactions', 'warning', '/tx'))
             try:
                 cards_df = cached_df('cards')
                 if not cards_df.empty:
@@ -5695,31 +5707,22 @@ def dashboard_page():
                             _card_spend = float(spend[spend.get('method', pd.Series(dtype=str)).astype(str).str.strip() == _method]['amount_num'].sum())
                             if _card_spend >= _limit * 0.85:
                                 _pct_used = int(round(_card_spend / _limit * 100))
-                                _alerts.append(('credit_card', f'{_cd.get("card_name", _method)}: {_pct_used}% of limit used', 'warning' if _pct_used < 100 else 'error', '/cards'))
+                                _alert_banners_data.append(('credit_card', f'{_cd.get("card_name", _method)}: {_pct_used}% of limit used', 'warning' if _pct_used < 100 else 'error', '/cards'))
             except Exception:
                 pass
-
-            if _alerts:
-                with ui.card().classes('my-card p-5'):
-                    with ui.row().classes('items-center gap-2 mb-3'):
-                        with ui.element("div").classes("mf-icon-box").style("background: rgba(245,158,11,0.12);"):
-                            ui.icon("notifications_active").style("font-size: 20px; color: #f59e0b;")
-                        ui.label('Smart Alerts').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
-                        ui.badge(str(len(_alerts))).props('color=amber-8').classes('ml-1')
-
-                    for _a_icon, _a_msg, _a_sev, _a_path in _alerts[:8]:
-                        _sev_colors = {'error': '#ef4444', 'warning': '#f59e0b', 'info': '#3b82f6'}
-                        _c = _sev_colors.get(_a_sev, '#3b82f6')
-                        with ui.element("div").style(
-                            f"padding: 10px 14px; border-radius: 12px; border-left: 3px solid {_c};"
-                            "background: rgba(255,255,255,0.03); margin-bottom: 6px; cursor: pointer;"
-                        ).on('click', lambda path=_a_path: nav_to(path)):
-                            with ui.row().classes('items-center gap-3'):
-                                ui.icon(_a_icon).style(f'font-size: 18px; color: {_c};')
-                                ui.label(_a_msg).classes('text-sm').style('color: var(--mf-text);')
-                                ui.icon('chevron_right').style('font-size: 16px; color: var(--mf-muted); margin-left: auto;')
-        except Exception as e:
-            _logger.warning("Smart Alerts rendering error: %s", e)
+            if _alert_banners_data:
+                for _ab_icon, _ab_msg, _ab_sev, _ab_path in _alert_banners_data[:3]:
+                    _sev_colors = {'error': '#ef4444', 'warning': '#f59e0b', 'info': '#3b82f6'}
+                    _bc = _sev_colors.get(_ab_sev, '#3b82f6')
+                    with ui.element('div').style(
+                        f'display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-radius: 10px;'
+                        f'background: {_bc}0D; border: 1px solid {_bc}22; margin-bottom: 8px; cursor: pointer;'
+                    ).on('click', lambda p=_ab_path: nav_to(p)):
+                        ui.icon(_ab_icon).style(f'font-size: 16px; color: {_bc};')
+                        ui.label(_ab_msg).classes('text-xs font-medium').style(f'color: {_bc};')
+                        ui.icon('chevron_right').style(f'font-size: 14px; color: {_bc}; margin-left: auto; opacity: 0.5;')
+        except Exception:
+            pass
 
         # Quick actions + data quality
         # Phase 4.6A: Quick actions moved into the Overview card to reduce clutter
@@ -5836,312 +5839,14 @@ def dashboard_page():
                                                 ui.label(f"{int(round(pct*100))}% used").classes("text-xs").style(f"color: var(--mf-muted);")
                                                 ui.label(f"of {currency(bud_amt)}").classes("text-xs").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
 
-        # Upcoming paydays
-        start = today()
-        end = start + dt.timedelta(days=45)
-        pays: List[Tuple[str, dt.date]] = []
-        y, m = start.year, start.month
-        for _ in range(3):
-            for p in abhi_pay_dates_for_month(y, m):
-                if start <= p <= end:
-                    pays.append(("Salary 1", p))
-            m += 1
-            if m == 13:
-                y += 1
-                m = 1
-        for p in wife_pay_dates_between(start, end):
-            if start <= p <= end:
-                pays.append(("Salary 2", p))
-        pays = sorted(set(pays), key=lambda x: x[1])
-
-        with ui.card().classes("my-card p-5"):
-            ui.label("Upcoming salary").classes("text-lg font-bold")
-            if not pays:
-                ui.label("No paydays in the next 45 days.").style("color: var(--mf-muted)")
-            else:
-                # Group paydays by person (Salary 1 = Nishanth, Salary 2 = Indhu)
-                grouped = {"Nishanth": [], "Indhu": []}
-                for who, d in pays:
-                    if who == "Salary 1":
-                        grouped["Nishanth"].append(d)
-                    elif who == "Salary 2":
-                        grouped["Indhu"].append(d)
-                for k in grouped:
-                    grouped[k] = sorted(set(grouped[k]))
-
-                def _salary_card(name: str, dates: list):
-                    next_d = next((x for x in dates if x >= today()), None)
-                    if not next_d:
-                        return
-                    days = (next_d - today()).days
-                    _urgent = days <= 3
-                    _badge_style = 'background: rgba(34,197,94,0.14); color: #22c55e;' if _urgent else 'background: rgba(255,255,255,0.06); color: var(--mf-text);'
-                    with ui.element("div").style(
-                        "padding: 16px; border-radius: 16px; border: 1px solid var(--mf-border);"
-                        "background: rgba(255,255,255,0.03);"
-                    ):
-                        with ui.row().classes("items-center justify-between"):
-                            with ui.row().classes("items-center gap-2"):
-                                with ui.element("div").classes("mf-icon-box").style("background: rgba(34,197,94,0.10);"):
-                                    ui.icon("account_balance").style("font-size: 18px; color: #22c55e;")
-                                ui.label(f"{name}").classes("text-sm font-semibold")
-                            with ui.element("span").classes("mf-tag").style(_badge_style):
-                                ui.label(f"{days}d").classes("text-xs font-bold")
-                        ui.label(next_d.strftime("%a, %b %d")).classes("text-xl font-extrabold mt-2").style("letter-spacing: -0.02em;")
-                        upcoming = [x for x in dates if x >= today()][:3]
-                        if len(upcoming) > 1:
-                            ui.label("Upcoming: " + ", ".join([x.strftime("%b %d") for x in upcoming[1:]])).classes("text-xs mt-1").style("color: var(--mf-muted)")
-
-                with ui.element("div").classes("grid grid-cols-1 md:grid-cols-2 gap-3 w-full"):
-                    _salary_card("Nishanth", grouped.get("Nishanth", []))
-                    _salary_card("Indhu", grouped.get("Indhu", []))
+        # Upcoming salary section removed in v9.0 (payday info now in hero card)
 
         # Task 8: Spending Breakdown removed (user finds it PowerBI-like)
 
-        # Top merchants (best-effort from Notes)
-        with ui.card().classes("my-card p-5"):
-            ui.label("Top Merchants").classes("mf-section-title")
-            if spend.empty or "notes" not in spend.columns:
-                ui.label("No merchant data available.").style("color: var(--mf-muted)")
-            else:
-                def _merchant_from_notes(n: str) -> str:
-                    s = str(n or "").strip()
-                    if not s:
-                        return "(blank)"
-                    # common separators: '|', '-', '•'
-                    for sep in ("|", "•", "-"):
-                        if sep in s:
-                            s = s.split(sep, 1)[0].strip()
-                    s = re.sub(r"\s+", " ", s)
-                    return (s[:28] + "…") if len(s) > 28 else s
-
-                spend["_merchant"] = spend["notes"].apply(_merchant_from_notes)
-                topm = spend.groupby("_merchant", as_index=False)["amount_num"].sum().sort_values("amount_num", ascending=False)
-                if topm.empty:
-                    ui.label("No merchant data available.").style("color: var(--mf-muted)")
-                else:
-                    rows = []
-                    for _, r in topm.head(8).iterrows():
-                        rows.append({"merchant": r["_merchant"], "spend": currency(float(r["amount_num"]))})
-                    ui.table(
-                        columns=[
-                            {"name": "merchant", "label": "Merchant", "field": "merchant", "align": "left"},
-                            {"name": "spend", "label": "Spend", "field": "spend", "align": "right"},
-                        ],
-                        rows=rows,
-                        row_key="merchant",
-                    ).classes("w-full")
+        # Top merchants section removed in v9.0
 
         # ──── Dashboard section helpers (closure over spend, expense, tx, etc.) ────
-        def _render_insights():
-            # ──── Monthly Insights ────
-            try:
-                _today = today()
-                _dom = _today.day  # day of month
-                _days_in_month = (dt.date(_today.year, _today.month % 12 + 1, 1) - dt.timedelta(days=1)).day if _today.month < 12 else 31
-
-                # Last month's data for comparison
-                if _today.month == 1:
-                    _prev_year, _prev_month = _today.year - 1, 12
-                else:
-                    _prev_year, _prev_month = _today.year, _today.month - 1
-                _prev_mkey = f"{_prev_year}-{_prev_month:02d}"
-                _prev_mtx = tx[tx["date_parsed"].apply(lambda d: month_key(d) == _prev_mkey)].copy()
-                if "type_l" not in _prev_mtx.columns:
-                    _prev_mtx["type_l"] = _prev_mtx.get("type", pd.Series(dtype=str)).astype(str).str.lower().str.strip()
-                if "amount_num" not in _prev_mtx.columns:
-                    _prev_mtx["amount_num"] = _prev_mtx.get("amount", pd.Series(dtype=float)).apply(to_float)
-                _prev_spend = _prev_mtx[_prev_mtx["type_l"].isin(["debit", "expense"])]
-                _prev_expense_total = float(_prev_spend["amount_num"].sum()) if not _prev_spend.empty else 0.0
-
-                with ui.card().classes("my-card p-0 w-full").style("overflow: hidden; width: 100%; box-sizing: border-box;"):
-                    ui.element('div').style('height: 3px; background: linear-gradient(90deg, #f59e0b, #f97316); border-radius: 0; width: 100%;')
-                    with ui.column().classes("p-5 gap-0 w-full items-stretch").style("align-items: stretch; width: 100%;"):
-                        with ui.row().classes("items-center gap-2 mb-4"):
-                            with ui.element("div").classes("mf-icon-box").style("background: rgba(245,158,11,0.12);"):
-                                ui.icon("auto_graph").style("font-size: 20px; color: #f59e0b;")
-                            ui.label("Monthly Insights").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
-
-                        # 1) Daily avg spend + projected month-end
-                        _daily_avg = round(expense / max(_dom, 1), 2) if expense > 0 else 0.0
-                        _projected = round(_daily_avg * _days_in_month, 2)
-                        _burn_pct = min(_dom / max(_days_in_month, 1), 1.0)
-
-                        # --- Row 1: Daily Average with burn-rate progress ---
-                        with ui.element("div").style(
-                            "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
-                            "border-bottom: 1px solid rgba(128,128,128,0.1);"
-                        ):
-                            with ui.element("div").style(
-                                "width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
-                                "background: rgba(239,68,68,0.08); flex-shrink: 0;"
-                            ):
-                                ui.icon("local_fire_department").style("font-size: 20px; color: #ef4444;")
-                            with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
-                                with ui.row().classes("items-baseline justify-between w-full"):
-                                    ui.label("Daily Average").classes("text-sm font-semibold").style("color: var(--mf-text);")
-                                    ui.label(currency(_daily_avg)).classes("text-base font-extrabold").style("color: #ef4444; font-feature-settings: 'tnum'; letter-spacing: -0.02em;")
-                                with ui.element("div").style(
-                                    "width: 100%; height: 4px; border-radius: 2px; margin-top: 6px;"
-                                    "background: rgba(128,128,128,0.12); overflow: hidden;"
-                                ):
-                                    ui.element("div").style(
-                                        f"width: {_burn_pct * 100:.0f}%; height: 100%; border-radius: 2px;"
-                                        "background: linear-gradient(90deg, #f59e0b, #ef4444);"
-                                        "transition: width 0.8s ease;"
-                                    )
-                                with ui.row().classes("items-center justify-between w-full mt-1"):
-                                    ui.label(f"Day {_dom} of {_days_in_month}").classes("text-xs").style("color: var(--mf-muted);")
-                                    ui.label(f"Projected: {currency(_projected)}").classes("text-xs").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
-
-                        # --- Row 2: vs Last Month ---
-                        if _prev_expense_total > 0:
-                            _pct_change = ((expense - _prev_expense_total) / _prev_expense_total) * 100
-                        else:
-                            _pct_change = 0.0
-                        _change_color = "#ef4444" if _pct_change > 0 else "#22c55e"
-                        _change_icon = "trending_up" if _pct_change > 0 else "trending_down"
-                        _change_sign = "+" if _pct_change > 0 else ""
-
-                        with ui.element("div").style(
-                            "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
-                            "border-bottom: 1px solid rgba(128,128,128,0.1);"
-                        ):
-                            with ui.element("div").style(
-                                f"width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
-                                f"background: {_change_color}14; flex-shrink: 0;"
-                            ):
-                                ui.icon(_change_icon).style(f"font-size: 20px; color: {_change_color};")
-                            with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
-                                with ui.row().classes("items-baseline justify-between w-full"):
-                                    ui.label("vs Last Month").classes("text-sm font-semibold").style("color: var(--mf-text);")
-                                    with ui.element("span").style(
-                                        f"background: {_change_color}18; color: {_change_color}; font-weight: 800; font-size: 14px;"
-                                        f"padding: 2px 10px; border-radius: 20px; font-feature-settings: 'tnum';"
-                                    ):
-                                        ui.label(f"{_change_sign}{_pct_change:.1f}%")
-                                ui.label(f"Last month total: {currency(_prev_expense_total)}").classes("text-xs mt-1").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
-
-                        # --- Row 3: Biggest Expense ---
-                        if not spend.empty and len(spend) > 0 and spend["amount_num"].sum() > 0:
-                            try:
-                                _largest_row = spend.loc[spend["amount_num"].idxmax()]
-                                _largest_amt = float(_largest_row["amount_num"])
-                                _largest_note = str(_largest_row.get("notes", "") or "")[:28]
-                                _largest_cat = str(_largest_row.get("category", "") or "")
-                            except (ValueError, KeyError):
-                                _largest_amt, _largest_note, _largest_cat = 0.0, "\u2014", ""
-                        else:
-                            _largest_amt = 0.0
-                            _largest_note = "\u2014"
-                            _largest_cat = ""
-
-                        with ui.element("div").style(
-                            "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
-                            "border-bottom: 1px solid rgba(128,128,128,0.1);"
-                        ):
-                            with ui.element("div").style(
-                                "width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
-                                "background: rgba(168,85,247,0.08); flex-shrink: 0;"
-                            ):
-                                ui.icon("diamond").style("font-size: 20px; color: #a855f7;")
-                            with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
-                                with ui.row().classes("items-baseline justify-between w-full"):
-                                    ui.label("Biggest Expense").classes("text-sm font-semibold").style("color: var(--mf-text);")
-                                    ui.label(currency(_largest_amt)).classes("text-base font-extrabold").style("color: #a855f7; font-feature-settings: 'tnum'; letter-spacing: -0.02em;")
-                                _hint = _largest_note or _largest_cat or "\u2014"
-                                ui.label(_hint).classes("text-xs mt-1").style("color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;")
-
-                        # --- Row 4: Top Category ---
-                        if not spend.empty and "category" in spend.columns and len(spend) > 0:
-                            try:
-                                _cat_sums = spend.groupby("category")["amount_num"].sum()
-                                _top_cat_this = _cat_sums.idxmax() if len(_cat_sums) > 0 else "\u2014"
-                                _top_cat_amt = float(_cat_sums.max()) if len(_cat_sums) > 0 else 0.0
-                                _top_cat_pct = (_top_cat_amt / expense * 100) if expense > 0 else 0
-                            except (ValueError, KeyError):
-                                _top_cat_this, _top_cat_amt, _top_cat_pct = "\u2014", 0.0, 0.0
-                        else:
-                            _top_cat_this = "\u2014"
-                            _top_cat_amt = 0.0
-                            _top_cat_pct = 0.0
-
-                        with ui.element("div").style(
-                            "display: flex; align-items: center; gap: 16px; padding: 14px 0;"
-                        ):
-                            with ui.element("div").style(
-                                "width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
-                                "background: rgba(59,130,246,0.08); flex-shrink: 0;"
-                            ):
-                                ui.icon("category").style("font-size: 20px; color: #3b82f6;")
-                            with ui.column().classes("gap-0 flex-1").style("min-width: 0;"):
-                                with ui.row().classes("items-baseline justify-between w-full"):
-                                    ui.label("Top Category").classes("text-sm font-semibold").style("color: var(--mf-text);")
-                                    ui.label(str(_top_cat_this)).classes("text-base font-extrabold").style("color: #3b82f6; letter-spacing: -0.02em;")
-                                with ui.row().classes("items-center gap-3 mt-1"):
-                                    ui.label(currency(_top_cat_amt)).classes("text-xs").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
-                                    ui.label(f"{_top_cat_pct:.0f}% of total spend").classes("text-xs").style("color: var(--mf-muted);")
-
-            except Exception:
-                pass  # Insights are optional; never break the dashboard
-
-        def _render_alerts():
-            # ──── Smart Alerts ────
-            try:
-                _alerts = []
-                # 1. Budget overspend alerts (80% threshold)
-                try:
-                    _ab = read_df_optional('budgets')
-                    if _ab is not None and not _ab.empty and not spend.empty and 'category' in spend.columns:
-                        _abcols = {str(c).strip().lower(): c for c in _ab.columns}
-                        _abc = _abcols.get('category') or _abcols.get('cat')
-                        _abb = _abcols.get('budget_monthly') or _abcols.get('monthly_budget') or _abcols.get('budget')
-                        if _abc and _abb:
-                            for _, _abr in _ab.iterrows():
-                                _abk = str(_abr.get(_abc, '')).strip()
-                                _abv = float(_abr.get(_abb, 0) or 0)
-                                if _abk and _abv > 0:
-                                    _cat_spent = float(spend[spend['category'] == _abk]['amount_num'].sum()) if _abk in spend['category'].values else 0.0
-                                    _pct_used = _cat_spent / _abv
-                                    if _pct_used >= 1.0:
-                                        _alerts.append(('error', 'warning', f'{_abk}: Over budget! {currency(_cat_spent)} / {currency(_abv)} ({int(_pct_used*100)}%)'))
-                                    elif _pct_used >= 0.8:
-                                        _alerts.append(('warning', 'trending_up', f'{_abk}: Nearing limit \u2014 {currency(_cat_spent)} / {currency(_abv)} ({int(_pct_used*100)}%)'))
-                except Exception:
-                    pass
-
-                # 2. Large transaction alerts (> $200 single transaction this month)
-                try:
-                    if not spend.empty:
-                        _large = spend[spend['amount_num'] > 200.0]
-                        for _, _lr in _large.head(3).iterrows():
-                            _ln = str(_lr.get('notes', '') or '')[:30] or str(_lr.get('category', ''))
-                            _alerts.append(('info', 'payments', f'Large expense: {currency(float(_lr["amount_num"]))} \u2014 {_ln}'))
-                except Exception:
-                    pass
-
-                # 3. Uncategorized transactions alert
-                try:
-                    if not spend.empty and 'category' in spend.columns:
-                        _uncat = spend[spend['category'].astype(str).str.strip().isin(['', 'Uncategorized'])]
-                        if len(_uncat) > 0:
-                            _alerts.append(('warning', 'label_off', f'{len(_uncat)} uncategorized transaction{"s" if len(_uncat) > 1 else ""} this month'))
-                except Exception:
-                    pass
-
-                if _alerts:
-                    with ui.card().classes('my-card p-5'):
-                        with ui.row().classes('items-center gap-2 mb-3'):
-                            with ui.element("div").classes("mf-icon-box").style("background: rgba(239,68,68,0.12);"):
-                                ui.icon("notifications_active").style("font-size: 20px; color: #ef4444;")
-                            ui.label("Smart Alerts").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
-                        for _a_type, _a_icon, _a_msg in _alerts[:8]:
-                            _a_color = '#ef4444' if _a_type == 'error' else ('#f59e0b' if _a_type == 'warning' else '#3b82f6')
-                            with ui.row().classes('w-full items-center gap-3 py-2').style(f'border-left: 3px solid {_a_color}; padding-left: 12px; border-radius: 2px;'):
-                                ui.icon(_a_icon).style(f'font-size: 18px; color: {_a_color};')
-                                ui.label(_a_msg).classes('text-sm').style('color: var(--mf-text);')
-            except Exception:
-                pass
+        # _render_insights() and _render_alerts() removed in v9.0
 
         def _render_cashflow():
             # ──── Cashflow Trend (enhanced: weekly income vs expense bars + cumulative balance) ────
@@ -6280,14 +5985,11 @@ def dashboard_page():
                 pass
 
         # ──── Dashboard Grid (responsive 2-col on desktop) ────
-        # Task 8: Cashflow Trend removed (user finds it PowerBI-like)
         with ui.element('div').classes('mf-dash-grid'):
             with ui.element('div'):
-                _render_insights()
-            with ui.element('div'):
                 _render_recent_tx()
-            with ui.element('div').classes('mf-dash-full'):
-                _render_alerts()
+            with ui.element('div'):
+                _render_cashflow()
 
 
     shell(content)
@@ -8195,9 +7897,6 @@ def transactions_page():
             d.open()
 
         def _apply_category_selected(table_ref, category_val: str) -> None:
-            if is_month_locked(f_month.value or mkey):
-                ui.notify("This month is locked. Unlock it to edit.", type="warning")
-                return
             if not getattr(table_ref, 'selected', None):
                 ui.notify('Select a transaction row first.', type='warning')
                 return
@@ -8224,24 +7923,7 @@ def transactions_page():
                     ui.label("Transactions").classes("text-xl font-extrabold").style("letter-spacing: -0.02em;")
 
         with ui.card().classes("my-card p-5"):
-            # Month selector + lock (5.12)
-            month_options = []
-            try:
-                if not tx.empty and "date_parsed" in tx.columns:
-                    month_options = sorted({month_key(d) for d in tx["date_parsed"].dropna().tolist()}, reverse=True)
-            except Exception:
-                month_options = []
-            if not month_options:
-                month_options = [month_key(today())]
-
-            mkey = (app.storage.user.get("tx_month") or month_key(today()))
-            if mkey not in month_options:
-                mkey = month_options[0]
-
-            with ui.row().classes("w-full items-center gap-3 mt-2"):
-                f_month = ui.select(month_options, value=mkey, label="Month").classes("w-full")
-                lock_sw = ui.switch("Month Lock", value=is_month_locked(mkey)).classes("shrink-0")
-
+            # v9.0: Month selector removed; date range filter is the primary filter
             f_type = ui.select(["All"] + types, value="All", label="Type").classes("w-full")
             f_text = ui.input("Search notes/category/account").classes("w-full")
             try:
@@ -8387,10 +8069,10 @@ def transactions_page():
                 'border-radius: 8px; font-size: 11px; padding: 4px 12px; color: var(--mf-muted);'
             )
 
-            # Date range filter (defaults to last 30 days)
+            # Date range filter (defaults to current month start to today)
             try:
                 _today = datetime.date.today()
-                _from = (_today - datetime.timedelta(days=30)).isoformat()
+                _from = _today.replace(day=1).isoformat()
                 _to = _today.isoformat()
             except Exception:
                 _from = ''
@@ -8478,31 +8160,9 @@ def transactions_page():
                 with ui.row().classes('gap-2 items-center').style('flex-wrap: wrap;'):
                     fix_cat = ui.select(cat_choices, value=cat_choices[0], label='Quick category').classes('').style('min-width: 160px; max-width: 220px;').props('dense outlined')
                     ui.button('Apply', icon='label').props('unelevated dense').style('font-size: 12px;').on('click', lambda: _apply_category_selected(table, fix_cat.value))
-            # Handlers for month + lock (5.12)
-            def _on_month_changed(e=None):
-                mk = f_month.value or mkey
-                app.storage.user["tx_month"] = mk
-                try:
-                    lock_sw.value = is_month_locked(mk)
-                except Exception:
-                    pass
-                _page_state['current'] = 0
-                refresh_table()
-
-            f_month.on('update:model-value', lambda e: _on_month_changed())
-            lock_sw.on('update:model-value', lambda e: (set_month_lock(f_month.value or mkey, bool(lock_sw.value)),
-                                                        ui.notify(('Month locked' if lock_sw.value else 'Month unlocked'), type='positive'),
-                                                        refresh_table()))
+            # v9.0: month selector and lock removed
             def refresh_table():
                 df = tx.copy()
-                mk = (f_month.value or mkey)
-                app.storage.user["tx_month"] = mk
-                try:
-                    lock_sw.value = is_month_locked(mk)
-                except Exception:
-                    pass
-                if "date_parsed" in df.columns:
-                    df = df[df["date_parsed"].apply(lambda d: month_key(d) if pd.notna(d) else "") == mk]
                 if f_type.value != "All":
                     df = df[df["type"].astype(str) == f_type.value]
                 if f_category.value and f_category.value != 'All':
@@ -8627,9 +8287,6 @@ def transactions_page():
 
             # Edit/Delete
             def open_edit(row: Dict[str, Any]):
-                if is_month_locked(f_month.value or mkey):
-                    ui.notify("This month is locked. Unlock it to edit.", type="warning")
-                    return
                 dlg = ui.dialog()
                 with dlg, ui.card().classes("my-card p-5 w-[720px] max-w-[95vw]"):
                     ui.label("Edit transaction").classes("text-lg font-bold")
@@ -10522,4 +10179,40 @@ ui.run(
 #     - Calls do_logout() (same as mobile logout)
 #
 # Carries forward all 8.7 + 8.6 + 8.5 + 8.4 + 8.3 fixes.
+# ────────────────────────────────────────────────
+
+# ────────────────────────────────────────────────
+# Phase 9.0 — Major UI overhaul + functional fixes:
+#
+# UI Enhancements:
+#  1. Animated time-based greeting (Good morning/afternoon/evening) in hero card
+#  2. Consolidated Financial Pulse card — Income, Expenses, Intl Transfer, Net
+#     in a single 2x2 / 4-col responsive grid (replaces 4 separate summary boxes)
+#  3. Smart Alerts rendered as slim banners above hero (max 3), not a card
+#  4. Page transition animation: .mf-canvas gets 0.25s fade-in + translate
+#  5. Simplified dashboard grid: only Recent Transactions + Cashflow Trend
+#
+# Functional Fixes:
+#  6. Payday owner label (Indhu/Abhi/Both) shown next to Next Payday in hero
+#  7. Daily average spending added to hero card
+#  8. International transfers separated from expenses:
+#     - New `intl` variable for type in [international, international transfer, intl]
+#     - net = income - expense - invest - intl (same for pay period)
+#     - Does not appear in top expenses/merchants (spend df still filters debit/expense)
+#  9. Recurring template fix: _header_cache.pop('recurring', None) before
+#     both update and append paths in create_or_update_recurring_template()
+# 10. Transaction page simplified:
+#     - Removed month selector (f_month) and month lock toggle (lock_sw)
+#     - Date range defaults to current month start → today
+#     - Single consistent date-range filter
+#
+# Removed from Dashboard:
+#  - Pay Period Breakdown card
+#  - Upcoming Salary section (Nishanth/Indhu countdown cards)
+#  - Top Merchants table
+#  - Monthly Insights (_render_insights)
+#  - Investments summary card (kept Intl Transfers only)
+#  - Full-card Smart Alerts (_render_alerts replaced by slim banners)
+#
+# Carries forward all 8.8 + 8.7 + 8.6 + 8.5 + 8.4 + 8.3 fixes.
 # ────────────────────────────────────────────────
