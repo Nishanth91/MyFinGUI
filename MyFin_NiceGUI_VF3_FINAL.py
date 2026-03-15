@@ -1,17 +1,17 @@
 # ======================================
-# FinTrackr App – Phase 4.6A (REAL FIX BUILD)
+# FinTrackr App â€“ Phase 4.6A (REAL FIX BUILD)
 # Changes vs P4.5: Dashboard hero, Rules selection, OCR toast timeout, richer palette
 # ======================================
 
 # ==============================
-# FinTrackr App – Phase 4.5 (P4.4 + P4.5 combined)
+# FinTrackr App â€“ Phase 4.5 (P4.4 + P4.5 combined)
 # Base: Myfin_NICEGUI_VF2_P4_2 (last stable)
 # Changes: Budgets setup UX, Transactions table mobile UX, Rules edit, Cards utilization bars,
 #          Dashboard pay-period view, Premium login styling
 # ==============================
 
 """
-FinTrackr — NiceGUI Stable
+FinTrackr â€” NiceGUI Stable
 File: Myfin_NICEGUI_VF2_P4_2.py
 
 Purpose
@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.0'
+APP_VERSION = '9.1'
 
 
 def log(message: str) -> None:
@@ -370,7 +370,7 @@ WIFE_PAY_ANCHOR = dt.date(2026, 1, 16)  # biweekly Friday anchor
 # Data cache (prevents repeated Google Sheets reads)
 # -----------------------------
 # Default to 5 minutes to avoid Google Sheets "Read requests per minute" quota issues.
-CACHE_TTL = int(os.environ.get("CACHE_TTL_SECONDS", "60"))  # seconds — reduced to 60s so sheet edits reflect faster
+CACHE_TTL = int(os.environ.get("CACHE_TTL_SECONDS", "60"))  # seconds â€” reduced to 60s so sheet edits reflect faster
 
 # Safety switch: when a sheet/tab name mismatch happens, auto-creating blank worksheets makes the app
 # look like it "has no data" while actually reading a new empty tab. Default is OFF so we fail loudly.
@@ -1392,7 +1392,7 @@ def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
     current_section: str | None = None
 
     def _clean_name(s: str) -> str:
-        s = s.replace('CAD', '').replace('$', '').strip(" -:·|")
+        s = s.replace('CAD', '').replace('$', '').strip(" -:Â·|")
         # Remove long numeric codes (SKU/UPC) but keep short quantities (e.g., 2 AT 1 FOR)
         s = re.sub(r"\b\d{6,}\b", " ", s)
         s = re.sub(r"\s+", " ", s).strip()
@@ -3282,13 +3282,13 @@ html.mf-light .q-btn__content {
 .tile:active {
   transform: translateY(-1px) scale(0.97);
 }
-/* Global touch optimization — eliminate 300ms tap delay on all interactive elements */
+/* Global touch optimization â€” eliminate 300ms tap delay on all interactive elements */
 .tile, .my-card[style*="cursor"], .mf-tab, .mf-tab-add, .mf-navbtn, button {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
 
-/* B6: Dialog form fields — slightly larger for touch */
+/* B6: Dialog form fields â€” slightly larger for touch */
 .mf-add-dialog .q-field {
   min-height: 48px !important;
 }
@@ -3303,7 +3303,7 @@ html.mf-light .q-btn__content {
 /* 8.2.2: Hide labels only on Date & Amount fields (section header suffices) */
 .mf-add-dialog .mf-no-label .q-field__label { display: none !important; }
 
-/* ── Task 5: ALL dialogs/popups use SOLID opaque backgrounds ── */
+/* â”€â”€ Task 5: ALL dialogs/popups use SOLID opaque backgrounds â”€â”€ */
 /* No transparency, no bleed-through, fully readable text */
 .q-dialog__backdrop {
   background: rgba(0,0,0,0.55) !important;
@@ -3385,7 +3385,7 @@ html.mf-light .mf-progress {
    ================================ */
 .mf-shell { display: flex; min-height: 100vh; width: 100%; }
 
-/* ── Nav Rail ── */
+/* â”€â”€ Nav Rail â”€â”€ */
 /* Desktop: persistent left rail.  Mobile: slides in from RIGHT for easy thumb access (B2). */
 .mf-rail {
   width: 86px;
@@ -3459,7 +3459,7 @@ html.mf-light .mf-progress {
 }
 .mf-navbtn .q-btn__content span { font-size: 10px; opacity: 0.7; font-weight: 600; }
 
-/* ── Bottom Tab Bar (mobile) — 8.2.2: icons only, INSTANT JS nav, tactile ── */
+/* â”€â”€ Bottom Tab Bar (mobile) â€” 8.2.2: icons only, INSTANT JS nav, tactile â”€â”€ */
 .mf-bottombar {
   position: fixed;
   bottom: 0; left: 0; right: 0;
@@ -3500,7 +3500,7 @@ html.mf-light .mf-progress {
 .mf-bottombar a.mf-tab:visited { color: var(--mf-muted); }
 .mf-bottombar a.mf-tab.is-active,
 .mf-bottombar a.mf-tab.is-active:visited { color: var(--mf-accent); }
-/* More button is inside the bottom bar nav — inherits bar styling */
+/* More button is inside the bottom bar nav â€” inherits bar styling */
 .mf-bottombar .mf-more-btn {
   background: none; border: none;
   cursor: pointer;
@@ -3519,7 +3519,7 @@ html.mf-light .mf-progress {
   border-radius: 12px;
   padding: 6px 14px;
 }
-/* Tap feedback — INSTANT scale + color (no transition) */
+/* Tap feedback â€” INSTANT scale + color (no transition) */
 .mf-bottombar .mf-tab:active {
   transform: scale(0.88);
 }
@@ -3550,7 +3550,7 @@ html.mf-light .mf-progress {
 }
 .mf-bottombar .mf-tab-add .q-icon { font-size: 28px; color: #fff; }
 
-/* ── 8.2.1 Task 3: Compact "More" popup (floats above hamburger icon) ── */
+/* â”€â”€ 8.2.1 Task 3: Compact "More" popup (floats above hamburger icon) â”€â”€ */
 .mf-more-popup {
   position: fixed;
   bottom: calc(66px + env(safe-area-inset-bottom, 0px));
@@ -3620,7 +3620,7 @@ a.mf-more-item.is-active:visited {
   .mf-more-backdrop { display: none !important; }
 }
 
-/* ── Main area ── */
+/* â”€â”€ Main area â”€â”€ */
 .mf-main { flex: 1; padding: 26px 32px; }
 .mf-header{
   display: flex;
@@ -3633,7 +3633,7 @@ a.mf-more-item.is-active:visited {
 }
 .mf-title .t1 { font-size: 18px; font-weight: 900; }
 .mf-title .t2 { font-size: 12px; color: var(--mf-muted); }
-/* 8.2.2: Transaction table — proper row wrapping + full-row selection */
+/* 8.2.2: Transaction table â€” proper row wrapping + full-row selection */
 .mf-tx-table .q-table__container { overflow-x: hidden !important; }
 .mf-tx-table td {
   white-space: normal !important;
@@ -3658,7 +3658,7 @@ a.mf-more-item.is-active:visited {
   }
 }
 
-/* 8.2.2: Header actions row — neat row of icon buttons under title */
+/* 8.2.2: Header actions row â€” neat row of icon buttons under title */
 .mf-header-actions {
   padding: 2px 0 0 0;
 }
@@ -3677,7 +3677,7 @@ a.mf-more-item.is-active:visited {
   gap: 20px;
 }
 
-/* ── Desktop (≥901px): persistent LEFT rail, no hamburger, no bottom bar ── */
+/* â”€â”€ Desktop (â‰¥901px): persistent LEFT rail, no hamburger, no bottom bar â”€â”€ */
 @media (min-width: 901px) {
   .mf-rail {
     left: 14px; right: auto;                 /* B2: desktop keeps rail on left */
@@ -3689,10 +3689,10 @@ a.mf-more-item.is-active:visited {
   .mf-bottombar { display: none !important; }
 }
 
-/* ── Mobile (≤900px): bottom bar visible, rail is overlay only ── */
+/* â”€â”€ Mobile (â‰¤900px): bottom bar visible, rail is overlay only â”€â”€ */
 @media (max-width: 900px) {
   .mf-rail { width: 80px; }
-  /* Task 1: hide Home/Add/Tx/Cards from rail on mobile — they're on the bottom bar */
+  /* Task 1: hide Home/Add/Tx/Cards from rail on mobile â€” they're on the bottom bar */
   .mf-rail-desktop-only { display: none !important; }
   .mf-main {
     padding: 10px 4px;
@@ -3702,7 +3702,7 @@ a.mf-more-item.is-active:visited {
   .mf-navbtn .q-btn__content span { display: none; }
   .mf-navbtn { min-height: 40px; }
 
-  /* 8.2.2: Mobile layout — prevent ALL clipping & overflow */
+  /* 8.2.2: Mobile layout â€” prevent ALL clipping & overflow */
   .mf-main { overflow-x: hidden !important; }
   .mf-canvas {
     padding: 0 !important; width: 100% !important;
@@ -3720,7 +3720,7 @@ a.mf-more-item.is-active:visited {
     margin-left: 0 !important; margin-right: 0 !important;
     box-sizing: border-box !important;
   }
-  /* Tx page: allow wrapping — NOT cramped single-line */
+  /* Tx page: allow wrapping â€” NOT cramped single-line */
   .q-table th { font-size: 11px !important; padding: 6px 6px !important; white-space: nowrap; }
   .q-table td {
     font-size: 13px !important; padding: 10px 6px !important;
@@ -3780,7 +3780,7 @@ a.mf-more-item.is-active:visited {
 }
 .q-menu { z-index: 99999 !important; }
 
-/* Mobile full-bleed adjustments (8.2.2 — edge-to-edge cards) */
+/* Mobile full-bleed adjustments (8.2.2 â€” edge-to-edge cards) */
 @media (max-width: 600px){
   .mf-header, .mf-canvas { max-width: none !important; width: 100% !important; margin: 0 !important; }
   .mf-main { padding-left: 4px !important; padding-right: 4px !important; }
@@ -3877,7 +3877,7 @@ a.mf-more-item.is-active:visited {
 }
 
 /* Dialog cards must follow theme surface (fix light theme dark dialog) */
-/* Task 5: Dialog cards — fully solid, NO semi-transparent gradients */
+/* Task 5: Dialog cards â€” fully solid, NO semi-transparent gradients */
 .q-dialog .my-card, .q-dialog .q-card.my-card {
   background: var(--mf-bg) !important;
   border: none !important;
@@ -4079,7 +4079,7 @@ html.mf-light .q-menu .q-list{background: var(--mf-menu-bg) !important; color: v
 html.mf-light .q-menu .q-item__label{color: var(--mf-text) !important;}
 html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 
-/* ── Add Dialog: Premium form styling (E2) ── */
+/* â”€â”€ Add Dialog: Premium form styling (E2) â”€â”€ */
 .mf-add-dialog input,
 .mf-add-dialog textarea,
 .mf-add-dialog .q-field__native,
@@ -4097,7 +4097,7 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 /* Force every NiceGUI wrapper div inside dialog to be full-width */
 .mf-add-dialog div[class*="nicegui"] { width: 100% !important; }
 .mf-add-dialog > div > div { width: 100% !important; }
-/* 8.7: Custom chip-select — replaces Quasar q-select entirely */
+/* 8.7: Custom chip-select â€” replaces Quasar q-select entirely */
 .mf-chip-row {
   display: flex; flex-wrap: wrap; gap: 8px;
 }
@@ -4173,7 +4173,7 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 }
 .mf-add-dialog .q-uploader__header .q-btn { color: var(--mf-accent) !important; }
 
-/* Form fields — rounder, cleaner, themed */
+/* Form fields â€” rounder, cleaner, themed */
 .mf-add-dialog .q-field--outlined .q-field__control {
   border-radius: 12px !important;
   transition: border-color 0.15s ease;
@@ -4209,7 +4209,7 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 .mf-split-pill { border-radius: 999px; padding: 6px 10px; border: 1px solid var(--mf-border); background: rgba(255,255,255,0.06); }
 html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
 
-/* ── About Page Responsive ── */
+/* â”€â”€ About Page Responsive â”€â”€ */
 .mf-about-wrap { max-width: 640px; margin: 0 auto; }
 .mf-about-features {
   display: grid; grid-template-columns: 1fr; gap: 14px; width: 100%; margin-top: 8px;
@@ -4226,7 +4226,7 @@ html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
   .mf-about-features { grid-template-columns: repeat(3, 1fr); }
 }
 
-/* ── Home Page Dashboard Responsive Grid ── */
+/* â”€â”€ Home Page Dashboard Responsive Grid â”€â”€ */
 .mf-dash-grid {
   display: grid; grid-template-columns: 1fr; gap: 18px; width: 100%;
 }
@@ -4236,11 +4236,11 @@ html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
   .mf-dash-grid > .mf-dash-full,
   .mf-dash-grid > :has(> .mf-dash-full) { grid-column: 1 / -1; }
 }
-/* 8.2.2: Ensure canvas children stretch full width — always */
+/* 8.2.2: Ensure canvas children stretch full width â€” always */
 .mf-canvas > * { width: 100% !important; min-width: 0; box-sizing: border-box !important; margin-left: 0 !important; margin-right: 0 !important; }
 .mf-canvas .my-card { width: 100% !important; box-sizing: border-box !important; margin-left: 0 !important; margin-right: 0 !important; }
 .mf-canvas .q-card { width: 100% !important; box-sizing: border-box !important; }
-/* ROOT FIX: NiceGUI's ui.column() adds Quasar .column { align-items: flex-start } —
+/* ROOT FIX: NiceGUI's ui.column() adds Quasar .column { align-items: flex-start } â€”
    this prevents children from stretching. Force stretch inside cards so content fills width. */
 .my-card .column,
 .my-card .q-column,
@@ -4291,7 +4291,7 @@ ui.add_head_html(r'''
 <link rel="apple-touch-startup-image" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1284' height='2778' viewBox='0 0 1284 2778'%3E%3Crect fill='%230F1923' width='1284' height='2778'/%3E%3Ctext x='642' y='1340' text-anchor='middle' fill='%23FBBF24' font-size='80' font-family='system-ui' font-weight='800'%3EFinTrackr%3C/text%3E%3Ccircle cx='642' cy='1210' r='45' fill='%2322C55E' opacity='0.7'/%3E%3C/svg%3E" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)">
 <link rel="apple-touch-startup-image" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1179' height='2556' viewBox='0 0 1179 2556'%3E%3Crect fill='%230F1923' width='1179' height='2556'/%3E%3Ctext x='590' y='1230' text-anchor='middle' fill='%23FBBF24' font-size='80' font-family='system-ui' font-weight='800'%3EFinTrackr%3C/text%3E%3Ccircle cx='590' cy='1110' r='45' fill='%2322C55E' opacity='0.7'/%3E%3C/svg%3E" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)">
 <style>
-/* CRITICAL: Paint dark background IMMEDIATELY — prevents iOS white flash + black bar */
+/* CRITICAL: Paint dark background IMMEDIATELY â€” prevents iOS white flash + black bar */
 html,body{
   background:#0F1923 !important;
   min-height: 100vh;
@@ -4315,7 +4315,7 @@ select:-webkit-autofill{
 div[class*="nicegui"][class*="reconnect"] { display: none !important; }
 .q-dialog--seamless { display: none !important; }
 
-/* iOS launch splash overlay — covers blank page while NiceGUI hydrates */
+/* iOS launch splash overlay â€” covers blank page while NiceGUI hydrates */
 #mf-splash{
   position:fixed; inset:0; z-index:999999;
   background: #0F1923;
@@ -4348,7 +4348,7 @@ div[class*="nicegui"][class*="reconnect"] { display: none !important; }
 @keyframes mf-sp-blink{ 0%,100%{ opacity:0.25; } 50%{ opacity:1; } }
 </style>
 <script>
-// Inject splash overlay ASAP — matches the app header icon (insights icon in emerald+gold badge)
+// Inject splash overlay ASAP â€” matches the app header icon (insights icon in emerald+gold badge)
 (function(){
   if(document.getElementById('mf-splash')) return;
   var s=document.createElement('div'); s.id='mf-splash';
@@ -4526,7 +4526,7 @@ ui.add_head_html(
           const t = await verRes.text();
           throw new Error('Passkey registration failed: ' + (t || verRes.status));
         }
-        toast('Passkey registered ✓');
+        toast('Passkey registered âœ“');
         alert('Passkey registered successfully for ' + username);
       } catch (e) {
         console.error(e);
@@ -4652,7 +4652,7 @@ window.mfSetTheme = function(name){
       // Fix Plotly text colors after theme is applied
       setTimeout(()=>{ try{ window.mfFixPlotlyText && window.mfFixPlotlyText(); }catch(e){} }, 60);
 
-      // 8.7: Dropdowns replaced with custom chip-select — no q-select JS hacks needed.
+      // 8.7: Dropdowns replaced with custom chip-select â€” no q-select JS hacks needed.
     }catch(e){}
   };
 
@@ -4664,7 +4664,7 @@ window.mfSetTheme = function(name){
       // Default to system preference: Dark/Night -> Graphite Rose, Light/Day -> Mint Light
       try{
         const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        // Also check time of day: 6 AM–6 PM = day, otherwise night
+        // Also check time of day: 6 AMâ€“6 PM = day, otherwise night
         const hour = new Date().getHours();
         const isNight = (hour < 6 || hour >= 18);
         const useDark = prefersDark || isNight;
@@ -4803,7 +4803,7 @@ def shell(content_fn, *, active_path: str = ""):
     """
     # 8.7: Tell Quasar whether we're in dark or light mode at page-render time.
     # Without this, NiceGUI defaults to light mode and Quasar renders dark text
-    # on dark backgrounds — making select/dropdown text invisible.
+    # on dark backgrounds â€” making select/dropdown text invisible.
     _LIGHT_THEMES = {'Frost', 'Sand Gold', 'Slate Light', 'Mint Light', 'Rose Light', 'Arctic Light'}
     _user_theme = str(app.storage.user.get('theme', '') or '').strip()
     _is_light = (_user_theme in _LIGHT_THEMES) or ('light' in _user_theme.lower())
@@ -4830,7 +4830,7 @@ def shell(content_fn, *, active_path: str = ""):
         # Backdrop overlay (tap to close on mobile)
         ui.element("div").classes("mf-backdrop").on("click", lambda: ui.run_javascript("document.documentElement.classList.remove(\'mf-nav-open\')"))
 
-        # Nav rail — on mobile only shows items NOT in bottom bar (Rules, Admin, About)
+        # Nav rail â€” on mobile only shows items NOT in bottom bar (Rules, Admin, About)
         # On desktop shows all items as a persistent sidebar
         with ui.element("div").classes("mf-rail"):
             with ui.element("div").classes("mf-rail-card"):
@@ -4862,7 +4862,7 @@ def shell(content_fn, *, active_path: str = ""):
                         "color: #ef4444; font-size: 12px; font-weight: 600; width: 100%; border-radius: 10px; text-transform: none;"
                     )
 
-        # Bottom tab bar (mobile only — CSS hides on ≥901px)
+        # Bottom tab bar (mobile only â€” CSS hides on â‰¥901px)
         # 8.2.2: ALL 5 icons inside one <nav> for consistent look.
         # Navigation tabs use <a href> = instant (zero server hop).
         # More button rendered as <button> with id; click handler attached via JS after render
@@ -4881,7 +4881,7 @@ def shell(content_fn, *, active_path: str = ""):
                     f'<i class="q-icon notranslate material-icons" aria-hidden="true" role="img">add_circle</i></a>'
                 )
             elif _bh is None:
-                # More button — id used to attach JS listener after render
+                # More button â€” id used to attach JS listener after render
                 _bottom_tabs_html.append(
                     f'<button class="mf-tab mf-more-btn" id="mf-more-toggle-btn" type="button">'
                     f'<i class="q-icon notranslate material-icons" aria-hidden="true" role="img">menu</i></button>'
@@ -4904,7 +4904,7 @@ def shell(content_fn, *, active_path: str = ""):
         })();
         """)
 
-        # 8.2.2: Compact "More" popup — <a> tags for Rules/Admin/About (instant nav via href)
+        # 8.2.2: Compact "More" popup â€” <a> tags for Rules/Admin/About (instant nav via href)
         _more_items = []
         for _ml, _mi, _mh in [("Rules", "rule", "/rules"), ("Admin", "settings", "/admin"), ("About", "info", "/about")]:
             _act = " is-active" if _mh == active_path else ""
@@ -4940,13 +4940,13 @@ def shell(content_fn, *, active_path: str = ""):
             });
         })();
         """)
-        # Hidden NiceGUI button — Python handler for session logout
+        # Hidden NiceGUI button â€” Python handler for session logout
         ui.button("").props("flat").style("display:none;").props('id=mf-logout-trigger').on("click", do_logout)
 
         # Main content area
         with ui.element("main").classes("mf-main"):
             with ui.element("div").classes("mf-header"):
-                # 8.2.2: Clean two-row header — title on top, actions below
+                # 8.2.2: Clean two-row header â€” title on top, actions below
                 with ui.column().classes("w-full gap-1"):
                     # Row 1: FinTrackr logo + title
                     with ui.row().classes("items-center justify-between w-full"):
@@ -5052,7 +5052,7 @@ def shell(content_fn, *, active_path: str = ""):
                             except Exception:
                                 pass
 
-                    # Row 2: Action buttons — theme (mobile), search, refresh — bigger for accessibility
+                    # Row 2: Action buttons â€” theme (mobile), search, refresh â€” bigger for accessibility
                     with ui.row().classes("items-center gap-3 mf-header-actions"):
                         ui.button("", icon="palette").props("flat round").classes("mf-show-mobile").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 12px;"
@@ -5064,7 +5064,7 @@ def shell(content_fn, *, active_path: str = ""):
                         ui.button("", icon="refresh").props("flat round").style(
                             "border: 1px solid var(--mf-border); background: var(--mf-surface); border-radius: 12px;"
                         ).on("click", lambda: ui.navigate.to(ui.context.client.page.path))
-                        # 8.2.2: Logout moved to More popup — desktop keeps it in rail
+                        # 8.2.2: Logout moved to More popup â€” desktop keeps it in rail
 
             with ui.element("div").classes("mf-canvas"):
                 content_fn()
@@ -5077,7 +5077,7 @@ def shell(content_fn, *, active_path: str = ""):
 def refresh_all():
     """Force-clear all caches so next read fetches fresh data from Google Sheets."""
     invalidate("transactions", "cards", "recurring", "rules", "budgets", "locks")
-    ui.notify("Refreshed — data reloaded from Google Sheets", type="positive")
+    ui.notify("Refreshed â€” data reloaded from Google Sheets", type="positive")
 
 
 def owners_list() -> List[str]:
@@ -5087,8 +5087,8 @@ def owners_list() -> List[str]:
 
 def accounts_list() -> List[str]:
     """Return the canonical set of accounts.
-    8.4: Cleaned up to only valid accounts — no redundant entries."""
-    # Canonical accounts — the ONLY valid accounts in the system
+    8.4: Cleaned up to only valid accounts â€” no redundant entries."""
+    # Canonical accounts â€” the ONLY valid accounts in the system
     VALID_ACCOUNTS = [
         "Bank",
         "CanadianTire Mastercard - Black",
@@ -5224,7 +5224,7 @@ def dashboard_page():
             _logger.error("Failed to generate recurring transactions: %s", e)
 
         tx = cached_df("transactions")
-        # ── B2 fix: robust empty-data handling (no KeyError on cleaned sheets) ──
+        # â”€â”€ B2 fix: robust empty-data handling (no KeyError on cleaned sheets) â”€â”€
         if tx is None or tx.empty or len(tx) == 0:
             with ui.card().classes("my-card p-6"):
                 with ui.column().classes("items-center gap-3 w-full").style("padding: 30px 0;"):
@@ -5448,7 +5448,7 @@ def dashboard_page():
                         ui.label(currency(net_pp)).classes('mf-stat-value').style(f'color: {_net_color};')
                         with ui.row().classes('items-center gap-2 mt-1'):
                             ui.icon('date_range').style('font-size: 14px; color: var(--mf-muted);')
-                            ui.label(f"{pp_start.strftime('%b %d')} — {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
+                            ui.label(f"{pp_start.strftime('%b %d')} â€” {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
                         with ui.row().classes('items-center gap-2 mt-1'):
                             ui.icon('local_fire_department').style('font-size: 14px; color: #ef4444;')
                             ui.label(f"Daily avg: {currency(_daily_avg)}").classes('text-xs').style('color: var(--mf-muted)')
@@ -5483,11 +5483,10 @@ def dashboard_page():
         # Consolidated Financial Pulse card
         with ui.card().classes('my-card p-5'):
             ui.label('Financial Pulse').classes('text-xs font-medium').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;')
-            with ui.element("div").classes("grid grid-cols-2 md:grid-cols-4 gap-4 w-full"):
+            with ui.element("div").classes("grid grid-cols-2 md:grid-cols-3 gap-4 w-full"):
                 for _fp_label, _fp_val, _fp_icon, _fp_accent, _fp_bg in [
                     ("Income", income, "trending_up", "#22c55e", "rgba(34,197,94,0.12)"),
                     ("Expenses", expense, "trending_down", "#ef4444", "rgba(239,68,68,0.12)"),
-                    ("Intl Transfer", intl, "public", "#f472b6", "rgba(244,114,182,0.12)"),
                     ("Net", net, "insights", "#a855f7" if net >= 0 else "#ef4444", "rgba(168,85,247,0.12)"),
                 ]:
                     with ui.column().classes('gap-1'):
@@ -5497,50 +5496,24 @@ def dashboard_page():
                             ui.label(_fp_label).classes("text-xs font-medium").style("color: var(--mf-muted);")
                         ui.label(currency(_fp_val)).classes("text-lg font-extrabold").style(f"color: {_fp_accent}; letter-spacing: -0.02em; font-feature-settings: 'tnum';")
 
-        # ──── 9.0: Compact Summary Cards (Intl Transfers only) ────
-        try:
-            _intl_total = float(amt[typ.isin(['international', 'international transfer', 'intl'])].sum())
 
-            _summary_cards = []
-            if _intl_total > 0:
-                _summary_cards.append(('Intl Transfers', 'public', '#f472b6', 'rgba(244,114,182,0.12)',
-                                       _intl_total, f'Total transferred {mkey}'))
-
-            if _summary_cards:
-                _cols = min(len(_summary_cards), 2)
-                with ui.element("div").classes(f"grid grid-cols-1 md:grid-cols-{_cols} gap-3 w-full"):
-                    for _sc_label, _sc_icon, _sc_color, _sc_bg, _sc_val, _sc_sub in _summary_cards:
-                        with ui.card().classes('my-card p-4 w-full'):
-                            with ui.row().classes('items-center gap-3'):
-                                with ui.element('div').classes('mf-icon-box').style(f'background: {_sc_bg};'):
-                                    ui.icon(_sc_icon).style(f'font-size: 20px; color: {_sc_color};')
-                                with ui.column().classes('gap-0 flex-1'):
-                                    ui.label(_sc_label).classes('text-sm font-bold')
-                                    ui.label(mkey).classes('text-xs').style('color: var(--mf-muted);')
-                                ui.label(currency(_sc_val)).classes('text-lg font-extrabold').style(
-                                    f'color: {_sc_color}; font-feature-settings: "tnum"; letter-spacing: -0.02em;'
-                                )
-                            ui.label(_sc_sub).classes('text-xs mt-2').style('color: var(--mf-muted);')
-        except Exception:
-            pass
-
-        # ──── Financial Health Score ────
+        # â”€â”€â”€â”€ Financial Health Score â”€â”€â”€â”€
         try:
             # Compute a 0-100 score from multiple financial signals
             _fh_scores = []
 
-            # 1. Savings Rate (income - expenses - invest) / income — target > 20%
+            # 1. Savings Rate (income - expenses - invest) / income â€” target > 20%
             if income > 0:
                 _savings_rate = max(0.0, (income - expense - invest) / income)
-                # 0% → 0pts, 10% → 15pts, 20% → 25pts, 30%+ → 30pts
+                # 0% â†’ 0pts, 10% â†’ 15pts, 20% â†’ 25pts, 30%+ â†’ 30pts
                 _fh_scores.append(min(30.0, _savings_rate * 100))
             else:
                 _fh_scores.append(0.0)
 
-            # 2. Expense-to-Income Ratio — target < 70%
+            # 2. Expense-to-Income Ratio â€” target < 70%
             if income > 0:
                 _ei_ratio = expense / income
-                # <50% → 25pts, 70% → 15pts, 100%+ → 0pts
+                # <50% â†’ 25pts, 70% â†’ 15pts, 100%+ â†’ 0pts
                 _fh_scores.append(max(0.0, 25.0 * (1.0 - max(0.0, _ei_ratio - 0.5) / 0.5)))
             else:
                 _fh_scores.append(0.0)
@@ -5607,7 +5580,7 @@ def dashboard_page():
             if len(_fh_scores) > 3 and _fh_scores[3] < 10: _fh_tips.append('Your daily spending is very inconsistent')
             if not _fh_tips:
                 if _fh_score >= 80: _fh_tips.append('Excellent financial discipline!')
-                elif _fh_score >= 60: _fh_tips.append('Good progress — keep it up!')
+                elif _fh_score >= 60: _fh_tips.append('Good progress â€” keep it up!')
                 else: _fh_tips.append('Room for improvement this month')
 
             # SVG circular gauge
@@ -5663,7 +5636,7 @@ def dashboard_page():
         # Pay period breakdown removed in v9.0
 
 
-        # ──── Smart Alert Banners (slim, at top — v9.0) ────
+        # â”€â”€â”€â”€ Smart Alert Banners (slim, at top â€” v9.0) â”€â”€â”€â”€
         # Alert logic kept but rendered as slim banners instead of a full card
         _alert_banners_data: list[tuple[str, str, str, str]] = []
         try:
@@ -5808,7 +5781,7 @@ def dashboard_page():
                                         )
                                     ui.label(f"{currency(_remaining)} remaining").classes("text-xs mt-2").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
 
-                                # Individual category rows — premium list style
+                                # Individual category rows â€” premium list style
                                 for cat, spent_amt, bud_amt in rows[:8]:
                                     pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
                                     _c_color = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else 'var(--mf-accent)')
@@ -5845,96 +5818,11 @@ def dashboard_page():
 
         # Top merchants section removed in v9.0
 
-        # ──── Dashboard section helpers (closure over spend, expense, tx, etc.) ────
+        # â”€â”€â”€â”€ Dashboard section helpers (closure over spend, expense, tx, etc.) â”€â”€â”€â”€
         # _render_insights() and _render_alerts() removed in v9.0
 
-        def _render_cashflow():
-            # ──── Cashflow Trend (enhanced: weekly income vs expense bars + cumulative balance) ────
-            with ui.card().classes("my-card p-0").style("overflow: hidden;"):
-                ui.element('div').style('height: 3px; background: linear-gradient(90deg, #22c55e, #3b82f6); border-radius: 0;')
-                with ui.column().classes("p-5 gap-3"):
-                    with ui.row().classes("items-center gap-2 mb-1"):
-                        with ui.element("div").classes("mf-icon-box").style("background: rgba(34,197,94,0.12);"):
-                            ui.icon("show_chart").style("font-size: 20px; color: #22c55e;")
-                        ui.label("Cashflow Trend").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
-
-                    recent = tx[tx["date_parsed"] >= (today() - dt.timedelta(days=90))].copy()
-                    if not recent.empty:
-                        recent["week"] = recent["date_parsed"].apply(lambda d: (d - dt.timedelta(days=d.weekday())).isoformat())
-                        recent["is_income"] = recent["type_l"].isin(["credit", "income"])
-                        recent["is_expense"] = recent["type_l"].isin(["debit", "expense", "investment"])
-
-                        # Weekly income / expense aggregation
-                        weekly_in = recent[recent["is_income"]].groupby("week", as_index=False)["amount_num"].sum().rename(columns={"amount_num": "income"})
-                        weekly_out = recent[recent["is_expense"]].groupby("week", as_index=False)["amount_num"].sum().rename(columns={"amount_num": "expense"})
-
-                        # Merge into one DataFrame with all weeks
-                        all_weeks = sorted(set(recent["week"].tolist()))
-                        wdf = pd.DataFrame({"week": all_weeks})
-                        wdf = wdf.merge(weekly_in, on="week", how="left").merge(weekly_out, on="week", how="left").fillna(0)
-                        wdf["net"] = wdf["income"] - wdf["expense"]
-                        wdf["balance"] = wdf["net"].cumsum()
-
-                        # Shorten week labels (e.g., "Mar 3")
-                        wdf["label"] = wdf["week"].apply(lambda w: dt.date.fromisoformat(w).strftime("%b %d"))
-
-                        import plotly.graph_objects as go
-                        fig2 = go.Figure()
-                        # Income bars (green)
-                        fig2.add_trace(go.Bar(
-                            x=wdf["label"], y=wdf["income"], name="Income",
-                            marker_color="#22c55e", opacity=0.85,
-                        ))
-                        # Expense bars (red)
-                        fig2.add_trace(go.Bar(
-                            x=wdf["label"], y=wdf["expense"], name="Expense",
-                            marker_color="#ef4444", opacity=0.75,
-                        ))
-                        # Cumulative net balance line (gold)
-                        fig2.add_trace(go.Scatter(
-                            x=wdf["label"], y=wdf["balance"], name="Running Balance",
-                            mode="lines+markers", line=dict(color="#FBBF24", width=3),
-                            marker=dict(size=6, color="#FBBF24"),
-                            yaxis="y2",
-                        ))
-
-                        _fc = plotly_font_color()
-                        fig2.update_layout(
-                            template=plotly_template(),
-                            barmode="group",
-                            margin=dict(l=10, r=10, t=10, b=10),
-                            paper_bgcolor="rgba(0,0,0,0)",
-                            plot_bgcolor="rgba(0,0,0,0)",
-                            font_color=_fc,
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=11, color=_fc)),
-                            xaxis=dict(tickfont=dict(color=_fc, size=10), showgrid=False),
-                            yaxis=dict(tickfont=dict(color=_fc, size=10), showgrid=True, gridcolor="rgba(128,128,128,0.10)", title=""),
-                            yaxis2=dict(tickfont=dict(color="#FBBF24", size=10), overlaying="y", side="right", showgrid=False, title=""),
-                            bargap=0.25, bargroupgap=0.08,
-                        )
-
-                        ui.plotly(fig2).classes("w-full").style("height: 280px;")
-
-                        # Summary stats row
-                        _total_in = float(wdf["income"].sum())
-                        _total_out = float(wdf["expense"].sum())
-                        _net_90 = _total_in - _total_out
-                        _net_color = "#22c55e" if _net_90 >= 0 else "#ef4444"
-                        with ui.row().classes("w-full justify-around mt-1"):
-                            with ui.column().classes("items-center gap-0"):
-                                ui.label("Income (90d)").classes("text-xs").style("color: var(--mf-muted);")
-                                ui.label(currency(_total_in)).classes("text-sm font-bold").style("color: #22c55e; font-feature-settings: 'tnum';")
-                            with ui.column().classes("items-center gap-0"):
-                                ui.label("Expense (90d)").classes("text-xs").style("color: var(--mf-muted);")
-                                ui.label(currency(_total_out)).classes("text-sm font-bold").style("color: #ef4444; font-feature-settings: 'tnum';")
-                            with ui.column().classes("items-center gap-0"):
-                                ui.label("Net").classes("text-xs").style("color: var(--mf-muted);")
-                                ui.label(f"{'+'if _net_90>=0 else ''}{currency(_net_90)}").classes("text-sm font-bold").style(f"color: {_net_color}; font-feature-settings: 'tnum';")
-                    else:
-                        ui.label("No recent transactions to chart.").classes("text-sm").style("color: var(--mf-muted);")
-
         def _render_recent_tx():
-            # ──── Recent Transactions (quick overview) ────
+            # â”€â”€â”€â”€ Recent Transactions (quick overview) â”€â”€â”€â”€
             try:
                 if not tx.empty and "date_parsed" in tx.columns:
                     _recent_tx = tx.sort_values("date_parsed", ascending=False).head(6)
@@ -5984,12 +5872,10 @@ def dashboard_page():
             except Exception:
                 pass
 
-        # ──── Dashboard Grid (responsive 2-col on desktop) ────
+        # â”€â”€â”€â”€ Dashboard Grid (responsive 2-col on desktop) â”€â”€â”€â”€
         with ui.element('div').classes('mf-dash-grid'):
             with ui.element('div'):
                 _render_recent_tx()
-            with ui.element('div'):
-                _render_cashflow()
 
 
     shell(content)
@@ -6001,7 +5887,7 @@ def add_page():
         nav_to("/login")
         return
 
-    # ── 8.7: Custom chip-select — completely replaces Quasar q-select ──
+    # â”€â”€ 8.7: Custom chip-select â€” completely replaces Quasar q-select â”€â”€
     def _chip_select(options, value, label=None, hint=None, scrollable=False, disabled=False, max_chips=8):
         """Chip-based option picker.  For high-cardinality fields (>max_chips)
         renders a custom pure-HTML dropdown instead.
@@ -6009,7 +5895,7 @@ def add_page():
 
         _use_dropdown = len(options) > max_chips
 
-        # ── CUSTOM DROPDOWN MODE (9+ options — e.g. Category) ────────
+        # â”€â”€ CUSTOM DROPDOWN MODE (9+ options â€” e.g. Category) â”€â”€â”€â”€â”€â”€â”€â”€
         if _use_dropdown:
             _dd_state = {'value': value, 'disabled': disabled, 'open': False}
             _dd_cbs: list = []
@@ -6022,13 +5908,13 @@ def add_page():
                         'color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;'
                     )
 
-                # Trigger button — shows current value + arrow
+                # Trigger button â€” shows current value + arrow
                 _trigger = ui.element('div').classes('mf-dd-trigger')
                 with _trigger:
                     _dd_label = ui.label(str(value)).style('pointer-events:none; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;')
                     ui.icon('expand_more').classes('mf-dd-arrow').style('pointer-events:none; font-size:20px; color:var(--mf-muted); transition:transform 0.15s;')
 
-                # Options panel — hidden until clicked
+                # Options panel â€” hidden until clicked
                 _panel = ui.element('div').classes('mf-dd-panel')
                 _panel.style('display:none;')
                 with _panel:
@@ -6110,7 +5996,7 @@ def add_page():
                     return self_
             return _SelDropdown()
 
-        # ── CHIP MODE (≤8 options — Method, Account, etc.) ──────────
+        # â”€â”€ CHIP MODE (â‰¤8 options â€” Method, Account, etc.) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         _state = {'value': value, 'disabled': disabled}
         _chips: dict = {}
         _cbs: list = []
@@ -6170,7 +6056,7 @@ def add_page():
                 _cbs.append(fn)
                 return self_
             def props(self_, prop_str=''):
-                """Compatibility shim — handles 'disable'/'enable' props."""
+                """Compatibility shim â€” handles 'disable'/'enable' props."""
                 if 'disable' in prop_str and 'remove' not in prop_str:
                     _state['disabled'] = True
                     for c in _chips.values():
@@ -6181,7 +6067,7 @@ def add_page():
                         c.classes(remove='disabled')
                 return self_
             def on(self_, event, fn):
-                """Compatibility shim — maps any change event to on_change."""
+                """Compatibility shim â€” maps any change event to on_change."""
                 _cbs.append(lambda v: fn(v))
                 return self_
         return _Sel()
@@ -6221,7 +6107,7 @@ def add_page():
 
         dlg = ui.dialog()
         with dlg, ui.card().classes("my-card mf-add-dialog w-[580px] max-w-[95vw]").style("max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"):
-            # Premium dialog header — accent strip + header area with background
+            # Premium dialog header â€” accent strip + header area with background
             ui.element('div').style(f'height: 4px; background: linear-gradient(90deg, {_accent}, {_accent}66); border-radius: 24px 24px 0 0;')
             with ui.element('div').style(
                 f'padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'
@@ -6239,7 +6125,7 @@ def add_page():
                     ui.element('div').style('flex: 1;')
                     ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.7;')
 
-            # ── Section 1: Date & Amount ──
+            # â”€â”€ Section 1: Date & Amount â”€â”€
             with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
                 with ui.row().classes('items-center gap-2 mt-1 mb-2'):
                     ui.icon('event').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
@@ -6342,14 +6228,14 @@ def add_page():
             if account_default and account_default not in (accounts or []):
                 accounts = [account_default] + [a for a in (accounts or []) if a != account_default]
 
-            # ── Section 2: Payment ──
+            # â”€â”€ Section 2: Payment â”€â”€
             ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
             with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
                 with ui.row().classes('items-center gap-2 mt-3 mb-2'):
                     ui.icon('account_balance_wallet').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
                     ui.label('Payment').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
 
-                # 8.7: Chip-based selects — no Quasar q-select
+                # 8.7: Chip-based selects â€” no Quasar q-select
                 if hide_method:
                     d_method = None
                 else:
@@ -6369,7 +6255,7 @@ def add_page():
                 if hide_method and fixed_method:
                     ui.label(f"Method: {fixed_method}").classes("text-xs").style("color: var(--mf-muted); margin-top:-6px;")
 
-            # ── Section 3: Category & Notes ──
+            # â”€â”€ Section 3: Category & Notes â”€â”€
             # 8.2.2: hide_category=True for CC Repay (not an expense, no category needed)
             if not hide_category:
                 ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
@@ -6563,7 +6449,7 @@ def add_page():
                                 if not scan_state.get('data_url') and not scan_state.get('img_bytes'):
                                     ui.notify('Please upload a receipt image first.', type='warning')
                                     return
-                            ui.notify('Scanning…', type='info', timeout=8.0)
+                            ui.notify('Scanningâ€¦', type='info', timeout=8.0)
                             # Show busy indicator (mobile Safari can take a while)
                             try:
                                 scan_spinner.style('display:block')
@@ -6731,7 +6617,7 @@ def add_page():
                                             if w in lowtxt:
                                                 scores['Groceries'] += 1.0
 
-                                        # Walmart is multi-category — do NOT bias toward Groceries
+                                        # Walmart is multi-category â€” do NOT bias toward Groceries
 
                                         best = max(scores, key=lambda k: scores[k])
                                         if scores[best] <= 0.0:
@@ -6763,12 +6649,12 @@ def add_page():
                             pv_date.value = (rdate.isoformat() if rdate else '')
                             pv_amount.value = (f"{float(amt):.2f}" if amt is not None else '')
                             pv_last4.value = last4
-                            pv_conf.text = f"Amount confidence: {conf:.1f}/10 (source: {src})" + (" — please double-check" if conf < 3.0 else "")
+                            pv_conf.text = f"Amount confidence: {conf:.1f}/10 (source: {src})" + (" â€” please double-check" if conf < 3.0 else "")
                             parsed_card.style('display:block')
                             apply_btn.enable()
 
                             if conf < 3.0:
-                                ui.notify('Low confidence TOTAL detected — verify amount before applying.', type='warning', timeout=2.0)
+                                ui.notify('Low confidence TOTAL detected â€” verify amount before applying.', type='warning', timeout=2.0)
                             else:
                                 ui.notify('Scan complete. Review and tap Apply.', type='positive', timeout=1.2)
 
@@ -6858,7 +6744,7 @@ def add_page():
                                 # Fallback: use Notes-based suggestion
                                 _refresh_suggestion_now()
                             if conf < 3.0:
-                                ui.notify('Applied, but amount confidence was low — please verify before saving.', type='warning')
+                                ui.notify('Applied, but amount confidence was low â€” please verify before saving.', type='warning')
                             else:
                                 ui.notify('Applied scan results. Please review and save.', type='positive')
                             _reset_scan_ui()
@@ -6901,7 +6787,7 @@ def add_page():
                     _open_scan_dialog()
 
 
-                # Phase 6.5: Multi-category split UI — shown only after OCR Apply for Walmart/Costco/Superstore
+                # Phase 6.5: Multi-category split UI â€” shown only after OCR Apply for Walmart/Costco/Superstore
                 with ui.element('div').style('padding: 0 24px;'):
                     split_banner = ui.element('div').style(
                         'display:none; background: linear-gradient(135deg, rgba(34,197,94,0.10), rgba(251,191,36,0.08));'
@@ -6954,13 +6840,13 @@ def add_page():
                         # warning / remainder
                         diff = _round2(total_amt - cur_sum)
                         if abs(diff) <= 0.02:
-                            warn_lbl.text = f"Total: ${total_amt:,.2f} • Split: ${cur_sum:,.2f}"
+                            warn_lbl.text = f"Total: ${total_amt:,.2f} â€¢ Split: ${cur_sum:,.2f}"
                         else:
                             # show remainder direction
                             if diff > 0:
-                                warn_lbl.text = f"Total: ${total_amt:,.2f} • Split: ${cur_sum:,.2f} • Remaining: ${diff:,.2f}"
+                                warn_lbl.text = f"Total: ${total_amt:,.2f} â€¢ Split: ${cur_sum:,.2f} â€¢ Remaining: ${diff:,.2f}"
                             else:
-                                warn_lbl.text = f"Total: ${total_amt:,.2f} • Split: ${cur_sum:,.2f} • Over by: ${abs(diff):,.2f}"
+                                warn_lbl.text = f"Total: ${total_amt:,.2f} â€¢ Split: ${cur_sum:,.2f} â€¢ Over by: ${abs(diff):,.2f}"
 
                     # Grid-like rows
                     for c in split_cats:
@@ -7053,7 +6939,7 @@ def add_page():
                                     pct = int(round(100 * (v / total_amt))) if total_amt > 0 else 0
                                     with ui.row().classes('items-center gap-2'):
                                         ui.element('div').style(f'width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink: 0;')
-                                        ui.label(f"{k} — ${v:.2f} ({pct}%)").classes('text-xs font-medium')
+                                        ui.label(f"{k} â€” ${v:.2f} ({pct}%)").classes('text-xs font-medium')
                             # Disable category selector (split overrides it)
                             d_category.props('disable')
                             d_category.value = f'Split ({n_cats} categories)'
@@ -7199,8 +7085,10 @@ def add_page():
 
                 notes = str(d_notes.value or "").strip()
 
+                entry_type_norm = "Debit" if is_debit else entry_type
+
                 # Phase 6.5+: If a multi-split plan is enabled, save as multiple linked transactions
-                if entry_type.lower() == 'debit' and bool(split_plan.get("enabled")) and isinstance(split_plan.get("amounts"), dict):
+                if is_debit and bool(split_plan.get("enabled")) and isinstance(split_plan.get("amounts"), dict):
                     try:
                         total_amt = float(to_float(d_amount.value))
                         plan: Dict[str, float] = {k: float(v) for k, v in (split_plan.get('amounts') or {}).items()}
@@ -7228,7 +7116,7 @@ def add_page():
                                 tx_id=sha16(group_id + f"|{idx}"),
                                 date_=dd,
                                 owner=owner,
-                                type_=entry_type,
+                                type_=entry_type_norm,
                                 amount=float(amt),
                                 method=method,
                                 account=account,
@@ -7241,7 +7129,7 @@ def add_page():
                         invalidate('transactions')
                         invalidate('recurring')
                         cats_str = ', '.join(plan.keys())
-                        ui.notify(f"✓ Saved {n} separate transactions: {cats_str}", type="positive", timeout=5.0)
+                        ui.notify(f"âœ“ Saved {n} separate transactions: {cats_str}", type="positive", timeout=5.0)
                         dlg.close()
                         return
                     except Exception as e:
@@ -7252,7 +7140,7 @@ def add_page():
 
                     # Build tx id (unique)
 
-                    tx_id = sha16(f"{owner}|{dd.isoformat()}|{entry_type}|{amt}|{method}|{account}|{category}|{notes}|{dt.datetime.now().isoformat()}")
+                    tx_id = sha16(f"{owner}|{dd.isoformat()}|{entry_type_norm}|{amt}|{method}|{account}|{category}|{notes}|{dt.datetime.now().isoformat()}")
 
 
                     rec_id = ""
@@ -7263,7 +7151,7 @@ def add_page():
 
                             owner=owner,
 
-                            type_=entry_type,
+                            type_=entry_type_norm,
 
                             amount=amt,
 
@@ -7292,7 +7180,7 @@ def add_page():
 
                         owner=owner,
 
-                        type_=entry_type,
+                        type_=entry_type_norm,
 
                         amount=amt,
 
@@ -7339,9 +7227,9 @@ def add_page():
         ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
         dlg.open()
 
-    # ──────────────────────────────────────────────────────────────────────
-    # 8.4: Line of Credit — full dialog with date, amount, type selector
-    # ──────────────────────────────────────────────────────────────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # 8.4: Line of Credit â€” full dialog with date, amount, type selector
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def open_loc_dialog():
         loc_dlg = ui.dialog()
         with loc_dlg, ui.card().classes("my-card mf-add-dialog").style(
@@ -7412,11 +7300,11 @@ def add_page():
         ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
         loc_dlg.open()
 
-    # ──────────────────────────────────────────────────────────────────────
-    # 8.5: CC Repay — rebuilt from scratch, standalone dialog
-    # ──────────────────────────────────────────────────────────────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # 8.5: CC Repay â€” rebuilt from scratch, standalone dialog
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def open_cc_repay_dialog():
-        # Only the 4 credit cards (NOT Line of Credit — that's handled by LOC dialog)
+        # Only the 4 credit cards (NOT Line of Credit â€” that's handled by LOC dialog)
         CC_CARDS = [
             'CanadianTire Mastercard - Black',
             'CanadianTire Mastercard - Grey',
@@ -7490,9 +7378,9 @@ def add_page():
         ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
         cc_dlg.open()
 
-    # ──────────────────────────────────────────────────────────────────────
-    # 8.2.2: Invest — custom dialog with investment account picker
-    # ──────────────────────────────────────────────────────────────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # 8.2.2: Invest â€” custom dialog with investment account picker
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def open_invest_dialog():
         INVEST_ACCOUNTS = ['FHSA', 'TFSA', 'RRSP', 'Indhu-TFSA']
 
@@ -7566,9 +7454,9 @@ def add_page():
         ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
         inv_dlg.open()
 
-    # ──────────────────────────────────────────────────────────────────────
-    # 8.2.2: International Transfer — custom dialog (CAD only)
-    # ──────────────────────────────────────────────────────────────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # 8.2.2: International Transfer â€” custom dialog (CAD only)
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def open_intl_dialog():
         INTL_SOURCES = ['Bank', 'CanadianTire Mastercard - Grey']
 
@@ -7649,7 +7537,7 @@ def add_page():
             with ui.row().classes("w-full items-center p-6 gap-5"):
                 with ui.column().classes("flex-1 gap-2"):
                     ui.label("Scan a Receipt").classes("text-2xl font-extrabold").style("letter-spacing: -0.02em;")
-                    ui.label("Snap a photo or upload — AI reads total, date & splits items by category.").classes("text-sm").style("color: var(--mf-muted); line-height: 1.6;")
+                    ui.label("Snap a photo or upload â€” AI reads total, date & splits items by category.").classes("text-sm").style("color: var(--mf-muted); line-height: 1.6;")
                     ui.button("Scan Now", icon="document_scanner", on_click=lambda: open_add_dialog("Debit", auto_scan=True)).props("unelevated").classes("mt-1").style(
                         "background: linear-gradient(135deg, #6366f1, #3b82f6) !important; color: #fff !important;"
                         "font-weight: 700; letter-spacing: 0.01em; padding: 10px 32px; border-radius: 12px;"
@@ -7665,14 +7553,13 @@ def add_page():
         with ui.card().classes("my-card p-5"):
             ui.label("Quick Add").classes("mf-section-title")
 
-            # 8.2.2: Reorganized tile grid — merged LOC, renamed Invest, added Intl Transfer
+            # 8.2.2: Reorganized tile grid â€” merged LOC, renamed Invest, added Intl Transfer
             tiles = [
                 ("Expense",        "shopping_cart",   "Debit",      {},  "rgba(239,68,68,0.10)",  "#ef4444"),
                 ("Income",         "trending_up",     "Credit",     {},  "rgba(34,197,94,0.10)",  "#22c55e"),
                 ("Invest",         "show_chart",      "__INVEST__", {},  "rgba(168,85,247,0.10)", "#a855f7"),
                 ("CC Repay",       "credit_card",     "__CC_REPAY__", {},  "rgba(251,191,36,0.10)", "#eab308"),
                 ("Line of Credit", "account_balance", "__LOC__",    {},  "rgba(96,165,250,0.10)", "#60a5fa"),
-                ("Intl Transfer",  "public",          "__INTL__",   {},  "rgba(244,114,182,0.10)","#f472b6"),
             ]
 
             def _tile_click(et, k):
@@ -7949,7 +7836,7 @@ def transactions_page():
             with ui.row().classes('w-full items-center gap-2'):
                 f_min_amt = ui.number('Min $', value=None, format='%.2f').props('dense outlined clearable').classes('w-40')
                 f_max_amt = ui.number('Max $', value=None, format='%.2f').props('dense outlined clearable').classes('w-40')
-            sort_opts = ["Date (new → old)", "Date (old → new)", "Amount (high → low)", "Amount (low → high)"]
+            sort_opts = ["Date (new â†’ old)", "Date (old â†’ new)", "Amount (high â†’ low)", "Amount (low â†’ high)"]
             f_sort = ui.select(sort_opts, value=sort_opts[0], label="Sort").classes("w-full")
 
             # Quick filter presets
@@ -7988,7 +7875,7 @@ def transactions_page():
                         'border-radius: 8px; font-size: 11px; padding: 4px 12px; border: 1px solid var(--mf-border);'
                     )
 
-            # ── Saved Filter Presets ──
+            # â”€â”€ Saved Filter Presets â”€â”€
             _PRESETS_KEY = 'tx_saved_presets'
 
             def _get_saved_presets() -> list:
@@ -8235,20 +8122,20 @@ def transactions_page():
                     df = df.drop(columns=['_amt_f'], errors='ignore')
                 # Sorting
                 try:
-                    sort_choice = f_sort.value or "Date (new → old)"
+                    sort_choice = f_sort.value or "Date (new â†’ old)"
                 except Exception:
-                    sort_choice = "Date (new → old)"
+                    sort_choice = "Date (new â†’ old)"
 
                 if "Amount" in sort_choice:
                     df["__amt"] = df["amount"].apply(to_float)
-                    ascending = "low → high" in sort_choice
+                    ascending = "low â†’ high" in sort_choice
                     df = df.sort_values(by="__amt", ascending=ascending)
                     df = df.drop(columns=["__amt"], errors="ignore")
                 else:
                     # Date sorting uses parsed date
                     if "date_parsed" not in df.columns:
                         df["date_parsed"] = df["date"].apply(parse_date)
-                    ascending = "old → new" in sort_choice
+                    ascending = "old â†’ new" in sort_choice
                     df = df.sort_values(by="date_parsed", ascending=ascending)
 
                 # keep a copy of the current filtered/sorted view for export & diagnostics
@@ -8394,7 +8281,7 @@ def security_page() -> None:
                 if not username:
                     ui.notify("Username required", type="warning")
                     return
-                ui.notify("Opening Face ID / Passkey prompt…", type="info", timeout=1.5)
+                ui.notify("Opening Face ID / Passkey promptâ€¦", type="info", timeout=1.5)
                 js = """
                 (async () => {{
                   try {{
@@ -8440,7 +8327,7 @@ def security_page() -> None:
                       const t = await vRes.text();
                       throw new Error(t || "Registration verify failed");
                     }}
-                    document.getElementById('pk_status')?.replaceChildren('Passkey registered ✅');
+                    document.getElementById('pk_status')?.replaceChildren('Passkey registered âœ…');
                   }} catch (e) {{
                     alert(`Passkey registration failed: ${{e.message||e}}`);
                   }}
@@ -8464,7 +8351,7 @@ def security_page() -> None:
                 for user, data in store.items():
                     with ui.card().classes("my-card p-3 w-full"):
                         ui.label(user).classes("font-semibold")
-                        ui.label(f"Credential ID: {str(data.get('credential_id',''))[:18]}…").classes("text-xs").style("color: var(--mf-muted)")
+                        ui.label(f"Credential ID: {str(data.get('credential_id',''))[:18]}â€¦").classes("text-xs").style("color: var(--mf-muted)")
                         def _mk_del(u=user):
                             def _del():
                                 s=_load_passkeys()
@@ -8508,7 +8395,7 @@ def cards_page() -> None:
             return [default] * len(df)
 
         names = pick(['card_name', 'name', 'account', 'Account'], default='Card')
-        emojis = pick(['emoji', 'Emoji'], default='💳')
+        emojis = pick(['emoji', 'Emoji'], default='ðŸ’³')
         methods = pick(['method_name', 'method', 'Method'], default='')
         billing_days = pick(['billing_day', 'BillingDay', 'billingday'], default='')
         limits = pick(['max_limit', 'limit', 'Limit'], default='')
@@ -8700,10 +8587,10 @@ def cards_page() -> None:
                         with ui.element('div').style('display: grid; grid-template-columns: 1fr 1fr; gap: 12px;'):
                             with ui.column().classes('gap-0'):
                                 ui.label('Limit').classes('mf-stat-label')
-                                ui.label(currency(c['limit']) if c.get('limit') else '—').classes('text-sm font-bold').style('font-feature-settings: "tnum";')
+                                ui.label(currency(c['limit']) if c.get('limit') else 'â€”').classes('text-sm font-bold').style('font-feature-settings: "tnum";')
                             with ui.column().classes('gap-0'):
                                 ui.label('Billing Day').classes('mf-stat-label')
-                                ui.label(str(c.get('billing_day') or '—')).classes('text-sm font-bold')
+                                ui.label(str(c.get('billing_day') or 'â€”')).classes('text-sm font-bold')
 
                         # Utilization section
                         with ui.column().classes('gap-2'):
@@ -8719,7 +8606,7 @@ def cards_page() -> None:
                                 ui.label(currency(c.get('balance', 0.0))).classes('text-sm font-bold').style('font-feature-settings: "tnum";')
                             with ui.column().classes('gap-0'):
                                 ui.label('Available').classes('mf-stat-label')
-                                ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '—').classes('text-sm font-bold').style('color: var(--mf-good); font-feature-settings: "tnum";')
+                                ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else 'â€”').classes('text-sm font-bold').style('color: var(--mf-good); font-feature-settings: "tnum";')
 
                     # Status badge (premium, no chart)
                     _status_color = '#22c55e' if pct_val < 0.30 else ('#3b82f6' if pct_val < 0.50 else ('#eab308' if pct_val < 0.80 else '#ef4444'))
@@ -8919,7 +8806,7 @@ def rules_page():
                 return ""
             shown = keys[:max_chips]
             tail = len(keys) - len(shown)
-            return " • ".join(shown) + (f"  +{tail}" if tail > 0 else "")
+            return " â€¢ ".join(shown) + (f"  +{tail}" if tail > 0 else "")
 
         # Premium rules header
         with ui.card().classes('my-card p-0 mb-4').style('overflow: hidden;'):
@@ -8929,7 +8816,7 @@ def rules_page():
                     ui.icon("rule").style("font-size: 22px; color: #f59e0b;")
                 with ui.column().classes('gap-0'):
                     ui.label('Rules').classes('text-xl font-extrabold').style('letter-spacing: -0.02em;')
-                    ui.label('Keyword → category mapping used for Auto-category').classes('text-xs').style('color: var(--mf-muted);')
+                    ui.label('Keyword â†’ category mapping used for Auto-category').classes('text-xs').style('color: var(--mf-muted);')
 
         with ui.row().classes("w-full gap-4 mt-4"):
 
@@ -8977,8 +8864,8 @@ def rules_page():
                                else "border: 1px solid var(--mf-border); background: rgba(255,255,255,0.04);")
                         )
                         with item:
-                            ui.label(cat or "—").classes("text-sm font-semibold").style("color: var(--mf-text);")
-                            ui.label(chips_preview(keys, 4) or "—").classes("text-xs").style("color: var(--mf-muted);")
+                            ui.label(cat or "â€”").classes("text-sm font-semibold").style("color: var(--mf-text);")
+                            ui.label(chips_preview(keys, 4) or "â€”").classes("text-xs").style("color: var(--mf-muted);")
                         item.on("click", lambda e, kw=kw_raw: (select_rule(kw), render_list()))
 
                 search.on("input", lambda e: render_list())
@@ -9257,7 +9144,7 @@ def normalize_merchant_from_notes(notes: str) -> str:
     if not s:
         return ''
     # merchant usually is first chunk
-    for sep in ('|', '•'):
+    for sep in ('|', 'â€¢'):
         if sep in s:
             s = s.split(sep, 1)[0].strip()
             break
@@ -9282,7 +9169,7 @@ def apply_merchant_cleanup(df: pd.DataFrame) -> pd.DataFrame:
         # replace first segment only
         # split by separators, keep remainder
         rest = ''
-        for sep in ('|', '•'):
+        for sep in ('|', 'â€¢'):
             if sep in full:
                 head, tail = full.split(sep, 1)
                 rest = sep + tail
@@ -9764,7 +9651,7 @@ def reports_page() -> None:
 
 
 # -----------------------------
-# About / Author
+# About / Developer
 # -----------------------------
 @ui.page('/about')
 def about_page() -> None:
@@ -9774,7 +9661,7 @@ def about_page() -> None:
 
     def content() -> None:
       with ui.element('div').classes('mf-about-wrap'):
-        # ── App Info Card ──
+        # â”€â”€ App Info Card â”€â”€
         with ui.card().classes('my-card p-0').style('overflow: hidden;'):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #22C55E, #FBBF24); border-radius: 0;')
             with ui.column().classes('p-6 gap-4 items-center'):
@@ -9790,18 +9677,18 @@ def about_page() -> None:
                 ui.label(
                     'FinTrackr is a premium personal finance dashboard built to help you take control '
                     'of your money. Track every expense, scan receipts with AI-powered OCR, monitor '
-                    'credit card utilization, set budgets, and visualize your spending patterns — all '
+                    'credit card utilization, set budgets, and visualize your spending patterns â€” all '
                     'from a single elegant interface.'
                 ).classes('text-sm text-center').style('color: var(--mf-muted); line-height: 1.7; max-width: 720px;')
 
                 # Feature highlights
                 _features = [
                     ('document_scanner', 'AI Receipt Scanning', 'Snap a photo and let OCR extract amounts, merchants & categories automatically.'),
-                    ('palette', '8 Premium Themes', 'From dark Midnight Blue to light Sand Gold — pick the look that suits you.'),
+                    ('palette', '8 Premium Themes', 'From dark Midnight Blue to light Sand Gold â€” pick the look that suits you.'),
                     ('show_chart', 'Smart Analytics', 'Weekly cashflow charts, category breakdowns, budget alerts and monthly insights.'),
                     ('security', 'Passkey Auth', 'Biometric login with WebAuthn passkeys for secure, passwordless access.'),
                     ('call_split', 'Receipt Splitting', 'Multi-category split for Walmart, Costco & Superstore receipts.'),
-                    ('autorenew', 'Recurring Templates', 'Set it and forget it — automatic transaction creation on due dates.'),
+                    ('autorenew', 'Recurring Templates', 'Set it and forget it â€” automatic transaction creation on due dates.'),
                 ]
                 with ui.element('div').classes('mf-about-features'):
                     for f_icon, f_title, f_desc in _features:
@@ -9815,14 +9702,14 @@ def about_page() -> None:
                                 ui.label(f_title).classes('text-sm font-bold').style('color: var(--mf-text);')
                                 ui.label(f_desc).classes('text-xs').style('color: var(--mf-muted); line-height: 1.5;')
 
-        # ── Author Card ──
+        # â”€â”€ Author Card â”€â”€
         with ui.card().classes('my-card p-0 mt-3').style('overflow: hidden;'):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
             with ui.column().classes('p-6 gap-4'):
                 with ui.row().classes('items-center gap-2 mb-1'):
                     with ui.element('div').classes('mf-icon-box').style('background: rgba(99,102,241,0.12);'):
                         ui.icon('person').style('font-size: 20px; color: #6366f1;')
-                    ui.label('About the Author').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                    ui.label('About the Developer').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
 
                 with ui.element('div').classes('mf-about-author'):
                     # Avatar placeholder
@@ -9836,12 +9723,12 @@ def about_page() -> None:
 
                     with ui.column().classes('gap-2 flex-1').style('min-width: 200px;'):
                         ui.label('Nishanth R').style('font-size: 22px; font-weight: 800; letter-spacing: -0.03em; color: var(--mf-text);')
-                        ui.label('Oracle DBA').classes('text-sm font-medium').style('color: var(--mf-accent);')
+                        ui.label('Developer').classes('text-sm font-medium').style('color: var(--mf-accent);')
                         ui.label(
-                            'An experienced Oracle Database Administrator with a passion for building '
+                            'A developer with a passion for building '
                             'elegant, data-driven applications. FinTrackr was born from a personal need '
                             'to track finances with the same precision and reliability that goes into '
-                            'managing enterprise databases — clean architecture, robust error handling, '
+                            'managing enterprise databases â€” clean architecture, robust error handling, '
                             'and a beautiful interface that makes financial management effortless.'
                         ).classes('text-sm').style('color: var(--mf-muted); line-height: 1.7;')
 
@@ -9879,7 +9766,7 @@ def about_page() -> None:
                         ui.icon('photo_camera').style('font-size: 18px; color: #E1306C;')
                         ui.label('@n_1_5_h_').classes('text-sm font-medium')
 
-        # ── Tech Stack Card ──
+        # â”€â”€ Tech Stack Card â”€â”€
         with ui.card().classes('my-card p-0 mt-3').style('overflow: hidden;'):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #22c55e, #3b82f6); border-radius: 0;')
             with ui.column().classes('p-6 gap-3'):
@@ -9896,12 +9783,11 @@ def about_page() -> None:
                     ('WebAuthn', 'Passwordless biometric authentication'),
                     ('Render', 'Cloud hosting with automatic deployments'),
                 ]
-                for tech, desc in _stack:
-                    with ui.row().classes('items-center gap-3').style('padding: 8px 0; border-bottom: 1px solid rgba(128,128,128,0.06);'):
-                        ui.element('div').style('width: 6px; height: 6px; border-radius: 50%; background: var(--mf-accent); flex-shrink: 0;')
-                        with ui.column().classes('gap-0'):
+                with ui.element('div').classes('grid grid-cols-1 md:grid-cols-2 gap-3 w-full'):
+                    for tech, desc in _stack:
+                        with ui.card().classes('my-card p-4 w-full').style('border: 1px solid var(--mf-border);'):
                             ui.label(tech).classes('text-sm font-bold').style('color: var(--mf-text);')
-                            ui.label(desc).classes('text-xs').style('color: var(--mf-muted);')
+                            ui.label(desc).classes('text-xs').style('color: var(--mf-muted); line-height: 1.5;')
 
     shell(content)
 
@@ -9927,7 +9813,7 @@ def bootstrap() -> None:
 
 bootstrap()
 
-# Premium SVG favicon – "insights" style: zigzag trend + sparkle on dark-emerald bg
+# Premium SVG favicon â€“ "insights" style: zigzag trend + sparkle on dark-emerald bg
 _FAVICON_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -9944,7 +9830,7 @@ _FAVICON_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
     </filter>
   </defs>
   <rect width="512" height="512" rx="108" fill="url(#bg)"/>
-  <!-- Trend zigzag line (gold) — the "insights" signature shape -->
+  <!-- Trend zigzag line (gold) â€” the "insights" signature shape -->
   <polyline points="90,340 175,180 280,280 395,110" fill="none" stroke="#FBBF24" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
   <!-- Node dots -->
   <circle cx="90" cy="340" r="18" fill="#FBBF24"/>
@@ -9983,9 +9869,9 @@ async def _keepalive_loop():
     import aiohttp
     target = _RENDER_URL or f'http://localhost:{PORT}'
     ping_url = f'{target}/api/health'
-    _logger.info(f'[keepalive] starting self-ping loop → {ping_url}')
+    _logger.info(f'[keepalive] starting self-ping loop â†’ {ping_url}')
     while True:
-        await asyncio.sleep(300)  # 5 minutes — aggressive to avoid cold starts
+        await asyncio.sleep(300)  # 5 minutes â€” aggressive to avoid cold starts
         try:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
                 async with session.get(ping_url) as resp:
@@ -10090,7 +9976,7 @@ async def _prewarm_cache():
     """Pre-load transactions from Google Sheets on startup so first page load is instant."""
     await asyncio.sleep(2)  # let the server finish booting
     try:
-        _logger.info('[prewarm] loading transactions into cache …')
+        _logger.info('[prewarm] loading transactions into cache â€¦')
         cached_df('transactions')
         _logger.info('[prewarm] transactions cache ready')
     except Exception as e:
@@ -10109,14 +9995,14 @@ ui.run(
 )
 
 # Release: FinTrackr Phase 8.7
-# ────────────────────────────────────────────────
-# Phase 8.7 — COMPLETE dropdown redesign:
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Phase 8.7 â€” COMPLETE dropdown redesign:
 #
 # Quasar q-select REMOVED from all Add-page dialogs. Replaced with
 # custom chip-based selector (`_chip_select`) built from plain HTML
 # div elements + CSS. Zero Quasar dependency for selection UI.
 #
-# 1.  _chip_select() — new Python helper in add_page():
+# 1.  _chip_select() â€” new Python helper in add_page():
 #     - Renders options as clickable styled chips (div + label)
 #     - Selected chip gets accent border + tinted background
 #     - Exposes .value property (compatible with all save logic)
@@ -10140,37 +10026,37 @@ ui.run(
 #     - Removed: input-style / -webkit-text-fill-color hacks
 #     - Kept: ui.dark_mode() in shell() (still useful for other components)
 #
-# 4.  Dropdown jumping eliminated — chips are inline elements,
+# 4.  Dropdown jumping eliminated â€” chips are inline elements,
 #     no floating menu positioning needed at all.
 #
 # Carries forward all 8.6 + 8.5 + 8.4 + 8.3 fixes.
-# ────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #
 # Release: FinTrackr Phase 8.8
-# ────────────────────────────────────────────────
-# Phase 8.8 — Visual cleanup, dialog fixes, UX improvements:
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Phase 8.8 â€” Visual cleanup, dialog fixes, UX improvements:
 #
 # 1.  Custom pure-HTML dropdown for Category (9+ options):
 #     - Built from scratch: clickable trigger + scrollable options panel
 #     - CSS: .mf-dd-trigger, .mf-dd-panel, .mf-dd-item, .mf-dd-item.active
-#     - NO ui.select / q-select used — permanently avoids invisible text bug
+#     - NO ui.select / q-select used â€” permanently avoids invisible text bug
 #     - _SelDropdown wrapper preserves .value/.props/.on/.set_visibility API
 #     - Chips still used for low-count fields (Method, Account, LOC Type, etc.)
 #
 # 2.  Dialog header layout fixed (all 5 dialogs):
 #     - Header outer div: added width: 100%; box-sizing: border-box
 #     - Header row: explicit style('width: 100%') for full-width stretch
-#     - Header padding: 20px 24px 16px → 14px 24px 10px (tighter)
-#     - Icon box: 44x44 → 36x36, icon font: 22px → 18px (compact)
+#     - Header padding: 20px 24px 16px â†’ 14px 24px 10px (tighter)
+#     - Icon box: 44x44 â†’ 36x36, icon font: 22px â†’ 18px (compact)
 #
 # 3.  Dialog footer spacing fix:
 #     - Removed margin: 8px 0 0 0 from sticky footer in open_add_dialog
 #
-# 4.  Close button visibility: opacity 0.5 → 0.7 (all 5 dialogs)
+# 4.  Close button visibility: opacity 0.5 â†’ 0.7 (all 5 dialogs)
 #
 # 5.  Home page quick-add buttons now auto-open dialogs:
-#     - "Add expense" → navigates to /add AND opens Expense dialog
-#     - "Add income" → navigates to /add AND opens Income dialog
+#     - "Add expense" â†’ navigates to /add AND opens Expense dialog
+#     - "Add income" â†’ navigates to /add AND opens Income dialog
 #     - Uses app.storage.user['add_auto_open'] + ui.timer(0.3s)
 #
 # 6.  Desktop logout button added to sidebar (mf-rail):
@@ -10179,18 +10065,17 @@ ui.run(
 #     - Calls do_logout() (same as mobile logout)
 #
 # Carries forward all 8.7 + 8.6 + 8.5 + 8.4 + 8.3 fixes.
-# ────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-# ────────────────────────────────────────────────
-# Phase 9.0 — Major UI overhaul + functional fixes:
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Phase 9.0 â€” Major UI overhaul + functional fixes:
 #
 # UI Enhancements:
 #  1. Animated time-based greeting (Good morning/afternoon/evening) in hero card
-#  2. Consolidated Financial Pulse card — Income, Expenses, Intl Transfer, Net
+#  2. Consolidated Financial Pulse card â€” Income, Expenses, Intl Transfer, Net
 #     in a single 2x2 / 4-col responsive grid (replaces 4 separate summary boxes)
 #  3. Smart Alerts rendered as slim banners above hero (max 3), not a card
 #  4. Page transition animation: .mf-canvas gets 0.25s fade-in + translate
-#  5. Simplified dashboard grid: only Recent Transactions + Cashflow Trend
 #
 # Functional Fixes:
 #  6. Payday owner label (Indhu/Abhi/Both) shown next to Next Payday in hero
@@ -10203,7 +10088,7 @@ ui.run(
 #     both update and append paths in create_or_update_recurring_template()
 # 10. Transaction page simplified:
 #     - Removed month selector (f_month) and month lock toggle (lock_sw)
-#     - Date range defaults to current month start → today
+#     - Date range defaults to current month start â†’ today
 #     - Single consistent date-range filter
 #
 # Removed from Dashboard:
@@ -10215,4 +10100,4 @@ ui.run(
 #  - Full-card Smart Alerts (_render_alerts replaced by slim banners)
 #
 # Carries forward all 8.8 + 8.7 + 8.6 + 8.5 + 8.4 + 8.3 fixes.
-# ────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
