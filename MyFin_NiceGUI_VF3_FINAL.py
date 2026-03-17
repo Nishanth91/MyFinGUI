@@ -3459,23 +3459,31 @@ html.mf-light .mf-progress {
 }
 .mf-navbtn .q-btn__content span { font-size: 10px; opacity: 0.7; font-weight: 600; }
 
-/*  Bottom Tab Bar (mobile)  8.2.2: icons only, INSTANT JS nav, tactile  */
+/*  Premium Floating Navigation Pill (Mobile)  */
 .mf-bottombar {
   position: fixed;
-  bottom: 0; left: 0; right: 0;
+  bottom: 24px; left: 50%; transform: translateX(-50%);
+  width: calc(100% - 48px); max-width: 400px;
   z-index: 55;
   display: none;
   align-items: center;
   justify-content: space-around;
-  height: calc(58px + env(safe-area-inset-bottom, 0px));
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  background: var(--mf-bg);
-  border-top: 1px solid var(--mf-border);
-  box-shadow: 0 -2px 16px rgba(0,0,0,0.10);
+  height: 72px;
+  background: rgba(15, 23, 42, 0.85); /* Darker, richer slate */
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  border: 1px solid rgba(255, 255, 255, 0.08); /* More subtle border */
+  border-radius: 40px;
+  box-shadow: 0 20px 48px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,255,255,0.15); /* Softer, deeper shadow */
   will-change: transform;
-  transform: translateZ(0);
   -webkit-backface-visibility: hidden;
   contain: layout style;
+  padding: 0 8px; /* Inner padding */
+}
+html.mf-light .mf-bottombar {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 16px 40px rgba(0,0,0,0.15), inset 0 1px 1px rgba(255,255,255,0.8);
 }
 .mf-bottombar .mf-tab {
   flex: 1;
@@ -3485,21 +3493,15 @@ html.mf-light .mf-progress {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   user-select: none; -webkit-user-select: none;
-  padding: 8px 0; border: none; background: none;
-  transition: none !important;
+  padding: 8px 0; border: none; background: none; margin: 0 4px; border-radius: 20px;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   position: relative;
-  /* GPU accelerate each tab for instant paint */
-  will-change: transform;
-  transform: translateZ(0);
+  will-change: transform; transform: translateZ(0);
 }
-/* 8.2.2: icon-only, 30px, zero transition delay */
-.mf-bottombar .mf-tab .q-icon { font-size: 30px; transition: none !important; }
-/* Ensure <a> tags in bottom bar inherit proper colors (not default link blue) */
-.mf-bottombar a.mf-tab,
-.mf-bottombar a.mf-tab-add { text-decoration: none !important; color: var(--mf-muted); }
+.mf-bottombar .mf-tab .q-icon { font-size: 26px; transition: all 0.2s; }
+.mf-bottombar a.mf-tab, .mf-bottombar a.mf-tab-add { text-decoration: none !important; color: var(--mf-muted); }
 .mf-bottombar a.mf-tab:visited { color: var(--mf-muted); }
-.mf-bottombar a.mf-tab.is-active,
-.mf-bottombar a.mf-tab.is-active:visited { color: var(--mf-accent); }
+.mf-bottombar a.mf-tab.is-active, .mf-bottombar a.mf-tab.is-active:visited { color: var(--mf-accent); }
 /* More button is inside the bottom bar nav  inherits bar styling */
 .mf-bottombar .mf-more-btn {
   background: none; border: none;
@@ -3508,47 +3510,39 @@ html.mf-light .mf-progress {
   touch-action: manipulation;
   user-select: none; -webkit-user-select: none;
 }
-
-/* Active = full icon highlight (rounded pill bg) */
-.mf-bottombar .mf-tab.is-active {
-  color: var(--mf-accent);
-}
+.mf-bottombar .mf-tab.is-active { color: var(--mf-accent); }
 .mf-bottombar .mf-tab.is-active .q-icon {
   color: var(--mf-accent);
-  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.14);
-  border-radius: 12px;
-  padding: 6px 14px;
+  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.15); /* Softer background */
+  border-radius: 20px; /* Pill shape for active state */
+  padding: 8px 16px; /* Wider padding for pill */
+  box-shadow: 0 4px 16px rgba(var(--mf-accent-rgb, 91,140,255), 0.25);
+  transform: translateY(-2px); /* Slight lift */
 }
-/* Tap feedback  INSTANT scale + color (no transition) */
-.mf-bottombar .mf-tab:active {
-  transform: scale(0.88);
+.mf-bottombar .mf-tab.is-active::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background-color: var(--mf-accent);
 }
-.mf-bottombar .mf-tab:active .q-icon {
-  color: var(--mf-accent) !important;
-  background: rgba(var(--mf-accent-rgb, 91,140,255), 0.18);
-  border-radius: 12px;
-  padding: 6px 14px;
-}
-/* Floating Add button */
+.mf-bottombar .mf-tab:active { transform: scale(0.85); }
+/* Floating Add Button (Center Pop) - More Dramatic */
 .mf-bottombar .mf-tab-add {
-  position: relative; top: -12px;
-  width: 54px; height: 54px; border-radius: 50%;
-  background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2, var(--mf-accent)));
+  position: relative; top: -24px; /* Higher pop */
+  width: 64px; height: 64px; border-radius: 50%;
+  background: linear-gradient(135deg, #0EA5E9, #10B981 70%, #059669); /* Richer gradient */
   color: #fff !important;
   display: flex; align-items: center; justify-content: center;
-  flex: 0 0 54px;
-  box-shadow: 0 4px 16px rgba(var(--mf-accent-rgb, 91,140,255), 0.35);
-  cursor: pointer; border: none;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-  user-select: none; -webkit-user-select: none;
-  transition: none;
+  flex: 0 0 64px; margin: 0 12px;
+  box-shadow: 0 16px 32px rgba(16, 185, 129, 0.5), inset 0 2px 8px rgba(255,255,255,0.4); /* Stronger glow */
+  cursor: pointer; border: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); /* Bouncy transition */
 }
-.mf-bottombar .mf-tab-add:active {
-  transform: scale(0.88) translateY(-12px);
-  box-shadow: 0 2px 8px rgba(var(--mf-accent-rgb, 91,140,255), 0.55);
-}
-.mf-bottombar .mf-tab-add .q-icon { font-size: 28px; color: #fff; }
+.mf-bottombar .mf-tab-add:active { transform: scale(0.85) translateY(4px); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4); }
+.mf-bottombar .mf-tab-add .q-icon { font-size: 36px; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.2); }
 
 /*  8.2.1 Task 3: Compact "More" popup (floats above hamburger icon)  */
 .mf-more-popup {
@@ -3621,7 +3615,11 @@ a.mf-more-item.is-active:visited {
 }
 
 /*  Main area  */
-.mf-main { flex: 1; padding: 26px 32px; }
+@keyframes pageFadeIn {
+  0% { opacity: 0; transform: translateY(12px) scale(0.99); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.mf-main { flex: 1; padding: 26px 32px; animation: pageFadeIn 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .mf-header{
   display: flex;
   align-items: flex-start;
@@ -3696,11 +3694,28 @@ a.mf-more-item.is-active:visited {
   .mf-rail-desktop-only { display: none !important; }
   .mf-main {
     padding: 10px 4px;
-    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px)); /* Expanded for floating pill */
   }
   .mf-bottombar { display: flex !important; }
   .mf-navbtn .q-btn__content span { display: none; }
   .mf-navbtn { min-height: 40px; }
+
+/* Premium Layout Helpers */
+.mf-h-scroll {
+  display: flex; flex-wrap: nowrap; overflow-x: auto;
+  scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; padding-bottom: 8px; gap: 12px;
+}
+.mf-h-scroll::-webkit-scrollbar { display: none; }
+.mf-h-scroll > * { scroll-snap-align: center; flex: 0 0 auto; }
+.mf-timeline-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-radius: 16px; background: rgba(255,255,255,0.03);
+  margin-bottom: 8px; transition: background 0.15s;
+}
+.mf-timeline-row:active { background: rgba(255,255,255,0.08); transform: scale(0.98); }
+html.mf-light .mf-timeline-row { background: rgba(0,0,0,0.02); }
+html.mf-light .mf-timeline-row:active { background: rgba(0,0,0,0.06); }
 
   /* 8.2.2: Mobile layout  prevent ALL clipping & overflow */
   .mf-main { overflow-x: hidden !important; }
@@ -4893,13 +4908,25 @@ def shell(content_fn, *, active_path: str = ""):
                     f'<i class="q-icon notranslate material-icons" aria-hidden="true" role="img">{_bi}</i></a>'
                 )
         ui.html(f'<nav class="mf-bottombar">{"".join(_bottom_tabs_html)}</nav>')
-        # Attach More button click handler via JS (Vue strips onclick from v-html)
+        # Attach More button and instant tab visual feedback JS
         ui.run_javascript("""
         (function(){
             var btn = document.getElementById('mf-more-toggle-btn');
             if(btn) btn.addEventListener('click', function(e){
                 e.preventDefault();
                 document.documentElement.classList.toggle('mf-more-open');
+            });
+            var tabs = document.querySelectorAll('.mf-bottombar a');
+            tabs.forEach(function(t) {
+                t.addEventListener('click', function(e) {
+                    // Instant visual feedback before new page loads
+                    tabs.forEach(function(x) { x.classList.remove('is-active'); });
+                    if (this.classList.contains('mf-tab')) {
+                        this.classList.add('is-active');
+                    }
+                    this.style.transform = 'scale(0.9)';
+                    setTimeout(() => { this.style.transform = ''; }, 150);
+                });
             });
         })();
         """)
@@ -5216,12 +5243,15 @@ def dashboard_page():
 
     def content():
         # Safe: run recurring generation for today once per page load
-        try:
-            created = generate_recurring_for_date(today())
-            if created:
-                ui.notify(f"Auto-added {created} recurring entries for {today().isoformat()}", type="positive")
-        except Exception as e:
-            _logger.error("Failed to generate recurring transactions: %s", e)
+        # FIX: Defer heavy synchronous work so the page renders instantly.
+        def _deferred_recurring():
+            try:
+                created = generate_recurring_for_date(today())
+                if created:
+                    ui.notify(f"Auto-added {created} recurring entries for {today().isoformat()}", type="positive")
+            except Exception as e:
+                _logger.error("Failed to generate recurring transactions: %s", e)
+        ui.timer(0.1, _deferred_recurring, once=True)
 
         tx = cached_df("transactions")
         #  B2 fix: robust empty-data handling (no KeyError on cleaned sheets) 
@@ -5435,67 +5465,108 @@ def dashboard_page():
         # Daily average spending this month
         _daily_avg = round(expense / max(today().day, 1), 2) if expense > 0 else 0.0
 
-        # Premium Hero Card
-        with ui.card().classes('my-card p-0 mf-budget').style('overflow: hidden;'):
-            # Accent strip at top
-            ui.element('div').classes('mf-accent-strip').style('height: 3px;')
-            with ui.column().classes('p-6 gap-4'):
-                ui.label(f'{_greeting}').classes('text-sm font-medium').style('color: var(--mf-muted); margin-bottom: 4px;')
-                with ui.row().classes('w-full items-start justify-between'):
-                    with ui.column().classes('gap-1'):
-                        ui.label('Pay Period Net').classes('mf-stat-label')
-                        _net_color = 'var(--mf-good)' if net_pp >= 0 else 'var(--mf-bad)'
-                        ui.label(currency(net_pp)).classes('mf-stat-value').style(f'color: {_net_color};')
-                        with ui.row().classes('items-center gap-2 mt-1'):
-                            ui.icon('date_range').style('font-size: 14px; color: var(--mf-muted);')
-                            ui.label(f"{pp_start.strftime('%b %d')}  {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
-                        with ui.row().classes('items-center gap-2 mt-1'):
-                            ui.icon('local_fire_department').style('font-size: 14px; color: #ef4444;')
-                            ui.label(f"Daily avg: {currency(_daily_avg)}").classes('text-xs').style('color: var(--mf-muted)')
+        # === RADICAL PARADIGM SHIFT: The Cashflow Rings Hero ===
+        # Replaces the flat text card with an interactive, Apple Watch-style ring dashboard.
+        _ring_income = min(1.0, income / (income + expense + 1)) if income > 0 else 0
+        _ring_expense = min(1.0, expense / (income + expense + 1)) if expense > 0 else 0
+        _income_dash = 2 * 3.14159 * 76 * _ring_income
+        _expense_dash = 2 * 3.14159 * 60 * _ring_expense
+        
+        with ui.element('div').classes('w-full flex-col items-center justify-center p-8 mt-2 relative').style(
+            'background: linear-gradient(145deg, rgba(15,23,42,0.9), rgba(30,41,59,0.95));'
+            'border-radius: 40px;'
+            'border: 1px solid rgba(255,255,255,0.08);'
+            'box-shadow: 0 32px 64px -12px rgba(0,0,0,0.5), inset 0 2px 4px rgba(255,255,255,0.1);'
+            'backdrop-filter: blur(24px);'
+            'overflow: hidden;'
+        ):
+            # Dynamic background mesh glow
+            ui.html(f'''
+                <div style="position: absolute; top: -50px; left: -50px; width: 200px; height: 200px; background: radial-gradient(circle, rgba(14,165,233,0.15) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
+                <div style="position: absolute; bottom: -50px; right: -50px; width: 200px; height: 200px; background: radial-gradient(circle, rgba(16,185,129,0.1) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
+            ''')
+            
+            # The Massive Rings SVG
+            ui.html(f'''
+                <div style="position: relative; width: 190px; height: 190px; margin: 0 auto; filter: drop-shadow(0 8px 16px rgba(0,0,0,0.4));">
+                    <svg viewBox="0 0 170 170" style="transform: rotate(-90deg); width: 100%; height: 100%;">
+                        <!-- Income Ring Track -->
+                        <circle cx="85" cy="85" r="76" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="12" stroke-linecap="round"/>
+                        <!-- Income Ring Fill -->
+                        <circle cx="85" cy="85" r="76" fill="none" stroke="url(#incGrad)" stroke-width="12"
+                            stroke-dasharray="{_income_dash:.1f} 477.5" stroke-linecap="round"
+                            style="transition: stroke-dasharray 1.5s cubic-bezier(0.22,1,0.36,1);"/>
+                            
+                        <!-- Expense Ring Track -->
+                        <circle cx="85" cy="85" r="60" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="12" stroke-linecap="round"/>
+                        <!-- Expense Ring Fill -->
+                        <circle cx="85" cy="85" r="60" fill="none" stroke="url(#expGrad)" stroke-width="12"
+                            stroke-dasharray="{_expense_dash:.1f} 377" stroke-linecap="round"
+                            style="transition: stroke-dasharray 1.5s cubic-bezier(0.22,1,0.36,1) 0.2s;"/>
+                            
+                        <defs>
+                            <linearGradient id="incGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#34D399"/>
+                                <stop offset="100%" stop-color="#059669"/>
+                            </linearGradient>
+                            <linearGradient id="expGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#F472B6"/>
+                                <stop offset="100%" stop-color="#E11D48"/>
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                    <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
+                        <span style="font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 2px;">Net</span>
+                        <span style="font-size: 30px; font-weight: 900; color: #fff; letter-spacing: -0.04em; font-feature-settings: 'tnum'; text-shadow: 0 4px 12px rgba(0,0,0,0.5);">{currency(net)}</span>
+                    </div>
+                </div>
+            ''')
+            # Badges below rings
+            with ui.row().classes('w-full justify-center gap-4 mt-6 position-relative z-10'):
+                with ui.element('div').classes('flex items-center gap-1.5').style('background: rgba(34, 197, 94, 0.15); padding: 6px 16px; border-radius: 24px; border: 1px solid rgba(34, 197, 94, 0.3); backdrop-filter: blur(8px); box-shadow: 0 4px 12px rgba(34,197,94,0.1);'):
+                    ui.icon('arrow_upward').style('font-size: 16px; color: #34D399;')
+                    ui.label(f"{currency(income)}").classes('text-sm font-extrabold').style('color: #34D399; font-feature-settings: "tnum";')
+                with ui.element('div').classes('flex items-center gap-1.5').style('background: rgba(225, 29, 72, 0.15); padding: 6px 16px; border-radius: 24px; border: 1px solid rgba(225, 29, 72, 0.3); backdrop-filter: blur(8px); box-shadow: 0 4px 12px rgba(225,29,72,0.1);'):
+                    ui.icon('arrow_downward').style('font-size: 16px; color: #FB7185;')
+                    ui.label(f"{currency(expense)}").classes('text-sm font-extrabold').style('color: #FB7185; font-feature-settings: "tnum";')
+
+        # === RADICAL PARADIGM SHIFT: Horizontal Scrollable Widgets ===
+        # Replaces the flat 2x2 grid and flat buttons with an Apple native-like horizontal tile row
+        with ui.element('div').classes('mf-h-scroll w-full mt-6 px-1'):
+            
+            # Tile 1: Floating Add Action (Gradient Burst)
+            def _goto_add(mode):
+                app.storage.user['add_auto_open'] = mode
+                nav_to('/add')
+            with ui.element('div').style('width: 140px; height: 110px; border-radius: 24px; background: linear-gradient(135deg, #3B82F6, #8B5CF6); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 12px 24px rgba(99,102,241,0.3); border: 1px solid rgba(255,255,255,0.2); cursor: pointer; transition: transform 0.2s;').on('click', lambda: _goto_add('expense')):
+                with ui.element('div').style('width: 32px; height: 32px; border-radius: 12px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px);'):
+                    ui.icon('add').style('font-size: 20px; color: #fff; font-weight: 900;')
+                with ui.column().classes('gap-0'):
+                    ui.label('Add').classes('text-sm font-extrabold text-white').style('letter-spacing: -0.02em;')
+                    ui.label('Expense').classes('text-xs text-white opacity-80 font-medium')
+                    
+            # Tile 2: Next Payday (Glass Tile)
+            with ui.element('div').style('width: 140px; height: 110px; border-radius: 24px; background: rgba(255,255,255,0.05); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--mf-border); cursor: pointer; backdrop-filter: blur(12px);'):
+                with ui.row().classes('justify-between items-start w-full'):
+                    with ui.element('div').style('width: 28px; height: 28px; border-radius: 10px; background: rgba(16,185,129,0.15); display: flex; align-items: center; justify-content: center;'):
+                        ui.icon('event').style('font-size: 16px; color: #10B981;')
+                    if days_to_next is not None:
+                        ui.label(f"{days_to_next}d").classes('text-xs font-bold').style('color: #10B981; margin-top: 4px;')
+                with ui.column().classes('gap-0'):
+                    ui.label('Next Payday').classes('text-xs font-semibold').style('color: var(--mf-muted);')
                     if next_pay:
-                        with ui.column().classes('items-end gap-1'):
-                            ui.label('Next Payday').classes('mf-stat-label')
-                            if _pay_owner:
-                                ui.label(_pay_owner).classes('text-xs font-semibold').style(f'color: var(--mf-accent); margin-top: -2px;')
-                            ui.label(next_pay.strftime('%b %d')).classes('text-2xl font-extrabold').style('letter-spacing: -0.02em;')
-                            if days_to_next is not None:
-                                _badge_bg = 'rgba(34,197,94,0.14)' if days_to_next <= 7 else 'rgba(255,255,255,0.06)'
-                                _badge_color = '#22c55e' if days_to_next <= 7 else 'var(--mf-text)'
-                                with ui.element('span').classes('mf-tag').style(f'background: {_badge_bg}; color: {_badge_color};'):
-                                    ui.label(f"{days_to_next}d away").classes('text-xs font-semibold')
+                        ui.label(next_pay.strftime('%b %d')).classes('text-base font-extrabold').style('color: var(--mf-text); letter-spacing: -0.02em;')
+                    else:
+                        ui.label('Unknown').classes('text-base font-extrabold').style('color: var(--mf-text);')
 
-                ui.separator().classes('opacity-10')
-
-                with ui.row().classes('gap-2 flex-wrap'):
-                    def _goto_add(mode):
-                        app.storage.user['add_auto_open'] = mode
-                        nav_to('/add')
-                    ui.button('Add expense', icon='remove_circle_outline').props('unelevated').style(
-                        'background: var(--mf-accent) !important; color: #fff !important; border-radius: 10px; font-weight: 600; padding: 6px 16px;'
-                    ).on('click', lambda: _goto_add('expense'))
-                    ui.button('Add income', icon='add_circle_outline').props('outline').style(
-                        'border-radius: 10px; font-weight: 600; padding: 6px 16px;'
-                    ).on('click', lambda: _goto_add('income'))
-                    ui.button('Transactions', icon='receipt_long').props('flat').style(
-                        'border-radius: 10px; font-weight: 500;'
-                    ).on('click', lambda: nav_to('/tx'))
-
-        # Consolidated Financial Pulse card
-        with ui.card().classes('my-card p-5'):
-            ui.label('Financial Pulse').classes('text-xs font-medium').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;')
-            with ui.element("div").classes("grid grid-cols-2 md:grid-cols-4 gap-4 w-full"):
-                for _fp_label, _fp_val, _fp_icon, _fp_accent, _fp_bg in [
-                    ("Income", income, "trending_up", "#22c55e", "rgba(34,197,94,0.12)"),
-                    ("Expenses", expense, "trending_down", "#ef4444", "rgba(239,68,68,0.12)"),
-                    ("Intl Transfer", intl, "public", "#f472b6", "rgba(244,114,182,0.12)"),
-                    ("Net", net, "insights", "#a855f7" if net >= 0 else "#ef4444", "rgba(168,85,247,0.12)"),
-                ]:
-                    with ui.column().classes('gap-1'):
-                        with ui.row().classes("items-center gap-2"):
-                            with ui.element("div").style(f"width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: {_fp_bg};"):
-                                ui.icon(_fp_icon).style(f"font-size: 16px; color: {_fp_accent};")
-                            ui.label(_fp_label).classes("text-xs font-medium").style("color: var(--mf-muted);")
-                        ui.label(currency(_fp_val)).classes("text-lg font-extrabold").style(f"color: {_fp_accent}; letter-spacing: -0.02em; font-feature-settings: 'tnum';")
+            # Tile 3: Daily Avg (Glass Tile)
+            with ui.element('div').style('width: 140px; height: 110px; border-radius: 24px; background: rgba(255,255,255,0.05); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--mf-border); backdrop-filter: blur(12px);'):
+                with ui.row().classes('justify-between items-start w-full'):
+                    with ui.element('div').style('width: 28px; height: 28px; border-radius: 10px; background: rgba(244,63,94,0.15); display: flex; align-items: center; justify-content: center;'):
+                        ui.icon('local_fire_department').style('font-size: 16px; color: #F43F5E;')
+                with ui.column().classes('gap-0'):
+                    ui.label('Daily Pacing').classes('text-xs font-semibold').style('color: var(--mf-muted);')
+                    ui.label(currency(_daily_avg)).classes('text-base font-extrabold').style('color: var(--mf-text); letter-spacing: -0.02em; font-feature-settings: "tnum";')
 
 
         #  Financial Health Score 
@@ -5823,46 +5894,51 @@ def dashboard_page():
         # _render_insights() and _render_alerts() removed in v9.0
 
         def _render_recent_tx():
-            #  Recent Transactions (Premium List) 
+            # === RADICAL PARADIGM SHIFT: The Timeline Feed ===
             try:
                 if not tx.empty and "date_parsed" in tx.columns:
-                    _recent_tx = tx.sort_values("date_parsed", ascending=False).head(8)
+                    _recent_tx = tx.sort_values("date_parsed", ascending=False).head(10)
                     if not _recent_tx.empty:
-                        with ui.card().classes("my-card w-full p-0").style("border-radius: 20px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); overflow: hidden; background: var(--mf-surface); border: 1px solid var(--mf-border);"):
-                            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #10b981, #3b82f6); width: 100%;')
-                            with ui.column().classes("p-5 gap-0 w-full"):
-                                with ui.row().classes("items-center justify-between w-full mb-4"):
-                                    with ui.row().classes("items-center gap-3"):
-                                        with ui.element("div").style("width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, rgba(59,130,246,0.2), rgba(16,185,129,0.1)); display: flex; align-items: center; justify-content: center;"):
-                                            ui.icon("receipt_long").style("font-size: 18px; color: #3b82f6;")
-                                        ui.label("Recent Activity").classes("text-lg font-extrabold").style("letter-spacing: -0.02em; color: var(--mf-text);")
-                                    ui.button("See all", on_click=lambda: nav_to("/tx")).props("flat dense").style("border-radius: 8px; font-size: 13px; font-weight: 600; text-transform: none; color: #3b82f6;")
+                        with ui.column().classes("w-full mt-4 px-2"):
+                            with ui.row().classes("items-center justify-between w-full mb-3"):
+                                ui.label("Recent Activity").classes("text-lg font-extrabold").style("letter-spacing: -0.02em; color: var(--mf-text);")
+                                ui.button("See all", on_click=lambda: nav_to("/tx")).props("flat dense").style("border-radius: 8px; font-size: 13px; font-weight: 600; text-transform: none; color: #3b82f6;")
 
-                                for _, _rtx in _recent_tx.iterrows():
-                                    _rt_type = str(_rtx.get("type", "") or "").strip().lower()
-                                    _rt_is_income = _rt_type in ("credit", "income")
-                                    _rt_color = "#4ade80" if _rt_is_income else "var(--mf-text)"
-                                    _rt_sign = "+" if _rt_is_income else ""
-                                    _rt_icon = "arrow_upward" if _rt_is_income else "storefront"
-                                    _rt_amt = float(_rtx.get("amount_num", 0) or 0)
-                                    _rt_note = str(_rtx.get("notes", "") or "")[:35] or str(_rtx.get("category", "") or "")
-                                    _rt_cat = str(_rtx.get("category", "") or "")
-                                    _rt_date = ""
-                                    try:
-                                        _rt_date = _rtx["date_parsed"].strftime("%b %d")
-                                    except Exception:
-                                        _rt_date = str(_rtx.get("date", ""))[:10]
+                            _last_date_group = None
+                            for _, _rtx in _recent_tx.iterrows():
+                                _rt_type = str(_rtx.get("type", "") or "").strip().lower()
+                                _rt_is_income = _rt_type in ("credit", "income")
+                                _rt_amt = float(_rtx.get("amount_num", 0) or 0)
+                                _rt_note = str(_rtx.get("notes", "") or "")[:35] or str(_rtx.get("category", "") or "")
+                                _rt_cat = str(_rtx.get("category", "") or "")
+                                
+                                # Date Grouping Header
+                                try:
+                                    _d_obj = _rtx["date_parsed"].date()
+                                    _days_ago = (today() - _d_obj).days
+                                    if _days_ago == 0: _d_str = "Today"
+                                    elif _days_ago == 1: _d_str = "Yesterday"
+                                    elif _days_ago < 7: _d_str = _d_obj.strftime("%A")
+                                    else: _d_str = _d_obj.strftime("%b %d")
+                                except Exception:
+                                    _d_str = str(_rtx.get("date", ""))[:10]
+                                    
+                                if _d_str != _last_date_group:
+                                    ui.label(_d_str).classes("text-xs font-bold w-full mt-3 mb-1").style("color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.05em; padding-left: 4px;")
+                                    _last_date_group = _d_str
 
-                                    with ui.element("div").style(
-                                        "display: flex; align-items: center; gap: 16px; padding: 14px 0; width: 100%;"
-                                        "border-bottom: 1px solid var(--mf-border);"
-                                    ):
-                                        # Larger, smoother icon wrapper
-                                        _icon_bg = "rgba(74,222,128,0.12)" if _rt_is_income else "rgba(255,255,255,0.06)"
-                                        _icon_color = "#4ade80" if _rt_is_income else "var(--mf-muted)"
+                                # Apple Wallet style row (mf-timeline-row)
+                                _rt_color = "#10B981" if _rt_is_income else "var(--mf-text)"
+                                _rt_sign = "+" if _rt_is_income else ""
+                                _rt_icon = "arrow_upward" if _rt_is_income else "storefront"
+                                _icon_bg = "rgba(16,185,129,0.12)" if _rt_is_income else "rgba(255,255,255,0.05)"
+                                _icon_color = "#10B981" if _rt_is_income else "var(--mf-muted)"
+
+                                with ui.element("div").classes("mf-timeline-row w-full"):
+                                    with ui.row().classes("items-center gap-3 flex-1").style("min-width: 0;"):
                                         with ui.element("div").style(
-                                            f"width: 42px; height: 42px; border-radius: 14px; display: flex; align-items: center; justify-content: center;"
-                                            f"background: {_icon_bg}; flex-shrink: 0; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);"
+                                            f"width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center;"
+                                            f"background: {_icon_bg}; flex-shrink: 0;"
                                         ):
                                             ui.icon(_rt_icon).style(f"font-size: 20px; color: {_icon_color};")
                                         
@@ -5870,11 +5946,9 @@ def dashboard_page():
                                             ui.label(_rt_note).classes("text-sm font-bold").style("white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mf-text); letter-spacing: -0.01em;")
                                             ui.label(_rt_cat).classes("text-xs font-medium").style("color: var(--mf-muted);")
                                             
-                                        with ui.column().classes('items-end gap-1'):
-                                            ui.label(f"{_rt_sign}{currency(_rt_amt)}").classes("text-sm font-extrabold").style(
-                                                f"color: {_rt_color}; font-feature-settings: 'tnum'; white-space: nowrap; letter-spacing: -0.02em;"
-                                            )
-                                            ui.label(_rt_date).classes("text-xs font-semibold").style("color: var(--mf-muted); opacity: 0.8;")
+                                    ui.label(f"{_rt_sign}{currency(_rt_amt)}").classes("text-base font-extrabold").style(
+                                        f"color: {_rt_color}; font-feature-settings: 'tnum'; white-space: nowrap; letter-spacing: -0.02em;"
+                                    )
             except Exception:
                 pass
 
@@ -5894,7 +5968,7 @@ def add_page():
         return
 
     #  8.7: Custom chip-select  completely replaces Quasar q-select 
-    def _chip_select(options, value, label=None, hint=None, scrollable=False, disabled=False, max_chips=8):
+    def _chip_select(options, value, label=None, hint=None, scrollable=False, disabled=False, max_chips=8, accent_color='#6366f1'):
         """Chip-based option picker.  For high-cardinality fields (>max_chips)
         renders a custom pure-HTML dropdown instead.
         Returns object with .value / .props() / .on() / .set_visibility()."""
@@ -6014,36 +6088,48 @@ def add_page():
             _state['value'] = opt
             if old in _chips:
                 _chips[old].classes(remove='active')
+                _chips[old].style('background: rgba(0,0,0,0.15) !important; color: var(--mf-text) !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05) !important; font-weight: 600;')
             if opt in _chips:
                 _chips[opt].classes(add='active')
+                _chips[opt].style(f'background: linear-gradient(135deg, {accent_color}, {accent_color}dd) !important; color: white !important; box-shadow: 0 4px 12px {accent_color}40; border: none !important; font-weight: 700;')
             for cb in _cbs:
                 try:
                     cb(opt)
                 except Exception:
                     pass
 
-        _container = ui.column().classes('w-full gap-1')
+        _container = ui.column().classes('w-full gap-2')
         with _container:
             if label:
-                ui.label(label).classes('text-xs font-medium').style(
-                    'color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;'
-                )
+                with ui.row().classes('items-center gap-2 mb-1'):
+                    ui.label(label).classes('text-xs font-bold').style(
+                        'color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.9;'
+                    )
             _row_cls = 'mf-chip-row' + (' mf-chip-scroll' if scrollable else '')
-            with ui.element('div').classes(_row_cls):
+            with ui.element('div').classes(_row_cls).style('gap: 10px; padding-bottom: 4px;'):
                 for opt in options:
                     _cls = 'mf-chip'
                     if opt == value:
                         _cls += ' active'
                     if disabled:
                         _cls += ' disabled'
+                    
+                    # Premium chip styling base overrides
                     chip = ui.element('div').classes(_cls)
                     if not disabled:
                         chip.on('click', lambda _, o=opt: _pick(o))
+                        if opt == value:
+                            # Active Premium State
+                            chip.style(f'background: linear-gradient(135deg, {accent_color}, {accent_color}dd) !important; color: white !important; box-shadow: 0 4px 12px {accent_color}40; border: none !important; font-weight: 700;')
+                        else:
+                            # Inactive Premium State
+                            chip.style('background: rgba(0,0,0,0.15) !important; color: var(--mf-text) !important; border: 1px solid rgba(255,255,255,0.05) !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); font-weight: 600;')
+                    
                     with chip:
                         ui.label(str(opt)).style('pointer-events: none;')
                     _chips[opt] = chip
             if hint:
-                ui.label(hint).classes('text-xs').style('color: var(--mf-muted); opacity: 0.6;')
+                ui.label(hint).classes('text-[11px] font-medium').style('color: var(--mf-muted); opacity: 0.5;')
 
         class _Sel:
             @property
@@ -6112,33 +6198,43 @@ def add_page():
         _accent, _dicon, _dlabel = _dlg_accents.get(entry_type.lower(), ('#6366f1', 'add_circle', entry_type))
 
         dlg = ui.dialog()
-        with dlg, ui.card().classes("my-card mf-add-dialog w-[580px] max-w-[95vw]").style("max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"):
+        with dlg, ui.card().classes("my-card mf-add-dialog w-[580px] max-w-[95vw]").style("max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 32px; box-shadow: 0 40px 80px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.05); background: linear-gradient(180deg, var(--mf-surface-1), var(--mf-surface-2));"):
             # Premium dialog header  accent strip + header area with background
-            ui.element('div').style(f'height: 4px; background: linear-gradient(90deg, {_accent}, {_accent}66); border-radius: 24px 24px 0 0;')
+            ui.element('div').style(f'height: 6px; background: linear-gradient(90deg, {_accent}, {_accent}88); border-radius: 32px 32px 0 0;')
             with ui.element('div').style(
-                f'padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'
-                f'background: linear-gradient(180deg, {_accent}0A, transparent);'
+                f'padding: 24px 24px 16px 24px; width: 100%; box-sizing: border-box;'
+                f'background: linear-gradient(180deg, {_accent}1A, transparent);'
+                f'border-bottom: 1px solid rgba(255,255,255,0.03);'
             ):
-                with ui.row().classes('items-center gap-3').style('width: 100%;'):
+                with ui.row().classes('items-center gap-4').style('width: 100%;'):
                     with ui.element('div').style(
-                        f'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
-                        f'background: {_accent}18; border: 1px solid {_accent}22;'
+                        f'width: 48px; height: 48px; border-radius: 16px; display: flex; align-items: center; justify-content: center;'
+                        f'background: linear-gradient(135deg, {_accent}33, {_accent}11); border: 1px solid {_accent}44; box-shadow: 0 8px 16px {_accent}1A;'
                     ):
-                        ui.icon(_dicon).style(f'font-size: 18px; color: {_accent};')
-                    with ui.column().classes('gap-0'):
-                        ui.label(f"Add {_dlabel}").classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
-                        ui.label('Fill in the details below').classes('text-xs').style('color: var(--mf-muted);')
+                        ui.icon(_dicon).style(f'font-size: 24px; color: {_accent};')
+                    with ui.column().classes('gap-1'):
+                        ui.label(f"Add {_dlabel}").classes('text-2xl font-black').style('letter-spacing: -0.03em; color: var(--mf-text);')
+                        ui.label('Fill in the details below').classes('text-sm font-medium').style('color: var(--mf-muted);')
                     ui.element('div').style('flex: 1;')
-                    ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.7;')
+                    ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.5; background: rgba(128,128,128,0.1); border-radius: 50%; padding: 4px; transition: opacity 0.2s;')
 
             #  Section 1: Date & Amount 
-            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
-                with ui.row().classes('items-center gap-2 mt-1 mb-2'):
-                    ui.icon('event').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
-                    ui.label('Date & Amount').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
-                with ui.row().classes('w-full gap-3'):
-                    d_date = ui.input(value=today().isoformat()).props("type=date autofocus outlined dense").classes("flex-1 mf-no-label")
-                    d_amount = ui.number(value=0).props("outlined dense").classes("flex-1 mf-no-label")
+            with ui.element('div').style('padding: 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-2 mb-4'):
+                    ui.icon('event').style(f'font-size: 16px; color: {_accent}; opacity: 0.9;')
+                    ui.label('Date & Amount').classes('text-xs font-black').style('text-transform: uppercase; letter-spacing: 0.1em; color: var(--mf-muted); opacity: 0.8;')
+                
+                with ui.row().classes('w-full gap-4'):
+                    # Neumorphic Date Input
+                    with ui.element('div').classes('flex-1 position-relative'):
+                        d_date = ui.input(value=today().isoformat()).props("type=date dense borderless").classes("w-full mf-premium-input")
+                        d_date.style('background: rgba(0,0,0,0.2) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px; padding: 4px 12px; font-weight: 600; font-size: 15px; color: var(--mf-text); box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); transition: all 0.2s ease;')
+
+                    # Neumorphic Amount Input (Giant font for emphasis)
+                    with ui.element('div').classes('flex-1 position-relative'):
+                        d_amount = ui.number(value=0).props("dense borderless").classes("w-full mf-premium-input")
+                        d_amount.style('background: rgba(0,0,0,0.2) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px; padding: 4px 12px; font-weight: 800; font-size: 18px; color: var(--mf-text); font-feature-settings: "tnum"; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); transition: all 0.2s ease;')
+
 
             _et = entry_type.lower().strip()
             is_debit = _et in ('debit', 'expense')
@@ -6235,11 +6331,11 @@ def add_page():
                 accounts = [account_default] + [a for a in (accounts or []) if a != account_default]
 
             #  Section 2: Payment 
-            ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
-            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
-                with ui.row().classes('items-center gap-2 mt-3 mb-2'):
-                    ui.icon('account_balance_wallet').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
-                    ui.label('Payment').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
+            ui.element('div').style('height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); margin: 0 24px;')
+            with ui.element('div').style('padding: 16px 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-2 mb-3'):
+                    ui.icon('account_balance_wallet').style(f'font-size: 16px; color: {_accent}; opacity: 0.9;')
+                    ui.label('Payment').classes('text-xs font-black').style('text-transform: uppercase; letter-spacing: 0.1em; color: var(--mf-muted); opacity: 0.8;')
 
                 # 8.7: Chip-based selects  no Quasar q-select
                 if hide_method:
@@ -6249,6 +6345,7 @@ def add_page():
                         methods or ["Bank"], value=(method_default if method_default in (methods or []) else (methods or ["Bank"])[0]),
                         label="Payment Method",
                         hint="Select payment method" if is_debit else None,
+                        accent_color=_accent
                     )
 
                 d_account = _chip_select(
@@ -6256,31 +6353,38 @@ def add_page():
                     label="Account",
                     hint="Choose your account" if is_debit else None,
                     disabled=disable_account,
+                    accent_color=_accent
                 )
 
                 if hide_method and fixed_method:
-                    ui.label(f"Method: {fixed_method}").classes("text-xs").style("color: var(--mf-muted); margin-top:-6px;")
+                    ui.label(f"Method: {fixed_method}").classes("text-[11px] font-bold").style("color: var(--mf-muted); opacity: 0.5; margin-top: -4px;")
 
             #  Section 3: Category & Notes 
             # 8.2.2: hide_category=True for CC Repay (not an expense, no category needed)
             if not hide_category:
-                ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
-            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                ui.element('div').style('height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); margin: 0 24px;')
+            with ui.element('div').style('padding: 16px 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
                 if not hide_category:
-                    with ui.row().classes('items-center gap-2 mt-3 mb-2'):
-                        ui.icon('category').style(f'font-size: 15px; color: {_accent}; opacity: 0.7;')
-                        ui.label('Category & Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
+                    with ui.row().classes('items-center gap-2 mb-3'):
+                        ui.icon('category').style(f'font-size: 16px; color: {_accent}; opacity: 0.9;')
+                        ui.label('Category & Details').classes('text-xs font-black').style('text-transform: uppercase; letter-spacing: 0.1em; color: var(--mf-muted); opacity: 0.8;')
 
                 d_category = _chip_select(
                     categories or ["Uncategorized"],
                     value=(fixed_category or "Uncategorized"),
                     label="Category",
                     hint="Pick a spending category" if is_debit else None,
+                    accent_color=_accent
                 )
                 if hide_category:
                     d_category.set_visibility(False)
-                d_notes = ui.textarea("Notes / Merchant", value="").props("outlined dense rows=2").classes("w-full")
-                d_rec = ui.checkbox("Mark as recurring (template for future cycles)")
+                
+                with ui.element('div').classes('mt-4 position-relative'):
+                    d_notes = ui.textarea("Notes / Merchant", value="").props("dense borderless rows=2 autogrow").classes("w-full mf-premium-input")
+                    d_notes.style('background: rgba(0,0,0,0.2) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px; padding: 12px 16px; font-weight: 500; font-size: 14px; color: var(--mf-text); box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); transition: all 0.2s ease;')
+                
+                with ui.element('div').style('margin-top: 16px; padding: 12px 16px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px solid rgba(255,255,255,0.03); display: flex; align-items: center; gap: 12px;'):
+                    d_rec = ui.checkbox("Mark as recurring template").style('font-weight: 600; font-size: 13px; color: var(--mf-muted);')
                 if hide_category:
                     d_rec.set_visibility(False)
 
@@ -7216,16 +7320,17 @@ def add_page():
 
 
             # Sticky footer so Save/Cancel never get pushed off-screen on mobile
-            with ui.row().classes("w-full justify-end gap-3 sticky bottom-0").style(
-                "padding: 14px 24px 12px 24px;"
-                "background: var(--mf-card-top); border-top: 1px solid var(--mf-border);"
-                "border-radius: 0 0 24px 24px;"
+            with ui.row().classes("w-full justify-end gap-3 sticky bottom-0 z-50").style(
+                "padding: 16px 24px 20px 24px;"
+                "background: rgba(15, 15, 20, 0.85); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);"
+                "border-top: 1px solid rgba(255,255,255,0.05);"
+                "border-radius: 0 0 32px 32px;"
             ):
-                ui.button("Cancel", on_click=dlg.close).props("flat").style("border-radius: 10px;")
+                ui.button("Cancel", on_click=dlg.close).props("flat").style("border-radius: 12px; font-weight: 600; color: var(--mf-text); opacity: 0.8;")
                 ui.button("Save", on_click=save, icon="check").props("unelevated").style(
-                    f"background: linear-gradient(135deg, {_accent}, {_accent}cc) !important; color: #fff !important;"
-                    "font-weight: 700; border-radius: 12px; padding: 8px 32px;"
-                    "box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
+                    f"background: linear-gradient(135deg, {_accent}, {_accent}dd) !important; color: #fff !important;"
+                    "font-weight: 800; border-radius: 14px; padding: 10px 36px; font-size: 15px;"
+                    f"box-shadow: 0 8px 24px {_accent}40; border: 1px solid rgba(255,255,255,0.1);"
                 )
 
         ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
@@ -8562,65 +8667,94 @@ def cards_page() -> None:
             issuer = ' mf-issuer-ct' if _is_ct(c) else (' mf-issuer-loc' if _is_loc(c) else (' mf-issuer-rbc' if _is_rbc(c) else ''))
             # card visual variant (CT black/grey, RBC)
             nlow = c['name'].lower()
-            variant = ''
+            
+            # Master Gradients for Premium Graphical Cards
             if _is_ct(c):
-                variant = ' mf-ct-black' if ('black' in nlow) else (' mf-ct-grey' if ('grey' in nlow or 'gray' in nlow) else '')
+                if 'black' in nlow:
+                    grad = 'linear-gradient(135deg, #1f2937, #030712)' # Deep Black
+                    text_color = '#ffffff'
+                    accent = '#ef4444' # CT Red
+                else: # CT Triangle or Grey
+                    grad = 'linear-gradient(135deg, #9ca3af, #4b5563)' # Metallic Grey
+                    text_color = '#ffffff'
+                    accent = '#ef4444'
             elif _is_rbc(c):
-                variant = ' mf-rbc-blue'
+                grad = 'linear-gradient(135deg, #2563eb, #1e3a8a)' # RBC Blue
+                text_color = '#ffffff'
+                accent = '#facc15' # RBC Gold/Yellow
+            elif _is_loc(c):
+                grad = 'linear-gradient(135deg, #0d9488, #115e59)' # Teal
+                text_color = '#ffffff'
+                accent = '#f8fafc'
+            else:
+                grad = 'linear-gradient(135deg, #4f46e5, #312e81)' # Default Indigo
+                text_color = '#ffffff'
+                accent = '#c7d2fe'
 
             # Utilization color
             pct_val = float(c.get('pct', 0.0))
-            util_class = 'mf-util-green' if pct_val < 0.50 else ('mf-util-yellow' if pct_val < 0.80 else 'mf-util-red')
+            util_grad = 'linear-gradient(90deg, #10b981, #059669)' if pct_val < 0.50 else ('linear-gradient(90deg, #f59e0b, #d97706)' if pct_val < 0.80 else 'linear-gradient(90deg, #ef4444, #b91c1c)')
             pct_display = f"{int(round(pct_val * 100))}%"
 
-            with ui.element('div').classes(col):
-                with ui.card().classes('my-card mf-card-widget p-0' + extra + issuer + variant).style('overflow: hidden;'):
-                    # Top accent strip based on issuer
-                    _strip_color = '#ef4444' if _is_ct(c) else ('#3b82f6' if _is_rbc(c) else ('#94a3b8' if _is_loc(c) else 'var(--mf-accent)'))
-                    ui.element('div').style(f'height: 3px; background: {_strip_color}; opacity: 0.6;')
+            with ui.element('div').classes(col).style('padding: 8px;'):
+                # The Physical Card Visual
+                with ui.element('div').style(
+                    f'background: {grad};'
+                    'border-radius: 20px;'
+                    'padding: 24px;'
+                    'position: relative;'
+                    'overflow: hidden;'
+                    'box-shadow: 0 20px 40px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.2);'
+                    'min-height: 220px;'
+                    'display: flex;'
+                    'flex-direction: column;'
+                    'justify-content: space-between;'
+                    f'color: {text_color};'
+                ):
+                    # Glassmorphic overlay shapes for shine
+                    ui.html('''
+                        <div style="position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(to bottom right, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 40%, rgba(255,255,255,0) 100%); transform: rotate(30deg); pointer-events: none;"></div>
+                        <div style="position: absolute; top: 0; right: 0; width: 120px; height: 120px; background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
+                    ''')
 
-                    with ui.column().classes('p-5 gap-3'):
-                        with ui.row().classes('items-center justify-between'):
+                    # Top section: Issuer and EMV Chip
+                    with ui.row().classes('w-full justify-between items-start position-relative z-10'):
+                        with ui.column().classes('gap-1'):
                             with ui.row().classes('items-center gap-2'):
-                                ui.label(c['emoji']).classes('text-xl')
-                                ui.label(c['name']).classes('text-base font-bold').style('color: var(--mf-text);')
+                                ui.label(c['emoji']).classes('text-lg')
+                                ui.label(c['name']).classes('text-sm font-black tracking-wider uppercase').style('letter-spacing: 0.1em; opacity: 0.9;')
                             if c.get('method'):
-                                with ui.element('span').classes('mf-tag'):
-                                    ui.label(c['method']).classes('text-xs')
+                                ui.label(c['method']).classes('text-xs font-semibold').style('opacity: 0.6; letter-spacing: 0.05em;')
+                        
+                        # EMV Chip SVG
+                        ui.html(f'''
+                            <svg width="40" height="32" viewBox="0 0 40 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity: 0.8; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));">
+                                <rect width="40" height="32" rx="6" fill="#fbbf24"/>
+                                <path d="M0 10H12V22H0V10Z" fill="#f59e0b"/>
+                                <path d="M28 10H40V22H28V10Z" fill="#f59e0b"/>
+                                <path d="M14 0H26V10H14V0Z" fill="#f59e0b"/>
+                                <path d="M14 22H26V32H14V22Z" fill="#f59e0b"/>
+                                <path d="M12 10H28V22H12V10Z" stroke="#d97706" stroke-width="1"/>
+                            </svg>
+                        ''')
 
-                        # Stats grid
-                        with ui.element('div').style('display: grid; grid-template-columns: 1fr 1fr; gap: 12px;'):
+                    # Bottom section: Balances and Utilization
+                    with ui.column().classes('w-full gap-4 position-relative z-10 mt-6'):
+                        with ui.row().classes('w-full justify-between items-end'):
                             with ui.column().classes('gap-0'):
-                                ui.label('Limit').classes('mf-stat-label')
-                                ui.label(currency(c['limit']) if c.get('limit') else '').classes('text-sm font-bold').style('font-feature-settings: "tnum";')
-                            with ui.column().classes('gap-0'):
-                                ui.label('Billing Day').classes('mf-stat-label')
-                                ui.label(str(c.get('billing_day') or '')).classes('text-sm font-bold')
+                                ui.label('Balance').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
+                                ui.label(currency(c.get('balance', 0.0))).classes('text-2xl font-black').style('letter-spacing: -0.02em; font-feature-settings: "tnum"; text-shadow: 0 2px 8px rgba(0,0,0,0.3);')
+                            with ui.column().classes('gap-0 items-end'):
+                                ui.label('Available').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
+                                ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '---').classes('text-base font-bold').style(f'color: {accent}; font-feature-settings: "tnum"; text-shadow: 0 1px 4px rgba(0,0,0,0.4);')
 
-                        # Utilization section
-                        with ui.column().classes('gap-2'):
-                            with ui.row().classes('w-full items-center justify-between'):
-                                ui.label('Utilization').classes('mf-stat-label')
-                                ui.label(pct_display).classes('text-xs font-bold').style(f'color: {"#22c55e" if pct_val < 0.50 else ("#eab308" if pct_val < 0.80 else "#ef4444")};')
-                            with ui.element('div').classes('w-full mf-util-bar'):
-                                ui.element('div').classes(util_class).style(f"width: {pct_val*100:.1f}%;")
-
-                        with ui.element('div').style('display: grid; grid-template-columns: 1fr 1fr; gap: 12px;'):
-                            with ui.column().classes('gap-0'):
-                                ui.label('Balance').classes('mf-stat-label')
-                                ui.label(currency(c.get('balance', 0.0))).classes('text-sm font-bold').style('font-feature-settings: "tnum";')
-                            with ui.column().classes('gap-0'):
-                                ui.label('Available').classes('mf-stat-label')
-                                ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '').classes('text-sm font-bold').style('color: var(--mf-good); font-feature-settings: "tnum";')
-
-                    # Status badge (premium, no chart)
-                    _status_color = '#22c55e' if pct_val < 0.30 else ('#3b82f6' if pct_val < 0.50 else ('#eab308' if pct_val < 0.80 else '#ef4444'))
-                    _status_text = 'Excellent' if pct_val < 0.30 else ('Good' if pct_val < 0.50 else ('Watch' if pct_val < 0.80 else 'High'))
-                    with ui.row().classes('items-center gap-2 mt-1').style(
-                        f'background: {_status_color}12; border-radius: 8px; padding: 6px 12px;'
-                    ):
-                        ui.icon('circle').style(f'font-size: 8px; color: {_status_color};')
-                        ui.label(_status_text).classes('text-xs font-semibold').style(f'color: {_status_color};')
+                        # Custom Utilization Bar (integrated into the card)
+                        with ui.column().classes('w-full gap-1'):
+                            with ui.row().classes('w-full justify-between items-center'):
+                                ui.label(f"Limit: {currency(c['limit']) if c.get('limit') else '---'}").classes('text-xs font-medium').style('opacity: 0.8; font-feature-settings: "tnum";')
+                                ui.label(pct_display).classes('text-xs font-extrabold').style(f'color: {accent}; text-shadow: 0 1px 2px rgba(0,0,0,0.5);')
+                            with ui.element('div').style('width: 100%; height: 6px; border-radius: 3px; background: rgba(0,0,0,0.3); box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); overflow: hidden;'):
+                                ui.element('div').style(f"width: {pct_val*100:.1f}%; height: 100%; border-radius: 3px; background: {util_grad}; box-shadow: 0 0 8px rgba(255,255,255,0.2);")
 
         def _two_row(items):
             # Responsive grid (prevents large empty right space on wide desktops)
