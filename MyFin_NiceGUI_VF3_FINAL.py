@@ -5420,13 +5420,12 @@ def dashboard_page():
                 spend["category"] = "Uncategorized"
             spend["category"] = spend["category"].astype(str).replace("", "Uncategorized")
 
-        # --- Phase 4.6A: Hero summary (reduces tile clutter, feels like a bank app) ---
+        # --- Phase 4.6A Redesign: Premium Commercial App Hero ---
         try:
             days_to_next = (next_pay - start_d).days if next_pay else None
         except Exception:
             days_to_next = None
 
-        # Time-based greeting
         _hour = datetime.datetime.now().hour
         if _hour < 12: _greeting = 'Good morning'
         elif _hour < 17: _greeting = 'Good afternoon'
@@ -5435,67 +5434,101 @@ def dashboard_page():
         # Daily average spending this month
         _daily_avg = round(expense / max(today().day, 1), 2) if expense > 0 else 0.0
 
-        # Premium Hero Card
-        with ui.card().classes('my-card p-0 mf-budget').style('overflow: hidden;'):
-            # Accent strip at top
-            ui.element('div').classes('mf-accent-strip').style('height: 3px;')
-            with ui.column().classes('p-6 gap-4'):
-                ui.label(f'{_greeting}').classes('text-sm font-medium').style('color: var(--mf-muted); margin-bottom: 4px;')
-                with ui.row().classes('w-full items-start justify-between'):
+        # Premium Hero Card (Glassmorphism & Gradients)
+        with ui.card().classes('my-card p-0 mf-budget w-full').style('border-radius: 24px; box-shadow: 0 10px 40px -10px rgba(0,0,0,0.3); overflow: hidden; background: linear-gradient(145deg, var(--mf-surface), var(--mf-bg)); border: 1px solid var(--mf-border);'):
+            # Beautiful Header Accent
+            ui.element('div').style('height: 6px; background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899); width: 100%;')
+            
+            with ui.column().classes('w-full').style('padding: 28px 24px 24px 24px; gap: 20px;'):
+                with ui.row().classes('w-full items-center justify-between'):
+                    # Greeting and Date
                     with ui.column().classes('gap-1'):
-                        ui.label('Pay Period Net').classes('mf-stat-label')
-                        _net_color = 'var(--mf-good)' if net_pp >= 0 else 'var(--mf-bad)'
-                        ui.label(currency(net_pp)).classes('mf-stat-value').style(f'color: {_net_color};')
-                        with ui.row().classes('items-center gap-2 mt-1'):
-                            ui.icon('date_range').style('font-size: 14px; color: var(--mf-muted);')
-                            ui.label(f"{pp_start.strftime('%b %d')}  {pp_end.strftime('%b %d')}").classes('text-xs').style('color: var(--mf-muted)')
-                        with ui.row().classes('items-center gap-2 mt-1'):
-                            ui.icon('local_fire_department').style('font-size: 14px; color: #ef4444;')
-                            ui.label(f"Daily avg: {currency(_daily_avg)}").classes('text-xs').style('color: var(--mf-muted)')
+                        ui.label(f'{_greeting}').classes('text-sm font-semibold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.1em;')
+                        ui.label(f"{today().strftime('%A, %B %d')}").classes('text-2xl font-extrabold').style('letter-spacing: -0.02em; color: var(--mf-text);')
+                    
+                    # Next Payday Badge
                     if next_pay:
                         with ui.column().classes('items-end gap-1'):
-                            ui.label('Next Payday').classes('mf-stat-label')
-                            if _pay_owner:
-                                ui.label(_pay_owner).classes('text-xs font-semibold').style(f'color: var(--mf-accent); margin-top: -2px;')
-                            ui.label(next_pay.strftime('%b %d')).classes('text-2xl font-extrabold').style('letter-spacing: -0.02em;')
+                            ui.label('Next Payday').classes('text-xs font-bold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.08em;')
                             if days_to_next is not None:
-                                _badge_bg = 'rgba(34,197,94,0.14)' if days_to_next <= 7 else 'rgba(255,255,255,0.06)'
-                                _badge_color = '#22c55e' if days_to_next <= 7 else 'var(--mf-text)'
-                                with ui.element('span').classes('mf-tag').style(f'background: {_badge_bg}; color: {_badge_color};'):
-                                    ui.label(f"{days_to_next}d away").classes('text-xs font-semibold')
+                                _badge_bg = 'linear-gradient(135deg, rgba(34,197,94,0.2), rgba(34,197,94,0.05))' if days_to_next <= 7 else 'rgba(255,255,255,0.08)'
+                                _badge_color = '#4ade80' if days_to_next <= 7 else 'var(--mf-text)'
+                                _badge_border = 'rgba(34,197,94,0.3)' if days_to_next <= 7 else 'var(--mf-border)'
+                                with ui.element('div').style(f'background: {_badge_bg}; border: 1px solid {_badge_border}; border-radius: 99px; padding: 4px 12px; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);'):
+                                    ui.icon('payments').style(f'font-size: 14px; color: {_badge_color};')
+                                    ui.label(f"in {days_to_next}d").classes('text-xs font-extrabold').style(f'color: {_badge_color}; margin-top: 1px;')
+                                    if _pay_owner:
+                                        ui.label(f"({_pay_owner[:1]})").classes('text-xs font-bold').style(f'color: {_badge_color}; opacity: 0.7; margin-left: -2px;')
 
-                ui.separator().classes('opacity-10')
+                # Massive Net Balance Display
+                with ui.column().classes('w-full gap-0 mt-2'):
+                    ui.label('Pay Period Net').classes('text-sm font-semibold').style('color: var(--mf-muted); margin-bottom: 4px;')
+                    _net_color = '#4ade80' if net_pp >= 0 else '#f87171'
+                    with ui.row().classes('items-baseline gap-2'):
+                        ui.label(currency(net_pp)).classes('font-extrabold').style(f'font-size: 42px; line-height: 1; color: {_net_color}; letter-spacing: -0.04em; filter: drop-shadow(0 4px 12px {_net_color}33); font-feature-settings: "tnum";')
+                    
+                    with ui.row().classes('items-center gap-4 mt-3'):
+                        with ui.row().classes('items-center gap-1.5'):
+                            with ui.element('div').style('width: 20px; height: 20px; border-radius: 6px; background: rgba(59,130,246,0.15); display: flex; align-items: center; justify-content: center;'):
+                                ui.icon('date_range').style('font-size: 12px; color: #60a5fa;')
+                            ui.label(f"{pp_start.strftime('%b %d')}  {pp_end.strftime('%b %d')}").classes('text-xs font-medium').style('color: var(--mf-muted)')
+                        with ui.row().classes('items-center gap-1.5'):
+                            with ui.element('div').style('width: 20px; height: 20px; border-radius: 6px; background: rgba(239,68,68,0.15); display: flex; align-items: center; justify-content: center;'):
+                                ui.icon('local_fire_department').style('font-size: 12px; color: #f87171;')
+                            ui.label(f"{currency(_daily_avg)} / day").classes('text-xs font-medium').style('color: var(--mf-muted)')
 
-                with ui.row().classes('gap-2 flex-wrap'):
+                # Premium Floating Action Buttons
+                with ui.row().classes('w-full gap-3 mt-4').style('flex-wrap: nowrap;'):
                     def _goto_add(mode):
                         app.storage.user['add_auto_open'] = mode
                         nav_to('/add')
-                    ui.button('Add expense', icon='remove_circle_outline').props('unelevated').style(
-                        'background: var(--mf-accent) !important; color: #fff !important; border-radius: 10px; font-weight: 600; padding: 6px 16px;'
-                    ).on('click', lambda: _goto_add('expense'))
-                    ui.button('Add income', icon='add_circle_outline').props('outline').style(
-                        'border-radius: 10px; font-weight: 600; padding: 6px 16px;'
-                    ).on('click', lambda: _goto_add('income'))
-                    ui.button('Transactions', icon='receipt_long').props('flat').style(
-                        'border-radius: 10px; font-weight: 500;'
-                    ).on('click', lambda: nav_to('/tx'))
+                        
+                    # primary action: Expense
+                    with ui.button(on_click=lambda: _goto_add('expense')).style(
+                        'flex: 2; height: 48px; border-radius: 16px; background: linear-gradient(135deg, #ef4444, #dc2626); '
+                        'color: white; font-weight: 700; font-size: 15px; box-shadow: 0 8px 20px -6px rgba(239,68,68,0.5); '
+                        'text-transform: none; display: flex; justify-content: center; align-items: center;'
+                    ):
+                        with ui.row().classes('items-center gap-2'):
+                            ui.icon('remove_circle_outline').style('font-size: 20px;')
+                            ui.label('Expense').classes('font-bold')
+                            
+                    # secondary action: Income
+                    with ui.button(on_click=lambda: _goto_add('income')).style(
+                        'flex: 1.5; height: 48px; border-radius: 16px; background: rgba(34,197,94,0.15); '
+                        'border: 1px solid rgba(34,197,94,0.3); color: #4ade80; font-weight: 700; font-size: 15px; '
+                        'text-transform: none; display: flex; justify-content: center; align-items: center;'
+                    ):
+                        with ui.row().classes('items-center gap-2'):
+                            ui.icon('add_circle_outline').style('font-size: 20px;')
+                            ui.label('Income').classes('font-bold')
+                            
+                    # tertiary action: Scan
+                    with ui.button(on_click=lambda: _goto_add('debit')).style(
+                        'flex: 1; height: 48px; border-radius: 16px; background: var(--mf-surface-2); '
+                        'border: 1px solid var(--mf-border); color: var(--mf-text); font-weight: 700; font-size: 15px; '
+                        'text-transform: none; display: flex; justify-content: center; align-items: center;'
+                    ):
+                        ui.icon('document_scanner').style('font-size: 20px; color: #a855f7;')
 
-        # Consolidated Financial Pulse card
-        with ui.card().classes('my-card p-5'):
-            ui.label('Financial Pulse').classes('text-xs font-medium').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;')
-            with ui.element("div").classes("grid grid-cols-2 md:grid-cols-4 gap-4 w-full"):
-                for _fp_label, _fp_val, _fp_icon, _fp_accent, _fp_bg in [
-                    ("Income", income, "trending_up", "#22c55e", "rgba(34,197,94,0.12)"),
-                    ("Expenses", expense, "trending_down", "#ef4444", "rgba(239,68,68,0.12)"),
-                    ("Intl Transfer", intl, "public", "#f472b6", "rgba(244,114,182,0.12)"),
-                    ("Net", net, "insights", "#a855f7" if net >= 0 else "#ef4444", "rgba(168,85,247,0.12)"),
-                ]:
-                    with ui.column().classes('gap-1'):
-                        with ui.row().classes("items-center gap-2"):
-                            with ui.element("div").style(f"width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: {_fp_bg};"):
-                                ui.icon(_fp_icon).style(f"font-size: 16px; color: {_fp_accent};")
-                            ui.label(_fp_label).classes("text-xs font-medium").style("color: var(--mf-muted);")
-                        ui.label(currency(_fp_val)).classes("text-lg font-extrabold").style(f"color: {_fp_accent}; letter-spacing: -0.02em; font-feature-settings: 'tnum';")
+        # Highly Styled Financial Pulse Grid
+        ui.label('Financial Pulse').classes('text-sm font-bold mt-2 mb-1').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.1em; padding-left: 4px;')
+        with ui.element("div").classes("grid grid-cols-2 gap-3 w-full mb-2"):
+            for _fp_label, _fp_val, _fp_icon, _fp_accent, _fp_bg in [
+                ("Income", income, "trending_up", "#4ade80", "rgba(74,222,128,0.1)"),
+                ("Expenses", expense, "trending_down", "#f87171", "rgba(248,113,113,0.1)"),
+                ("Intl Transfer", intl, "public", "#f472b6", "rgba(244,114,182,0.1)"),
+                ("Net", net, "insights", "#a855f7" if net >= 0 else "#f87171", "rgba(168,85,247,0.1)"),
+            ]:
+                with ui.card().classes('my-card p-4').style(f'border-radius: 20px; background: var(--mf-surface); border: 1px solid var(--mf-border); box-shadow: 0 4px 16px rgba(0,0,0,0.15); transition: transform 0.2s; cursor: pointer;'):
+                    with ui.column().classes('gap-2 w-full'):
+                        with ui.row().classes("w-full items-center justify-between"):
+                            with ui.element("div").style(f"width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: {_fp_bg}; border: 1px solid {_fp_accent}33;"):
+                                ui.icon(_fp_icon).style(f"font-size: 18px; color: {_fp_accent};")
+                        
+                        with ui.column().classes('gap-0 mt-1'):
+                            ui.label(_fp_label).classes("text-xs font-semibold").style("color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.05em;")
+                            ui.label(currency(_fp_val)).classes("font-extrabold").style(f"font-size: 18px; color: {_fp_accent}; letter-spacing: -0.02em; font-feature-settings: 'tnum';")
 
 
         #  Financial Health Score 
@@ -5744,74 +5777,80 @@ def dashboard_page():
                         _overall_pct = min(1.0, _total_spent / _total_budgeted) if _total_budgeted > 0 else 0.0
                         _remaining = max(0, _total_budgeted - _total_spent)
 
-                        with ui.card().classes("my-card p-0 w-full").style("overflow: hidden; width: 100%; box-sizing: border-box;"):
+                        with ui.card().classes("my-card w-full").style("border-radius: 20px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); overflow: hidden; width: 100%; box-sizing: border-box; background: var(--mf-surface); border: 1px solid var(--mf-border);"):
                             # Accent strip
-                            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0; width: 100%;')
-                            with ui.column().classes("p-5 gap-0 w-full items-stretch").style("align-items: stretch; width: 100%;"):
+                            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #6366f1, #a855f7); width: 100%;')
+                            with ui.column().classes("w-full items-stretch").style("padding: 24px 20px 20px 20px; align-items: stretch; width: 100%;"):
                                 # Header
-                                with ui.row().classes("items-center gap-3 mb-4"):
-                                    with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
-                                        ui.icon("account_balance_wallet").style("font-size: 20px; color: #6366f1;")
-                                    with ui.column().classes("gap-0 flex-1"):
-                                        ui.label("Budgets").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
-                                        ui.label("This month's spending vs limits").classes("text-xs").style("color: var(--mf-muted);")
-
-                                # Overall summary row
-                                _ovr_color = '#ef4444' if _overall_pct >= 1.0 else ('#f59e0b' if _overall_pct >= 0.8 else '#22c55e')
-                                with ui.element("div").style(
-                                    "padding: 14px 16px; border-radius: 14px; margin-bottom: 16px; width: 100%; box-sizing: border-box;"
-                                    "background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.10);"
-                                ):
-                                    with ui.row().classes("items-center justify-between w-full"):
+                                with ui.row().classes("items-center justify-between w-full mb-5"):
+                                    with ui.row().classes('items-center gap-3'):
+                                        with ui.element("div").style("width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.1)); display: flex; align-items: center; justify-content: center; box-shadow: inset 0 2px 4px rgba(255,255,255,0.05);"):
+                                            ui.icon("donut_large").style("font-size: 20px; color: #818cf8;")
                                         with ui.column().classes("gap-0"):
-                                            ui.label("Overall").classes("text-xs font-semibold").style("color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;")
-                                            ui.label(f"{currency(_total_spent)} / {currency(_total_budgeted)}").classes("text-base font-extrabold").style("font-feature-settings: 'tnum'; letter-spacing: -0.02em;")
-                                        with ui.element("span").style(
-                                            f"background: {_ovr_color}18; color: {_ovr_color}; font-weight: 800; font-size: 14px;"
-                                            f"padding: 4px 12px; border-radius: 20px; font-feature-settings: 'tnum';"
+                                            ui.label("Budgets").classes("text-lg font-extrabold").style("letter-spacing: -0.02em; color: var(--mf-text);")
+                                            ui.label("Monthly spending vs limits").classes("text-xs font-medium").style("color: var(--mf-muted);")
+                                    ui.button(icon='chevron_right').props('flat dense').style('color: var(--mf-muted);')
+
+                                # Overall summary row (sleek pill shape)
+                                _ovr_color = '#ef4444' if _overall_pct >= 1.0 else ('#f59e0b' if _overall_pct >= 0.8 else '#22c55e')
+                                _ovr_bg = 'rgba(239,68,68,0.1)' if _overall_pct >= 1.0 else ('rgba(245,158,11,0.1)' if _overall_pct >= 0.8 else 'rgba(34,197,94,0.1)')
+                                
+                                with ui.element("div").style(
+                                    f"padding: 16px 20px; border-radius: 16px; margin-bottom: 20px; width: 100%; box-sizing: border-box;"
+                                    f"background: {_ovr_bg}; border: 1px solid {_ovr_color}22;"
+                                ):
+                                    with ui.row().classes("items-center justify-between w-full mb-3"):
+                                        with ui.column().classes("gap-0"):
+                                            ui.label("Total Monthly Budget").classes("text-xs font-bold").style("color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.1em;")
+                                            with ui.row().classes('items-baseline gap-2 mt-1'):
+                                                ui.label(f"{currency(_total_spent)}").classes("text-2xl font-extrabold").style(f"color: {_ovr_color}; font-feature-settings: 'tnum'; letter-spacing: -0.02em;")
+                                                ui.label(f"/ {currency(_total_budgeted)}").classes("text-sm font-semibold").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
+                                        with ui.element("div").style(
+                                            f"background: {_ovr_color}22; color: {_ovr_color}; font-weight: 800; font-size: 14px;"
+                                            f"padding: 6px 14px; border-radius: 99px; font-feature-settings: 'tnum'; box-shadow: 0 2px 8px {_ovr_color}33;"
                                         ):
                                             ui.label(f"{int(round(_overall_pct*100))}%")
                                     # Overall progress bar
                                     with ui.element("div").style(
-                                        "width: 100%; height: 6px; border-radius: 3px; margin-top: 10px;"
-                                        "background: rgba(128,128,128,0.12); overflow: hidden;"
+                                        "width: 100%; height: 8px; border-radius: 4px;"
+                                        "background: rgba(0,0,0,0.1); overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);"
                                     ):
                                         ui.element("div").style(
-                                            f"width: {min(_overall_pct, 1.0) * 100:.0f}%; height: 100%; border-radius: 3px;"
-                                            f"background: linear-gradient(90deg, #6366f1, {_ovr_color});"
+                                            f"width: {min(_overall_pct, 1.0) * 100:.0f}%; height: 100%; border-radius: 4px;"
+                                            f"background: linear-gradient(90deg, #6366f1, {_ovr_color}); transition: width 1s cubic-bezier(0.22, 1, 0.36, 1);"
                                         )
-                                    ui.label(f"{currency(_remaining)} remaining").classes("text-xs mt-2").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
+                                    ui.label(f"{currency(_remaining)} remaining under budget").classes("text-xs font-semibold mt-3 text-center w-full").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
 
                                 # Individual category rows  premium list style
                                 for cat, spent_amt, bud_amt in rows[:8]:
                                     pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
                                     _c_color = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else 'var(--mf-accent)')
                                     with ui.element("div").style(
-                                        "display: flex; align-items: center; gap: 14px; padding: 12px 0; width: 100%; box-sizing: border-box;"
-                                        "border-bottom: 1px solid rgba(128,128,128,0.08);"
+                                        "display: flex; align-items: center; gap: 16px; padding: 16px 0; width: 100%; box-sizing: border-box;"
+                                        "border-bottom: 1px solid var(--mf-border);"
                                     ):
                                         # Category icon circle
                                         with ui.element("div").style(
-                                            f"width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
-                                            f"background: {_c_color}12; flex-shrink: 0;"
+                                            f"width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center;"
+                                            f"background: {_c_color}15; border: 1px solid {_c_color}22; flex-shrink: 0;"
                                         ):
-                                            ui.icon("label").style(f"font-size: 16px; color: {_c_color};")
+                                            ui.icon("label").style(f"font-size: 20px; color: {_c_color};")
                                         # Category name + progress
-                                        with ui.column().classes("gap-1 flex-1").style("min-width: 0;"):
+                                        with ui.column().classes("gap-1.5 flex-1").style("min-width: 0;"):
                                             with ui.row().classes("items-baseline justify-between w-full"):
-                                                ui.label(cat).classes("text-sm font-semibold").style("color: var(--mf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;")
-                                                ui.label(f"{currency(spent_amt)}").classes("text-sm font-bold").style(f"color: {_c_color}; font-feature-settings: 'tnum'; letter-spacing: -0.02em; white-space: nowrap;")
+                                                ui.label(cat).classes("text-sm font-bold").style("color: var(--mf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em;")
+                                                ui.label(f"{currency(spent_amt)}").classes("text-sm font-extrabold").style(f"color: {_c_color}; font-feature-settings: 'tnum'; letter-spacing: -0.02em; white-space: nowrap;")
                                             with ui.element("div").style(
-                                                "width: 100%; height: 4px; border-radius: 2px;"
-                                                "background: rgba(128,128,128,0.10); overflow: hidden;"
+                                                "width: 100%; height: 6px; border-radius: 3px;"
+                                                "background: var(--mf-bg); overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);"
                                             ):
                                                 ui.element("div").style(
-                                                    f"width: {pct * 100:.0f}%; height: 100%; border-radius: 2px;"
-                                                    f"background: {_c_color};"
+                                                    f"width: {pct * 100:.0f}%; height: 100%; border-radius: 3px;"
+                                                    f"background: {_c_color}; transition: width 0.8s ease-out;"
                                                 )
-                                            with ui.row().classes("items-center justify-between w-full"):
-                                                ui.label(f"{int(round(pct*100))}% used").classes("text-xs").style(f"color: var(--mf-muted);")
-                                                ui.label(f"of {currency(bud_amt)}").classes("text-xs").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
+                                            with ui.row().classes("items-center justify-between w-full mt-0.5"):
+                                                ui.label(f"{int(round(pct*100))}% used").classes("text-xs font-semibold").style(f"color: var(--mf-muted);")
+                                                ui.label(f"of {currency(bud_amt)} limit").classes("text-xs font-medium").style("color: var(--mf-muted); opacity: 0.8; font-feature-settings: 'tnum';")
 
         # Upcoming salary section removed in v9.0 (payday info now in hero card)
 
@@ -5823,29 +5862,29 @@ def dashboard_page():
         # _render_insights() and _render_alerts() removed in v9.0
 
         def _render_recent_tx():
-            #  Recent Transactions (quick overview) 
+            #  Recent Transactions (Premium List) 
             try:
                 if not tx.empty and "date_parsed" in tx.columns:
-                    _recent_tx = tx.sort_values("date_parsed", ascending=False).head(6)
+                    _recent_tx = tx.sort_values("date_parsed", ascending=False).head(8)
                     if not _recent_tx.empty:
-                        with ui.card().classes("my-card p-0").style("overflow: hidden;"):
-                            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
-                            with ui.column().classes("p-5 gap-0"):
-                                with ui.row().classes("items-center justify-between w-full mb-3"):
-                                    with ui.row().classes("items-center gap-2"):
-                                        with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
-                                            ui.icon("receipt_long").style("font-size: 20px; color: #6366f1;")
-                                        ui.label("Recent Transactions").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
-                                    ui.button("View All", on_click=lambda: nav_to("/tx")).props("flat dense").style("border-radius: 8px; font-size: 12px; color: var(--mf-accent);")
+                        with ui.card().classes("my-card w-full p-0").style("border-radius: 20px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); overflow: hidden; background: var(--mf-surface); border: 1px solid var(--mf-border);"):
+                            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #10b981, #3b82f6); width: 100%;')
+                            with ui.column().classes("p-5 gap-0 w-full"):
+                                with ui.row().classes("items-center justify-between w-full mb-4"):
+                                    with ui.row().classes("items-center gap-3"):
+                                        with ui.element("div").style("width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, rgba(59,130,246,0.2), rgba(16,185,129,0.1)); display: flex; align-items: center; justify-content: center;"):
+                                            ui.icon("receipt_long").style("font-size: 18px; color: #3b82f6;")
+                                        ui.label("Recent Activity").classes("text-lg font-extrabold").style("letter-spacing: -0.02em; color: var(--mf-text);")
+                                    ui.button("See all", on_click=lambda: nav_to("/tx")).props("flat dense").style("border-radius: 8px; font-size: 13px; font-weight: 600; text-transform: none; color: #3b82f6;")
 
                                 for _, _rtx in _recent_tx.iterrows():
                                     _rt_type = str(_rtx.get("type", "") or "").strip().lower()
                                     _rt_is_income = _rt_type in ("credit", "income")
-                                    _rt_color = "#22c55e" if _rt_is_income else "#ef4444"
-                                    _rt_sign = "+" if _rt_is_income else "-"
-                                    _rt_icon = "trending_up" if _rt_is_income else "shopping_cart"
+                                    _rt_color = "#4ade80" if _rt_is_income else "var(--mf-text)"
+                                    _rt_sign = "+" if _rt_is_income else ""
+                                    _rt_icon = "arrow_upward" if _rt_is_income else "storefront"
                                     _rt_amt = float(_rtx.get("amount_num", 0) or 0)
-                                    _rt_note = str(_rtx.get("notes", "") or "")[:32] or str(_rtx.get("category", "") or "")
+                                    _rt_note = str(_rtx.get("notes", "") or "")[:35] or str(_rtx.get("category", "") or "")
                                     _rt_cat = str(_rtx.get("category", "") or "")
                                     _rt_date = ""
                                     try:
@@ -5854,24 +5893,28 @@ def dashboard_page():
                                         _rt_date = str(_rtx.get("date", ""))[:10]
 
                                     with ui.element("div").style(
-                                        "display: flex; align-items: center; gap: 12px; padding: 10px 0;"
-                                        "border-bottom: 1px solid rgba(128,128,128,0.07);"
+                                        "display: flex; align-items: center; gap: 16px; padding: 14px 0; width: 100%;"
+                                        "border-bottom: 1px solid var(--mf-border);"
                                     ):
+                                        # Larger, smoother icon wrapper
+                                        _icon_bg = "rgba(74,222,128,0.12)" if _rt_is_income else "rgba(255,255,255,0.06)"
+                                        _icon_color = "#4ade80" if _rt_is_income else "var(--mf-muted)"
                                         with ui.element("div").style(
-                                            f"width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;"
-                                            f"background: {_rt_color}12; flex-shrink: 0;"
+                                            f"width: 42px; height: 42px; border-radius: 14px; display: flex; align-items: center; justify-content: center;"
+                                            f"background: {_icon_bg}; flex-shrink: 0; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);"
                                         ):
-                                            ui.icon(_rt_icon).style(f"font-size: 18px; color: {_rt_color};")
-                                        with ui.column().classes("gap-0 flex-1").style("min-width: 0; overflow: hidden;"):
-                                            ui.label(_rt_note).classes("text-sm font-medium").style("white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mf-text);")
-                                            with ui.row().classes("items-center gap-2"):
-                                                ui.label(_rt_cat).classes("text-xs").style("color: var(--mf-muted);")
-                                                ui.label(f"\u00b7 {_rt_date}").classes("text-xs").style("color: var(--mf-muted);")
-                                        ui.label(f"{_rt_sign}{currency(_rt_amt)}").classes("text-sm font-bold").style(
-                                            f"color: {_rt_color}; font-feature-settings: 'tnum'; white-space: nowrap; letter-spacing: -0.02em;"
-                                        )
-            except Exception:
-                pass
+                                            ui.icon(_rt_icon).style(f"font-size: 20px; color: {_icon_color};")
+                                        
+                                        with ui.column().classes("gap-1 flex-1").style("min-width: 0; overflow: hidden;"):
+                                            ui.label(_rt_note).classes("text-sm font-bold").style("white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mf-text); letter-spacing: -0.01em;")
+                                            ui.label(_rt_cat).classes("text-xs font-medium").style("color: var(--mf-muted);")
+                                            
+                                        with ui.column().classes('items-end gap-1'):
+                                            ui.label(f"{_rt_sign}{currency(_rt_amt)}").classes("text-sm font-extrabold").style(
+                                                f"color: {_rt_color}; font-feature-settings: 'tnum'; white-space: nowrap; letter-spacing: -0.02em;"
+                                            )
+                                            ui.label(_rt_date).classes("text-xs font-semibold").style("color: var(--mf-muted); opacity: 0.8;")
+
 
         #  Dashboard Grid (responsive 2-col on desktop) 
         with ui.element('div').classes('mf-dash-grid'):
