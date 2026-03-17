@@ -5823,33 +5823,6 @@ def dashboard_page():
         # _render_insights() and _render_alerts() removed in v9.0
 
         def _render_recent_tx():
-            #  Recent Transactions (quick overview) 
-            try:
-                if not tx.empty and "date_parsed" in tx.columns:
-                    _recent_tx = tx.sort_values("date_parsed", ascending=False).head(6)
-                    if not _recent_tx.empty:
-                        with ui.card().classes("my-card p-0").style("overflow: hidden;"):
-                            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
-                            with ui.column().classes("p-5 gap-0"):
-                                with ui.row().classes("items-center justify-between w-full mb-3"):
-                                    with ui.row().classes("items-center gap-2"):
-                                        with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
-                                            ui.icon("receipt_long").style("font-size: 20px; color: #6366f1;")
-                                        ui.label("Recent Transactions").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
-                                    ui.button("View All", on_click=lambda: nav_to("/tx")).props("flat dense").style("border-radius: 8px; font-size: 12px; color: var(--mf-accent);")
-
-                                for _, _rtx in _recent_tx.iterrows():
-                                    _rt_type = str(_rtx.get("type", "") or "").strip().lower()
-                                    _rt_is_income = _rt_type in ("credit", "income")
-                                    _rt_color = "#22c55e" if _rt_is_income else "#ef4444"
-                                    _rt_sign = "+" if _rt_is_income else "-"
-                                    _rt_icon = "trending_up" if _rt_is_income else "shopping_cart"
-                                    _rt_amt = float(_rtx.get("amount_num", 0) or 0)
-                                    _rt_note = str(_rtx.get("notes", "") or "")[:32] or str(_rtx.get("category", "") or "")
-                                    _rt_cat = str(_rtx.get("category", "") or "")
-                                    _rt_date = ""
-                                    try:
-        def _render_recent_tx():
             #  Recent Transactions (Premium List) 
             try:
                 if not tx.empty and "date_parsed" in tx.columns:
