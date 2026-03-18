@@ -1473,7 +1473,8 @@ def _build_rules_index(rules: List[Tuple[str, str]]) -> Dict[str, List[str]]:
     so classify_receipt_items can look up keywords per category efficiently.
     """
     idx: Dict[str, List[str]] = {}
-    for kw, cat in (rules or []):
+    rules = [r for r in (rules or []) if isinstance(r, (list, tuple)) and len(r) >= 2]
+                for kw, cat in (rules or []):
         key = (cat or '').strip().lower()
         if not key:
             continue
