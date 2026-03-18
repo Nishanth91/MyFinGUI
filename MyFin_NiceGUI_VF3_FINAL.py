@@ -1117,14 +1117,11 @@ def server_ocr_from_data_url(data_url: str, *, return_debug: bool = False):
             debug_msg = "No image bytes decoded from upload."
             return ("", debug_msg) if return_debug else ""
 
-        engine = (os.getenv('OCR_ENGINE') or 'google').strip().lower()
-        if engine in ('google', 'gcv', 'vision', 'cloudvision'):
-            text, dbg = _google_vision_rest_ocr(img_bytes)
-            debug_msg = dbg or debug_msg
-            return (text, debug_msg) if return_debug else text
-
-        # fallback / legacy
-        text = _fallback_simple_ocr(img_bytes)
+        # Enforce Google Cloud Vision to fix accuracy
+        text, dbg = _google_vision_rest_ocr(img_bytes)
+        debug_msg = dbg or debug_msg
+        if not text:
+            debug_msg += " (Google Cloud Vision OCR returned empty)"
         return (text, debug_msg) if return_debug else text
 
     except Exception as e:
@@ -3469,6 +3466,7 @@ html.mf-light .mf-progress {
   align-items: center;
   justify-content: space-around;
   height: 72px;
+  -webkit-tap-highlight-color: transparent !important;
   background: rgba(15, 23, 42, 0.85); /* Darker, richer slate */
   backdrop-filter: blur(32px);
   -webkit-backdrop-filter: blur(32px);
@@ -3675,6 +3673,15 @@ a.mf-more-item.is-active:visited {
   gap: 20px;
 }
 
+/* Premium Layout Helpers */
+.mf-h-scroll {
+  display: flex; flex-wrap: nowrap; overflow-x: auto;
+  scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; padding-bottom: 8px; gap: 12px;
+}
+.mf-h-scroll::-webkit-scrollbar { display: none; }
+.mf-h-scroll > * { scroll-snap-align: center; flex: 0 0 auto; }
+
 /*  Desktop (901px): persistent LEFT rail, no hamburger, no bottom bar  */
 @media (min-width: 901px) {
   .mf-rail {
@@ -3700,14 +3707,7 @@ a.mf-more-item.is-active:visited {
   .mf-navbtn .q-btn__content span { display: none; }
   .mf-navbtn { min-height: 40px; }
 
-/* Premium Layout Helpers */
-.mf-h-scroll {
-  display: flex; flex-wrap: nowrap; overflow-x: auto;
-  scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
-  scrollbar-width: none; padding-bottom: 8px; gap: 12px;
-}
-.mf-h-scroll::-webkit-scrollbar { display: none; }
-.mf-h-scroll > * { scroll-snap-align: center; flex: 0 0 auto; }
+/* Premium Layout Helpers extracted to root */
 .mf-timeline-row {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 16px; border-radius: 16px; background: rgba(255,255,255,0.03);
@@ -4313,6 +4313,10 @@ html,body{
   min-height: -webkit-fill-available;
   /* Task 7: extend background into safe areas to prevent black bars */
   padding-bottom: env(safe-area-inset-bottom, 0px);
+  overscroll-behavior-y: none;
+}
+html.mf-light, html.mf-light body {
+  background: #f8f9fa !important;
 }
 /* Remove ugly yellow background on browser autofill (Safari/Chrome) */
 input:-webkit-autofill,
@@ -4884,11 +4888,11 @@ def shell(content_fn, *, active_path: str = ""):
         # (Vue v-html strips onclick, so we use addEventListener instead).
         _bottom_tabs_html = []
         for _bl, _bi, _bh in [
-            ("Cards", "credit_card", "/cards"),
-            ("Tx", "receipt_long", "/tx"),
-            ("Add", "add_circle", "/add"),
-            ("Home", "dashboard", "/"),
-            ("More", "menu", None),
+            ("Cards", "account_balance_wallet", "/cards"),
+            ("Tx", "list_alt", "/tx"),
+            ("Add", "add", "/add"),
+            ("Home", "space_dashboard", "/"),
+            ("More", "apps", None),
         ]:
             if _bl == "Add":
                 _bottom_tabs_html.append(
@@ -5553,7 +5557,8 @@ def dashboard_page():
                     if days_to_next is not None:
                         ui.label(f"{days_to_next}d").classes('text-xs font-bold').style('color: #10B981; margin-top: 4px;')
                 with ui.column().classes('gap-0'):
-                    ui.label('Next Payday').classes('text-xs font-semibold').style('color: var(--mf-muted);')
+                    _po_label = f" ({_pay_owner})" if _pay_owner else ""
+                    ui.label(f'Next Payday{_po_label}').classes('text-[11px] font-semibold').style('color: var(--mf-muted); white-space: nowrap;')
                     if next_pay:
                         ui.label(next_pay.strftime('%b %d')).classes('text-base font-extrabold').style('color: var(--mf-text); letter-spacing: -0.02em;')
                     else:
@@ -5661,47 +5666,32 @@ def dashboard_page():
             _dash = _circumf * (_fh_score / 100.0)
             _gap = _circumf - _dash
 
-            with ui.card().classes('my-card p-5'):
-                with ui.row().classes('w-full items-center gap-5').style('flex-wrap: wrap;'):
-                    # Circular gauge via inline SVG
-                    ui.html(f'''
-                        <div style="position: relative; width: 130px; height: 130px; flex-shrink: 0;">
-                            <svg viewBox="0 0 128 128" style="transform: rotate(-90deg); width: 100%; height: 100%;">
-                                <circle cx="64" cy="64" r="{_radius}" fill="none" stroke="var(--mf-border)" stroke-width="10" opacity="0.3"/>
-                                <circle cx="64" cy="64" r="{_radius}" fill="none" stroke="{_fh_color}" stroke-width="10"
-                                    stroke-dasharray="{_dash:.1f} {_gap:.1f}"
-                                    stroke-linecap="round"
-                                    style="transition: stroke-dasharray 1.2s cubic-bezier(0.22,1,0.36,1);"/>
-                            </svg>
-                            <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                                <span style="font-size: 28px; font-weight: 800; color: {_fh_color}; letter-spacing: -0.03em; font-feature-settings: 'tnum';">{_fh_score}</span>
-                                <span style="font-size: 11px; font-weight: 600; color: var(--mf-muted); margin-top: -2px;">/ 100</span>
-                            </div>
-                        </div>
-                    ''')
-                    with ui.column().classes('gap-1 flex-1').style('min-width: 180px;'):
-                        with ui.row().classes('items-center gap-2'):
-                            ui.label('Financial Health').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
-                            with ui.element('span').style(
-                                f'background: {_fh_color}18; color: {_fh_color}; font-weight: 700; font-size: 13px;'
-                                f'padding: 2px 10px; border-radius: 8px;'
-                            ):
-                                ui.label(_fh_grade)
-                        ui.label(_fh_tips[0] if _fh_tips else 'Track your spending to see insights').classes('text-sm').style('color: var(--mf-muted); line-height: 1.5;')
-                        # Score breakdown pills
-                        _pill_labels = ['Savings', 'Expense Ratio', 'Budget', 'Consistency']
-                        _pill_maxes = [30, 25, 20, 25]
-                        with ui.row().classes('gap-2 mt-1').style('flex-wrap: wrap;'):
-                            for _pi, (_pl, _pm) in enumerate(zip(_pill_labels, _pill_maxes)):
-                                if _pi < len(_fh_scores):
-                                    _pv = _fh_scores[_pi]
-                                    _ppct = _pv / _pm if _pm > 0 else 0
-                                    _pc = '#22c55e' if _ppct >= 0.7 else ('#eab308' if _ppct >= 0.4 else '#ef4444')
-                                    with ui.element('span').style(
-                                        f'font-size: 11px; padding: 3px 8px; border-radius: 6px;'
-                                        f'background: {_pc}14; color: {_pc}; font-weight: 600;'
-                                    ):
-                                        ui.label(f'{_pl}: {int(round(_pv))}/{_pm}')
+            with ui.element('div').classes('mx-2 mt-6').style('border-radius: 24px; background: linear-gradient(145deg, #0F172A, #1E1B4B); padding: 24px; position: relative; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.05);'):
+                ui.element('div').style(f'position: absolute; top: -50%; right: -50%; width: 200%; height: 200%; background: radial-gradient(circle at center, {_fh_color}15 0%, transparent 60%); pointer-events: none;')
+                with ui.row().classes('items-start justify-between w-full'):
+                    with ui.column().classes('gap-1'):
+                        ui.label('Financial Health').classes('text-xl font-extrabold').style('color: #fff; letter-spacing: -0.02em;')
+                        ui.label(_fh_tips[0] if _fh_tips else 'Track your spending to see insights').classes('text-xs').style('color: rgba(255,255,255,0.6); max-width: 180px; line-height: 1.4;')
+                    with ui.column().classes('items-end gap-0'):
+                        with ui.row().classes('items-baseline gap-1'):
+                            ui.label(str(_fh_score)).style(f'font-size: 44px; font-weight: 900; color: {_fh_color}; line-height: 1; font-feature-settings: "tnum"; letter-spacing: -0.04em; text-shadow: 0 0 20px {_fh_color}40;')
+                        with ui.element('span').style(f'background: {_fh_color}20; color: {_fh_color}; border-radius: 8px; padding: 3px 10px; font-size: 11px; font-weight: 800; text-transform: uppercase; margin-top: 4px; border: 1px solid {_fh_color}30; letter-spacing: 0.05em;'):
+                            ui.label(f'Grade {_fh_grade}')
+
+                _pill_labels = ['Savings', 'Expense Ratio', 'Budget', 'Consistency']
+                _pill_maxes = [30, 25, 20, 25]
+                with ui.column().classes('w-full gap-3 mt-6 pt-5').style('border-top: 1px solid rgba(255,255,255,0.05);'):
+                    for _pi, (_pl, _pm) in enumerate(zip(_pill_labels, _pill_maxes)):
+                        if _pi < len(_fh_scores):
+                            _pv = _fh_scores[_pi]
+                            _ppct = _pv / _pm if _pm > 0 else 0
+                            _pc = '#22c55e' if _ppct >= 0.7 else ('#eab308' if _ppct >= 0.4 else '#ef4444')
+                            with ui.column().classes('w-full gap-1'):
+                                with ui.row().classes('w-full justify-between items-end'):
+                                    ui.label(_pl).classes('text-xs font-semibold').style('color: rgba(255,255,255,0.8);')
+                                    ui.label(f'{int(round(_pv))}/{_pm}').classes('text-[10px] font-bold').style('color: rgba(255,255,255,0.4);')
+                                with ui.element('div').style('width: 100%; height: 6px; border-radius: 3px; background: rgba(0,0,0,0.4); overflow: hidden;'):
+                                    ui.element('div').style(f'height: 100%; width: {_ppct*100}%; background: {_pc}; border-radius: 3px; box-shadow: 0 0 8px {_pc}80;')
         except Exception:
             pass  # Health score is optional
 
@@ -5815,74 +5805,23 @@ def dashboard_page():
                         _overall_pct = min(1.0, _total_spent / _total_budgeted) if _total_budgeted > 0 else 0.0
                         _remaining = max(0, _total_budgeted - _total_spent)
 
-                        with ui.card().classes("my-card p-0 w-full").style("overflow: hidden; width: 100%; box-sizing: border-box;"):
-                            # Accent strip
-                            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0; width: 100%;')
-                            with ui.column().classes("p-5 gap-0 w-full items-stretch").style("align-items: stretch; width: 100%;"):
-                                # Header
-                                with ui.row().classes("items-center gap-3 mb-4"):
-                                    with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
-                                        ui.icon("account_balance_wallet").style("font-size: 20px; color: #6366f1;")
-                                    with ui.column().classes("gap-0 flex-1"):
-                                        ui.label("Budgets").classes("text-lg font-extrabold").style("letter-spacing: -0.02em;")
-                                        ui.label("This month's spending vs limits").classes("text-xs").style("color: var(--mf-muted);")
-
-                                # Overall summary row
-                                _ovr_color = '#ef4444' if _overall_pct >= 1.0 else ('#f59e0b' if _overall_pct >= 0.8 else '#22c55e')
-                                with ui.element("div").style(
-                                    "padding: 14px 16px; border-radius: 14px; margin-bottom: 16px; width: 100%; box-sizing: border-box;"
-                                    "background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.10);"
-                                ):
-                                    with ui.row().classes("items-center justify-between w-full"):
-                                        with ui.column().classes("gap-0"):
-                                            ui.label("Overall").classes("text-xs font-semibold").style("color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;")
-                                            ui.label(f"{currency(_total_spent)} / {currency(_total_budgeted)}").classes("text-base font-extrabold").style("font-feature-settings: 'tnum'; letter-spacing: -0.02em;")
-                                        with ui.element("span").style(
-                                            f"background: {_ovr_color}18; color: {_ovr_color}; font-weight: 800; font-size: 14px;"
-                                            f"padding: 4px 12px; border-radius: 20px; font-feature-settings: 'tnum';"
-                                        ):
-                                            ui.label(f"{int(round(_overall_pct*100))}%")
-                                    # Overall progress bar
-                                    with ui.element("div").style(
-                                        "width: 100%; height: 6px; border-radius: 3px; margin-top: 10px;"
-                                        "background: rgba(128,128,128,0.12); overflow: hidden;"
-                                    ):
-                                        ui.element("div").style(
-                                            f"width: {min(_overall_pct, 1.0) * 100:.0f}%; height: 100%; border-radius: 3px;"
-                                            f"background: linear-gradient(90deg, #6366f1, {_ovr_color});"
-                                        )
-                                    ui.label(f"{currency(_remaining)} remaining").classes("text-xs mt-2").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
-
-                                # Individual category rows  premium list style
-                                for cat, spent_amt, bud_amt in rows[:8]:
-                                    pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
-                                    _c_color = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else 'var(--mf-accent)')
-                                    with ui.element("div").style(
-                                        "display: flex; align-items: center; gap: 14px; padding: 12px 0; width: 100%; box-sizing: border-box;"
-                                        "border-bottom: 1px solid rgba(128,128,128,0.08);"
-                                    ):
-                                        # Category icon circle
-                                        with ui.element("div").style(
-                                            f"width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"
-                                            f"background: {_c_color}12; flex-shrink: 0;"
-                                        ):
-                                            ui.icon("label").style(f"font-size: 16px; color: {_c_color};")
-                                        # Category name + progress
-                                        with ui.column().classes("gap-1 flex-1").style("min-width: 0;"):
-                                            with ui.row().classes("items-baseline justify-between w-full"):
-                                                ui.label(cat).classes("text-sm font-semibold").style("color: var(--mf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;")
-                                                ui.label(f"{currency(spent_amt)}").classes("text-sm font-bold").style(f"color: {_c_color}; font-feature-settings: 'tnum'; letter-spacing: -0.02em; white-space: nowrap;")
-                                            with ui.element("div").style(
-                                                "width: 100%; height: 4px; border-radius: 2px;"
-                                                "background: rgba(128,128,128,0.10); overflow: hidden;"
-                                            ):
-                                                ui.element("div").style(
-                                                    f"width: {pct * 100:.0f}%; height: 100%; border-radius: 2px;"
-                                                    f"background: {_c_color};"
-                                                )
-                                            with ui.row().classes("items-center justify-between w-full"):
-                                                ui.label(f"{int(round(pct*100))}% used").classes("text-xs").style(f"color: var(--mf-muted);")
-                                                ui.label(f"of {currency(bud_amt)}").classes("text-xs").style("color: var(--mf-muted); font-feature-settings: 'tnum';")
+                        ui.label("Budgets").classes("text-lg font-extrabold mt-8 px-2").style("letter-spacing: -0.02em;")
+                        with ui.element('div').style('display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; padding: 0 8px; margin-top: 8px;'):
+                            for cat, spent_amt, bud_amt in rows[:8]:
+                                pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
+                                _c_color = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else '#8B5CF6')
+                                with ui.element('div').style(f'background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 20px; padding: 16px; position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 8px 16px rgba(0,0,0,0.15);'):
+                                    ui.element('div').style(f'position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; border-radius: 50%; background: {_c_color}; filter: blur(30px); opacity: 0.2; pointer-events: none;')
+                                    with ui.row().classes('justify-between items-start w-full'):
+                                        with ui.element('div').style(f'width: 28px; height: 28px; border-radius: 8px; background: {_c_color}1a; display: flex; align-items: center; justify-content: center;'):
+                                            ui.icon('receipt_long').style(f'font-size: 14px; color: {_c_color};')
+                                        ui.label(f'{int(round(pct*100))}%').classes('text-[10px] font-bold').style(f'color: {_c_color}; background: {_c_color}10; padding: 2px 6px; border-radius: 12px;')
+                                    ui.label(cat).classes('text-sm font-bold text-white mt-1').style('white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em;')
+                                    with ui.row().classes('items-baseline gap-1'):
+                                        ui.label(currency(spent_amt)).classes('text-base font-extrabold').style(f'color: {_c_color}; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
+                                        ui.label(f'/ {currency(bud_amt)}').classes('text-[9px] font-semibold').style('color: var(--mf-muted);')
+                                    with ui.element('div').style('width: 100%; height: 4px; border-radius: 2px; background: rgba(0,0,0,0.3); margin-top: auto; overflow: hidden;'):
+                                        ui.element('div').style(f'height: 100%; width: {pct*100}%; background: {_c_color}; border-radius: 2px;')
 
         # Upcoming salary section removed in v9.0 (payday info now in hero card)
 
@@ -5897,58 +5836,46 @@ def dashboard_page():
             # === RADICAL PARADIGM SHIFT: The Timeline Feed ===
             try:
                 if not tx.empty and "date_parsed" in tx.columns:
-                    _recent_tx = tx.sort_values("date_parsed", ascending=False).head(10)
+                    _recent_tx = tx.sort_values("date_parsed", ascending=False).head(5)
                     if not _recent_tx.empty:
-                        with ui.column().classes("w-full mt-4 px-2"):
+                        with ui.column().classes("w-full mt-6 px-2"):
                             with ui.row().classes("items-center justify-between w-full mb-3"):
                                 ui.label("Recent Activity").classes("text-lg font-extrabold").style("letter-spacing: -0.02em; color: var(--mf-text);")
                                 ui.button("See all", on_click=lambda: nav_to("/tx")).props("flat dense").style("border-radius: 8px; font-size: 13px; font-weight: 600; text-transform: none; color: #3b82f6;")
 
-                            _last_date_group = None
-                            for _, _rtx in _recent_tx.iterrows():
-                                _rt_type = str(_rtx.get("type", "") or "").strip().lower()
-                                _rt_is_income = _rt_type in ("credit", "income")
-                                _rt_amt = float(_rtx.get("amount_num", 0) or 0)
-                                _rt_note = str(_rtx.get("notes", "") or "")[:35] or str(_rtx.get("category", "") or "")
-                                _rt_cat = str(_rtx.get("category", "") or "")
-                                
-                                # Date Grouping Header
-                                try:
-                                    _d_obj = _rtx["date_parsed"].date()
-                                    _days_ago = (today() - _d_obj).days
-                                    if _days_ago == 0: _d_str = "Today"
-                                    elif _days_ago == 1: _d_str = "Yesterday"
-                                    elif _days_ago < 7: _d_str = _d_obj.strftime("%A")
-                                    else: _d_str = _d_obj.strftime("%b %d")
-                                except Exception:
-                                    _d_str = str(_rtx.get("date", ""))[:10]
+                            with ui.element('div').style('width: 100%; border-radius: 20px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); overflow: hidden;'):
+                                _last_date_group = None
+                                _total_cnt = len(_recent_tx)
+                                for _idx, (_, _rtx) in enumerate(_recent_tx.iterrows()):
+                                    _rt_type = str(_rtx.get("type", "") or "").strip().lower()
+                                    _rt_is_income = _rt_type in ("credit", "income")
+                                    _rt_amt = float(_rtx.get("amount_num", 0) or 0)
+                                    _rt_note = str(_rtx.get("notes", "") or "")[:35] or str(_rtx.get("category", "") or "")
+                                    _rt_cat = str(_rtx.get("category", "") or "")
                                     
-                                if _d_str != _last_date_group:
-                                    ui.label(_d_str).classes("text-xs font-bold w-full mt-3 mb-1").style("color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.05em; padding-left: 4px;")
-                                    _last_date_group = _d_str
-
-                                # Apple Wallet style row (mf-timeline-row)
-                                _rt_color = "#10B981" if _rt_is_income else "var(--mf-text)"
-                                _rt_sign = "+" if _rt_is_income else ""
-                                _rt_icon = "arrow_upward" if _rt_is_income else "storefront"
-                                _icon_bg = "rgba(16,185,129,0.12)" if _rt_is_income else "rgba(255,255,255,0.05)"
-                                _icon_color = "#10B981" if _rt_is_income else "var(--mf-muted)"
-
-                                with ui.element("div").classes("mf-timeline-row w-full"):
-                                    with ui.row().classes("items-center gap-3 flex-1").style("min-width: 0;"):
-                                        with ui.element("div").style(
-                                            f"width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center;"
-                                            f"background: {_icon_bg}; flex-shrink: 0;"
-                                        ):
-                                            ui.icon(_rt_icon).style(f"font-size: 20px; color: {_icon_color};")
-                                        
-                                        with ui.column().classes("gap-1 flex-1").style("min-width: 0; overflow: hidden;"):
-                                            ui.label(_rt_note).classes("text-sm font-bold").style("white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mf-text); letter-spacing: -0.01em;")
-                                            ui.label(_rt_cat).classes("text-xs font-medium").style("color: var(--mf-muted);")
+                                    # Apple Wallet style row (compacted for crispness)
+                                    _rt_color = "#10B981" if _rt_is_income else "var(--mf-text)"
+                                    _rt_sign = "+" if _rt_is_income else ""
+                                    _rt_icon = "arrow_upward" if _rt_is_income else "storefront"
+                                    _icon_bg = "rgba(16,185,129,0.12)" if _rt_is_income else "rgba(255,255,255,0.05)"
+                                    _icon_color = "#10B981" if _rt_is_income else "var(--mf-muted)"
+                                    
+                                    _bb = "border-bottom: 1px solid rgba(255,255,255,0.05);" if _idx < _total_cnt - 1 else ""
+                                    with ui.element("div").style(f"display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; {_bb}"):
+                                        with ui.row().classes("items-center gap-3 flex-1").style("min-width: 0;"):
+                                            with ui.element("div").style(
+                                                f"width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;"
+                                                f"background: {_icon_bg}; flex-shrink: 0;"
+                                            ):
+                                                ui.icon(_rt_icon).style(f"font-size: 18px; color: {_icon_color};")
                                             
-                                    ui.label(f"{_rt_sign}{currency(_rt_amt)}").classes("text-base font-extrabold").style(
-                                        f"color: {_rt_color}; font-feature-settings: 'tnum'; white-space: nowrap; letter-spacing: -0.02em;"
-                                    )
+                                            with ui.column().classes("gap-0 flex-1").style("min-width: 0; overflow: hidden;"):
+                                                ui.label(_rt_note).classes("text-sm font-bold").style("white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mf-text); letter-spacing: -0.01em;")
+                                                ui.label(_rt_cat).classes("text-xs font-medium").style("color: var(--mf-muted);")
+                                                
+                                        ui.label(f"{_rt_sign}{currency(_rt_amt)}").classes("text-sm font-extrabold").style(
+                                            f"color: {_rt_color}; font-feature-settings: 'tnum'; white-space: nowrap; letter-spacing: -0.02em;"
+                                        )
             except Exception:
                 pass
 
@@ -6122,8 +6049,8 @@ def add_page():
                             # Active Premium State
                             chip.style(f'background: linear-gradient(135deg, {accent_color}, {accent_color}dd) !important; color: white !important; box-shadow: 0 4px 12px {accent_color}40; border: none !important; font-weight: 700;')
                         else:
-                            # Inactive Premium State
-                            chip.style('background: rgba(0,0,0,0.15) !important; color: var(--mf-text) !important; border: 1px solid rgba(255,255,255,0.05) !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); font-weight: 600;')
+                            # Inactive Premium State (Lighter Grey)
+                            chip.style('background: rgba(255,255,255,0.08) !important; color: var(--mf-text) !important; border: 1px solid rgba(255,255,255,0.1) !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); font-weight: 600;')
                     
                     with chip:
                         ui.label(str(opt)).style('pointer-events: none;')
@@ -6198,7 +6125,7 @@ def add_page():
         _accent, _dicon, _dlabel = _dlg_accents.get(entry_type.lower(), ('#6366f1', 'add_circle', entry_type))
 
         dlg = ui.dialog()
-        with dlg, ui.card().classes("my-card mf-add-dialog w-[580px] max-w-[95vw]").style("max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 32px; box-shadow: 0 40px 80px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.05); background: linear-gradient(180deg, var(--mf-surface-1), var(--mf-surface-2));"):
+        with dlg, ui.card().classes("my-card mf-add-dialog w-full max-w-[480px]").style("max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 32px; box-shadow: 0 40px 80px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.05); background: linear-gradient(180deg, var(--mf-surface-1), var(--mf-surface-2));"):
             # Premium dialog header  accent strip + header area with background
             ui.element('div').style(f'height: 6px; background: linear-gradient(90deg, {_accent}, {_accent}88); border-radius: 32px 32px 0 0;')
             with ui.element('div').style(
@@ -6216,7 +6143,7 @@ def add_page():
                         ui.label(f"Add {_dlabel}").classes('text-2xl font-black').style('letter-spacing: -0.03em; color: var(--mf-text);')
                         ui.label('Fill in the details below').classes('text-sm font-medium').style('color: var(--mf-muted);')
                     ui.element('div').style('flex: 1;')
-                    ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.5; background: rgba(128,128,128,0.1); border-radius: 50%; padding: 4px; transition: opacity 0.2s;')
+                    ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.5; background: rgba(128,128,128,0.1); border-radius: 50%; padding: 4px; transition: opacity 0.2s; position: absolute; right: 20px; top: 20px;')
 
             #  Section 1: Date & Amount 
             with ui.element('div').style('padding: 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
@@ -7322,7 +7249,7 @@ def add_page():
             # Sticky footer so Save/Cancel never get pushed off-screen on mobile
             with ui.row().classes("w-full justify-end gap-3 sticky bottom-0 z-50").style(
                 "padding: 16px 24px 20px 24px;"
-                "background: rgba(15, 15, 20, 0.85); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);"
+                "background: linear-gradient(to top, var(--mf-surface-2) 60%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);"
                 "border-top: 1px solid rgba(255,255,255,0.05);"
                 "border-radius: 0 0 32px 32px;"
             ):
@@ -7729,44 +7656,48 @@ def admin_page() -> None:
         return
 
     def content() -> None:
-        with ui.card().classes("my-card p-0").style("overflow: hidden;"):
-            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #8b5cf6); border-radius: 0;')
-            with ui.column().classes("p-5 gap-3"):
-                with ui.row().classes("items-center gap-3"):
-                    with ui.element("div").classes("mf-icon-box").style("background: rgba(99,102,241,0.12);"):
-                        ui.icon("settings").style("font-size: 20px; color: #6366f1;")
+        with ui.card().classes("my-card p-0 mb-4").style("overflow: visible; background: linear-gradient(135deg, rgba(99,102,241,0.05), transparent); border: 1px solid rgba(99,102,241,0.1);"):
+            # Glowing orb background
+            ui.html('<div style="position:absolute;top:-50px;right:-20px;width:150px;height:150px;background:radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%);border-radius:50%;pointer-events:none;"></div>')
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #6366f1, #8b5cf6, #d946ef); border-radius: 16px 16px 0 0;')
+            with ui.column().classes("p-6 gap-4"):
+                with ui.row().classes("items-center gap-4"):
+                    with ui.element("div").style("width: 48px; height: 48px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #6366f1, #8b5cf6); box-shadow: 0 8px 24px rgba(99,102,241,0.3);"):
+                        ui.icon("admin_panel_settings").style("font-size: 24px; color: white;")
                     with ui.column().classes("gap-0"):
-                        ui.label("Admin Panel").classes("text-xl font-extrabold").style("letter-spacing: -0.02em;")
-                        ui.label("Manage rules, cards, templates & data tools").classes("text-xs").style("color: var(--mf-muted)")
+                        ui.label("Control Center").classes("text-2xl font-black").style("letter-spacing: -0.03em; background: linear-gradient(to right, #ffffff, #a5b4fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent;")
+                        ui.label("System configurations & data management").classes("text-xs font-semibold uppercase tracking-wider").style("color: var(--mf-muted)")
 
-                _admin_links = [
-                    ("Keyword Rules", "rule", "/rules", "rgba(34,197,94,0.10)", "#22c55e"),
-                    ("Cards", "credit_card", "/cards", "rgba(59,130,246,0.10)", "#3b82f6"),
-                    ("Recurring Templates", "autorenew", "/recurring", "rgba(168,85,247,0.10)", "#a855f7"),
-                    ("Transactions", "receipt_long", "/tx", "rgba(239,68,68,0.10)", "#ef4444"),
-                    ("Budgets", "account_balance_wallet", "/budgets", "rgba(251,191,36,0.10)", "#eab308"),
-                    ("Data Tools", "cloud_download", "/data_tools", "rgba(96,165,250,0.10)", "#60a5fa"),
-                    ("Reports", "assessment", "/reports", "rgba(99,102,241,0.10)", "#6366f1"),
-                ]
-                # B4 FIX: wider minmax for desktop, centered grid with proper spacing
+        with ui.element("div").style("display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; width: 100%;"):
+            _admin_links = [
+                ("RulesEngine", "rule", "/rules", "#22c55e", "linear-gradient(135deg, rgba(34,197,94,0.1), transparent)"),
+                ("Cards Vault", "credit_card", "/cards", "#3b82f6", "linear-gradient(135deg, rgba(59,130,246,0.1), transparent)"),
+                ("Recurring", "autorenew", "/recurring", "#a855f7", "linear-gradient(135deg, rgba(168,85,247,0.1), transparent)"),
+                ("Ledger", "receipt_long", "/tx", "#ef4444", "linear-gradient(135deg, rgba(239,68,68,0.1), transparent)"),
+                ("Budget Matrix", "account_balance_wallet", "/budgets", "#eab308", "linear-gradient(135deg, rgba(251,191,36,0.1), transparent)"),
+                ("Data Importer", "cloud_download", "/data_tools", "#06b6d4", "linear-gradient(135deg, rgba(6,182,212,0.1), transparent)"),
+                ("Reports Hub", "assessment", "/reports", "#f43f5e", "linear-gradient(135deg, rgba(244,63,94,0.1), transparent)"),
+            ]
+            for label, icon, href, accent_color, bg_gradient in _admin_links:
                 with ui.element("div").style(
-                    "display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 18px; width: 100%;"
-                ):
-                    for label, icon, href, bg, accent in _admin_links:
-                        with ui.card().classes("tile p-0").style(
-                            f"cursor: pointer; border: 1px solid var(--mf-border); border-radius: 16px;"
-                            f"background: rgba(255,255,255,0.03); transition: transform 0.12s ease, box-shadow 0.12s ease;"
-                        ).on("click", lambda _evt=None, h=href: nav_to(h)):
-                            with ui.column().classes("items-center justify-center p-6 gap-3").style("min-height: 120px;"):
-                                with ui.element("div").classes("mf-icon-box").style(f"background: {bg};"):
-                                    ui.icon(icon).style(f"font-size: 22px; color: {accent};")
-                                ui.label(label).classes("text-sm font-semibold text-center")
+                    f"cursor: pointer; border: 1px solid rgba(255,255,255,0.05); border-radius: 20px;"
+                    f"background: var(--mf-surface-2); position: relative; overflow: hidden;"
+                    f"transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 4px 12px rgba(0,0,0,0.1);"
+                ).classes("mf-admin-tile").on("click", lambda _evt=None, h=href: nav_to(h)):
+                    ui.html(f'<div style="position:absolute;top:0;left:0;right:0;bottom:0;background:{bg_gradient};opacity:0.5;pointer-events:none;"></div>')
+                    with ui.column().classes("items-center justify-center p-6 gap-3").style("min-height: 140px; position: relative; z-index: 10;"):
+                        with ui.element("div").style(f"width: 44px; height: 44px; border-radius: 50%; background: {accent_color}22; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 16px {accent_color}20;"):
+                            ui.icon(icon).style(f"font-size: 22px; color: {accent_color};")
+                        ui.label(label).classes("text-sm font-bold text-center").style("line-height: 1.2;")
 
-        with ui.card().classes("my-card p-5 mt-3"):
-            with ui.row().classes("items-center gap-2"):
-                ui.icon("lock").style("color: var(--mf-muted); font-size: 18px;")
-                ui.label("Month Locks").classes("text-sm font-bold")
-            ui.label("Managed via the Transactions page month lock toggle.").classes("text-xs mt-1").style("color: var(--mf-muted)")
+        with ui.card().classes("my-card p-5 mt-4 items-center").style("background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.1); border-radius: 16px;"):
+            with ui.row().classes("items-center gap-3 w-full justify-between"):
+                with ui.row().classes("items-center gap-3"):
+                    ui.icon("lock").style("color: var(--mf-muted); font-size: 20px; opacity: 0.7;")
+                    with ui.column().classes("gap-0"):
+                        ui.label("Month Locks").classes("text-sm font-bold")
+                        ui.label("Toggle locks directly from the Ledger page.").classes("text-[11px] uppercase tracking-wider").style("color: var(--mf-muted);")
+                ui.button("Go to Ledger", on_click=lambda: nav_to("/tx")).props("outline rounded size=sm").style("color: var(--mf-text); border-color: rgba(255,255,255,0.1);")
 
     shell(content)
 
@@ -8679,7 +8610,7 @@ def cards_page() -> None:
                     text_color = '#ffffff'
                     accent = '#ef4444'
             elif _is_rbc(c):
-                grad = 'linear-gradient(135deg, #2563eb, #1e3a8a)' # RBC Blue
+                grad = 'linear-gradient(135deg, #1e3a8a, #0f172a)' # Subtle RBC Blue
                 text_color = '#ffffff'
                 accent = '#facc15' # RBC Gold/Yellow
             elif _is_loc(c):
@@ -8746,7 +8677,7 @@ def cards_page() -> None:
                                 ui.label(currency(c.get('balance', 0.0))).classes('text-2xl font-black').style('letter-spacing: -0.02em; font-feature-settings: "tnum"; text-shadow: 0 2px 8px rgba(0,0,0,0.3);')
                             with ui.column().classes('gap-0 items-end'):
                                 ui.label('Available').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
-                                ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '---').classes('text-base font-bold').style(f'color: {accent}; font-feature-settings: "tnum"; text-shadow: 0 1px 4px rgba(0,0,0,0.4);')
+                                ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '---').classes('text-base font-bold').style('color: #34d399; font-feature-settings: "tnum"; text-shadow: 0 1px 4px rgba(0,0,0,0.4);')
 
                         # Custom Utilization Bar (integrated into the card)
                         with ui.column().classes('w-full gap-1'):
