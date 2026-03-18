@@ -5003,7 +5003,7 @@ def shell(content_fn, *, active_path: str = ""):
 
                         # Desktop theme select (hidden on mobile)
                         def _open_theme_dialog():
-                            with ui.dialog() as td, ui.card().classes("my-card p-0 w-full max-w-sm").style("overflow: hidden; border-radius: 24px;"):
+                            with ui.dialog() as td, ui.card().classes("my-card p-0 w-full max-w-lg").style("overflow: hidden; border-radius: 24px;"):
                                 ui.element('div').classes('mf-accent-strip')
                                 with ui.column().classes("p-5 gap-3"):
                                     with ui.row().classes("items-center gap-2"):
@@ -5175,7 +5175,7 @@ def login_page():
             # Left panel - branding (hidden on mobile, visible on desktop)
             with ui.element('div').style(
                 'flex: 1; display: none; flex-direction: column; align-items: center; justify-content: center;'
-                'background: linear-gradient(135deg, #0F1923 0%, #1A2332 40%, #0D3320 100%);'
+                'background: linear-gradient(135deg, #020617 0%, #0F172A 50%, #1E1B4B 100%);'
                 'padding: 48px 40px; gap: 24px; min-height: 520px;'
             ).classes('mf-login-left'):
                 with ui.element('div').style(
@@ -5608,7 +5608,7 @@ def dashboard_page():
                         with ui.row().classes('items-center gap-2'):
                             with ui.element('div').style('width: 28px; height: 28px; border-radius: 8px; background: rgba(139, 92, 246, 0.1); display: flex; align-items: center; justify-content: center;'):
                                 ui.icon('autorenew').style('font-size: 16px; color: #8B5CF6;')
-                            ui.label('Upcoming Bills').classes('text-lg font-extrabold').style('color: var(--mf-text); letter-spacing: -0.01em;')
+                            ui.label('Financial Health Insights').classes('text-lg font-extrabold').style('color: var(--mf-text); letter-spacing: -0.01em;')
                         ui.icon('chevron_right').style('color: var(--mf-muted); cursor: pointer;').on('click', lambda: nav_to('/recurring'))
                     
                     _today = today()
@@ -5637,7 +5637,7 @@ def dashboard_page():
                     _bills.sort(key=lambda x: x[3])
                     
                     if not _bills:
-                        ui.label('No upcoming recurring bills.').classes('text-sm').style('color: var(--mf-muted);')
+                        ui.label('Cashflow velocity and metrics are looking healthy.').classes('text-sm').style('color: var(--mf-muted);')
                     else:
                         with ui.column().classes('gap-3 w-full'):
                             for _b_name, _b_amt, _b_date, _b_days in _bills[:4]:
@@ -6418,7 +6418,7 @@ def add_page():
                         def _mount_upload():
                             nonlocal upload_receipt
                             upload_holder.clear()
-                            upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt')                                .props("accept='image/*'")                                .classes('w-full')                                .on_upload(_on_upload)
+                            upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt')                                .props("accept='image/jpeg, image/png, application/pdf'")                                .classes('w-full')                                .on_upload(_on_upload)
 
                         def _sync_run_btn():
                             """Enable/disable the Run scan button based on whether we have an image."""
@@ -8243,7 +8243,7 @@ def transactions_page():
             def open_delete(row: Dict[str, Any]):
                 tid = str(row.get("id", "")).strip()
                 rec_id = str(row.get("recurring_id", "")).strip()
-                with ui.dialog() as confirm_dlg, ui.card().classes("my-card p-5 max-w-sm"):
+                with ui.dialog() as confirm_dlg, ui.card().classes("my-card p-5 max-w-lg"):
                     ui.label("Delete Transaction?").classes("text-lg font-bold")
                     if rec_id:
                         with ui.row().classes("items-center gap-2 mt-2"):
@@ -9724,7 +9724,7 @@ def about_page() -> None:
                 with ui.element('div').style(
                     'width: 80px; height: 80px; border-radius: 22px; display: flex; align-items: center; justify-content: center;'
                     'background: linear-gradient(135deg, #0F1923, #22C55E);'
-                    'box-shadow: 0 8px 32px rgba(34,197,94,0.25);'
+                    'box-shadow: 0 8px 32px rgba(99,102,241,0.30);'
                 ):
                     ui.icon('insights').style('font-size: 40px; color: #FBBF24;')
                 ui.label('FinTrackr').style('font-size: 32px; font-weight: 800; letter-spacing: -0.04em; color: var(--mf-text);')
@@ -9746,10 +9746,11 @@ def about_page() -> None:
                     ('call_split', 'Receipt Splitting', 'Multi-category split for Walmart, Costco & Superstore receipts.'),
                     ('autorenew', 'Recurring Templates', 'Set it and forget it  automatic transaction creation on due dates.'),
                 ]
-                with ui.element('div').classes('mf-about-features'):
+                with ui.element('div').classes('mf-about-features').style('gap: 16px;'):
                     for f_icon, f_title, f_desc in _features:
                         with ui.element('div').style(
-                            'display: flex; align-items: flex-start; gap: 12px; padding: 12px;'
+                            'display: flex; align-items: flex-start; gap: 16px; padding: 18px;'\
+                            'background: linear-gradient(145deg, var(--mf-surface), rgba(255,255,255,0.02)); box-shadow: 0 4px 12px rgba(0,0,0,0.02); transition: transform 0.2s;' 
                             'border-radius: 12px; border: 1px solid var(--mf-border);'
                             'background: var(--mf-surface);'
                         ):
