@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.6'
+APP_VERSION = '9.7'
 
 
 def log(message: str) -> None:
@@ -4153,6 +4153,8 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 /* scrollbar for chip grids */
 .mf-chip-scroll::-webkit-scrollbar { width: 4px; }
 .mf-chip-scroll::-webkit-scrollbar-thumb { background: var(--mf-border); border-radius: 4px; }
+.mf-hide-scrollbar::-webkit-scrollbar { display: none; }
+.mf-hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 /* 8.8: Custom pure-HTML dropdown for high-cardinality fields (Category) */
 .mf-dd-trigger {
   display: flex; align-items: center; gap: 8px;
@@ -5596,49 +5598,66 @@ def dashboard_page():
                     ui.label(currency(_daily_avg)).classes('text-base font-extrabold').style('color: var(--mf-text); letter-spacing: -0.02em; font-feature-settings: "tnum";')
 
 
-        # 9.6: Spending Insights (pre-computed for dashboard grid)
+        # 9.7: Spending Insights (pre-computed for dashboard grid)
         _si_data = None
         try:
             if not tx.empty and 'amount_num' in tx.columns:
                 _ins_spend = tx[tx['type_l'].isin(['debit', 'expense'])].copy()
                 if not _ins_spend.empty and 'category' in _ins_spend.columns:
                     _ins_by_cat = _ins_spend.groupby('category')['amount_num'].sum().sort_values(ascending=False)
-                    _si_data = {
-                        'top_cat': str(_ins_by_cat.index[0]) if len(_ins_by_cat) > 0 else 'N/A',
-                        'top_amt': float(_ins_by_cat.iloc[0]) if len(_ins_by_cat) > 0 else 0.0,
-                        'tx_count': len(_ins_spend),
-                        'avg': round(float(_ins_spend['amount_num'].mean()), 2) if len(_ins_spend) > 0 else 0.0,
-                        'max_amt': float(_ins_spend.loc[_ins_spend['amount_num'].idxmax()]['amount_num']) if len(_ins_spend) > 0 else 0.0,
-                        'max_note': str((_ins_spend.loc[_ins_spend['amount_num'].idxmax()].get('notes', '') or _ins_spend.loc[_ins_spend['amount_num'].idxmax()].get('category', '')))[:25] if len(_ins_spend) > 0 else '',
-                    }
+                    # Top 3 categories for breakdown
+                    _si_top3 = []
+                    _si_total = float(_ins_by_cat.sum())
+                    for _ci in range(min(3, len(_ins_by_cat))):
+                        _si_top3.append((str(_ins_by_cat.index[_ci]), float(_ins_by_cat.iloc[_ci])))
+                    # Biggest expense excluding LOC/intl categories
+                    _excl_cats = {'loc utilization', 'repayment', 'cc repay', 'international', 'international transfer'}
+                    _real_spend = _ins_spend[~_ins_spend['category'].str.strip().str.lower().isin(_excl_cats)]
+                    if not _real_spend.empty:
+                        _max_row = _real_spend.loc[_real_spend['amount_num'].idxmax()]
+                        _si_biggest = float(_max_row['amount_num'])
+                        _si_big_note = str(_max_row.get('notes', '') or _max_row.get('category', ''))[:30]
+                    else:
+                        _si_biggest = 0.0
+                        _si_big_note = ''
+                    _si_data = {'top3': _si_top3, 'total': _si_total, 'biggest': _si_biggest, 'big_note': _si_big_note}
         except Exception:
             pass
 
         def _render_spending_insights():
-            if not _si_data:
+            if not _si_data or not _si_data['top3']:
                 return
+            _top3_colors = ['#ef4444', '#f59e0b', '#3b82f6']
             with ui.card().classes('my-card p-0').style('overflow: hidden;'):
-                ui.element('div').style('height: 3px; background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899); border-radius: 0;')
-                with ui.column().classes('p-5 gap-4'):
+                ui.element('div').style('height: 3px; background: linear-gradient(90deg, #ef4444, #f59e0b, #3b82f6); border-radius: 0;')
+                with ui.column().classes('p-5 gap-5'):
                     with ui.row().classes('items-center gap-2'):
-                        with ui.element('div').style('width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(139,92,246,0.15)); display: flex; align-items: center; justify-content: center;'):
-                            ui.icon('insights').style('font-size: 18px; color: #818cf8;')
-                        ui.label('Spending Insights').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
+                        with ui.element('div').style('width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(135deg, rgba(239,68,68,0.12), rgba(245,158,11,0.12)); display: flex; align-items: center; justify-content: center;'):
+                            ui.icon('donut_small').style('font-size: 18px; color: #f87171;')
+                        ui.label('Spending Breakdown').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
 
-                    with ui.element('div').style('display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'):
-                        for _si_lbl, _si_val, _si_sub, _si_clr in [
-                            ('Top Category', _si_data['top_cat'], currency(_si_data['top_amt']), '#ef4444'),
-                            ('Transactions', str(_si_data['tx_count']), 'this month', 'var(--mf-text)'),
-                            ('Avg Spend', currency(_si_data['avg']), 'per transaction', '#f59e0b'),
-                            ('Biggest', currency(_si_data['max_amt']), _si_data['max_note'] or '---', '#a855f7'),
-                        ]:
-                            with ui.element('div').style(
-                                f'background: linear-gradient(135deg, {_si_clr}08, {_si_clr}04);'
-                                f'border: 1px solid {_si_clr}18; border-radius: 14px; padding: 14px;'
-                            ):
-                                ui.label(_si_lbl).classes('text-[10px] font-semibold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;')
-                                ui.label(str(_si_val)).classes('text-lg font-extrabold mt-1').style(f'color: {_si_clr}; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
-                                ui.label(str(_si_sub)).classes('text-xs').style('color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;')
+                    # Top categories with visual bars
+                    for _ti, (_t_cat, _t_amt) in enumerate(_si_data['top3']):
+                        _t_pct = (_t_amt / _si_data['total'] * 100) if _si_data['total'] > 0 else 0
+                        _t_clr = _top3_colors[_ti % 3]
+                        with ui.element('div').style('display: flex; flex-direction: column; gap: 6px;'):
+                            with ui.row().classes('items-center justify-between w-full'):
+                                with ui.row().classes('items-center gap-2'):
+                                    ui.element('div').style(f'width: 8px; height: 8px; border-radius: 50%; background: {_t_clr}; flex-shrink: 0;')
+                                    ui.label(_t_cat).classes('text-sm font-semibold').style('color: var(--mf-text);')
+                                ui.label(currency(_t_amt)).classes('text-sm font-extrabold').style(f'color: {_t_clr}; font-feature-settings: "tnum";')
+                            with ui.element('div').style('width: 100%; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden;'):
+                                ui.element('div').style(f'height: 100%; width: {_t_pct}%; background: {_t_clr}; border-radius: 3px;')
+
+                    # Biggest expense highlight
+                    if _si_data['biggest'] > 0:
+                        ui.element('div').style('height: 1px; background: linear-gradient(90deg, transparent, var(--mf-border), transparent);')
+                        with ui.row().classes('items-center justify-between w-full'):
+                            with ui.column().classes('gap-0'):
+                                ui.label('Biggest Expense').classes('text-[10px] font-semibold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;')
+                                if _si_data['big_note']:
+                                    ui.label(_si_data['big_note']).classes('text-xs').style('color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;')
+                            ui.label(currency(_si_data['biggest'])).classes('text-xl font-extrabold').style('color: #a855f7; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
 
         # Pay period breakdown removed in v9.0
 
@@ -5744,37 +5763,34 @@ def dashboard_page():
                         pass
 
                     if rows:
-                        # Total budget summary
-                        _total_budgeted = sum(b for _, _, b in rows)
-                        _total_spent = sum(s for _, s, _ in rows)
-                        _overall_pct = min(1.0, _total_spent / _total_budgeted) if _total_budgeted > 0 else 0.0
-                        _remaining = max(0, _total_budgeted - _total_spent)
-
-                        # 9.6: Consolidated budgets — full-width card with progress rows
-                        with ui.card().classes('my-card p-5 mt-6').style('width: 100%; box-sizing: border-box;'):
-                            with ui.row().classes('items-center justify-between w-full mb-4'):
-                                with ui.row().classes('items-center gap-2'):
-                                    with ui.element('div').style('width: 28px; height: 28px; border-radius: 8px; background: rgba(139,92,246,0.12); display: flex; align-items: center; justify-content: center;'):
-                                        ui.icon('account_balance_wallet').style('font-size: 16px; color: #8B5CF6;')
-                                    ui.label('Budgets').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
-                                # Overall summary pill
-                                _ov_pct = int(round(_overall_pct * 100))
-                                _ov_color = '#ef4444' if _overall_pct >= 1.0 else ('#f59e0b' if _overall_pct >= 0.8 else '#22c55e')
-                                ui.label(f'{_ov_pct}% used').classes('text-xs font-bold').style(f'color: {_ov_color}; background: {_ov_color}15; padding: 3px 10px; border-radius: 20px;')
-
-                            with ui.column().classes('w-full gap-3'):
-                                for cat, spent_amt, bud_amt in rows[:6]:
+                        # 9.7: Budget tiles — horizontal scrollable, matching hero tile style
+                        _bud_colors = ['#8B5CF6', '#3B82F6', '#F59E0B', '#EF4444', '#10B981', '#EC4899']
+                        with ui.element('div').style('margin-top: 20px;'):
+                            with ui.row().classes('items-center gap-2 mb-3'):
+                                with ui.element('div').style('width: 28px; height: 28px; border-radius: 8px; background: rgba(139,92,246,0.12); display: flex; align-items: center; justify-content: center;'):
+                                    ui.icon('account_balance_wallet').style('font-size: 16px; color: #8B5CF6;')
+                                ui.label('Budgets').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
+                            with ui.element('div').style(
+                                'display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory;'
+                                '-webkit-overflow-scrolling: touch; scrollbar-width: none;'
+                            ).classes('mf-hide-scrollbar'):
+                                for _bi, (cat, spent_amt, bud_amt) in enumerate(rows):
                                     pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
-                                    _c = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else '#8B5CF6')
-                                    with ui.element('div').style('display: flex; flex-direction: column; gap: 6px;'):
+                                    _bc = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else _bud_colors[_bi % len(_bud_colors)])
+                                    with ui.element('div').style(
+                                        f'min-width: 155px; width: 155px; height: 130px; flex-shrink: 0; scroll-snap-align: start;'
+                                        f'border-radius: 22px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;'
+                                        f'background: var(--mf-card-top); border: 1px solid {_bc}30;'
+                                        f'box-shadow: 0 4px 16px {_bc}10;'
+                                    ):
                                         with ui.row().classes('items-center justify-between w-full'):
-                                            ui.label(cat).classes('text-sm font-semibold').style('color: var(--mf-text); letter-spacing: -0.01em;')
-                                            with ui.row().classes('items-center gap-2'):
-                                                ui.label(f'{currency(spent_amt)}').classes('text-sm font-bold').style(f'color: {_c}; font-feature-settings: "tnum";')
-                                                ui.label(f'/ {currency(bud_amt)}').classes('text-xs').style('color: var(--mf-muted);')
-                                        # Progress bar
-                                        with ui.element('div').style('width: 100%; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden;'):
-                                            ui.element('div').style(f'height: 100%; width: {pct*100}%; background: {_c}; border-radius: 3px; transition: width 0.3s ease;')
+                                            ui.label(cat).classes('text-xs font-bold').style('color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px;')
+                                            ui.label(f'{int(pct*100)}%').classes('text-xs font-extrabold').style(f'color: {_bc};')
+                                        with ui.column().classes('gap-1'):
+                                            ui.label(currency(spent_amt)).classes('text-lg font-extrabold').style(f'color: {_bc}; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
+                                            ui.label(f'of {currency(bud_amt)}').classes('text-[10px]').style('color: var(--mf-muted);')
+                                        with ui.element('div').style('width: 100%; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.06); overflow: hidden;'):
+                                            ui.element('div').style(f'height: 100%; width: {pct*100}%; background: {_bc}; border-radius: 2px;')
 
         # Upcoming salary section removed in v9.0 (payday info now in hero card)
 
@@ -5861,12 +5877,13 @@ def dashboard_page():
             except Exception:
                 pass
 
-        #  Dashboard Grid (responsive 2-col on desktop)
+        # 9.7: Spending Insights full-width, then Recent Tx below
+        _render_spending_insights()
+
+        #  Dashboard Grid
         with ui.element('div').classes('mf-dash-grid'):
             with ui.element('div'):
                 _render_recent_tx()
-            with ui.element('div'):
-                _render_spending_insights()
 
 
     shell(content)
@@ -6294,8 +6311,9 @@ def add_page():
                     d_notes = ui.textarea("Notes / Merchant", value="").props("dense borderless rows=2 autogrow").classes("w-full mf-premium-input")
                     d_notes.style('background: rgba(0,0,0,0.2) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px; padding: 12px 16px; font-weight: 500; font-size: 14px; color: var(--mf-text); box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); transition: all 0.2s ease;')
                 
-                with ui.element('div').style('margin-top: 16px; padding: 12px 16px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px solid rgba(255,255,255,0.03); display: flex; align-items: center; gap: 12px;'):
-                    d_rec = ui.checkbox("Mark as recurring template").style('font-weight: 600; font-size: 13px; color: var(--mf-muted);')
+                with ui.element('div').style('margin-top: 16px; padding: 12px 16px; background: var(--mf-surface); border-radius: 12px; border: 1px solid var(--mf-border); display: flex; align-items: center; gap: 12px;'):
+                    d_rec = ui.checkbox("Mark as recurring template").style('font-weight: 600; font-size: 13px; color: var(--mf-text);')
+                    d_rec.props('color="primary"')
                 if hide_category:
                     d_rec.set_visibility(False)
 
@@ -6309,15 +6327,16 @@ def add_page():
                     ui.spinner(size='lg')
                     ui.label('Scanning...').classes('text-subtitle1')
                 parsed_state: Dict[str, Any] = {"parsed": None}
-                with scan_dlg, ui.card().classes('my-card p-0 w-[720px] max-w-[95vw]').style('background: #0B0E14; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 0 40px rgba(99,102,241,0.2); max-height: min(88vh, 80dvh); height: min(88vh, 80dvh); display:flex; flex-direction:column; overflow:hidden; border-radius: 28px;'):
-                    ui.element('div').style('height: 6px; width: 100%; background: linear-gradient(90deg, #6366f1, #3b82f6, #10b981); flex-shrink: 0;')
-                    with ui.column().classes('w-full').style('flex:1; overflow-y:auto; padding: 24px;'):
-                        with ui.row().classes('items-center gap-4 mb-5'):
-                            with ui.element("div").style("width: 48px; height: 48px; border-radius: 14px; background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(59,130,246,0.1)); display: flex; align-items: center; justify-content: center; border: 1px solid rgba(99,102,241,0.3);"):
-                                ui.icon("document_scanner").style("font-size: 26px; color: #818cf8;")
+                scan_dlg.props('transition-show="fade" transition-hide="fade" transition-duration="150"')
+                with scan_dlg, ui.card().classes('my-card p-0 w-[720px] max-w-[95vw]').style('background: var(--mf-bg); border: 1px solid var(--mf-border); box-shadow: 0 24px 48px rgba(0,0,0,0.3); max-height: min(88vh, 80dvh); height: min(88vh, 80dvh); display:flex; flex-direction:column; overflow:hidden; border-radius: 24px;'):
+                    ui.element('div').style('height: 4px; width: 100%; background: linear-gradient(90deg, #6366f1, #3b82f6, #10b981); flex-shrink: 0;')
+                    with ui.column().classes('w-full').style('flex:1; overflow-y:auto; padding: 20px;'):
+                        with ui.row().classes('items-center gap-3 mb-4'):
+                            with ui.element("div").style("width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(59,130,246,0.08)); display: flex; align-items: center; justify-content: center; border: 1px solid rgba(99,102,241,0.2);"):
+                                ui.icon("document_scanner").style("font-size: 22px; color: #818cf8;")
                             with ui.column().classes("gap-0"):
-                                ui.label('Smart Scan').classes('text-xl font-extrabold').style('letter-spacing: -0.02em; color: white;')
-                                ui.label('Auto-extract merchant, total & date').classes('text-sm').style('color: rgba(255,255,255,0.6)')
+                                ui.label('Smart Scan').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                                ui.label('Upload receipt to auto-extract details').classes('text-xs').style('color: var(--mf-muted);')
 
                         preview = ui.image('').classes('w-full rounded').style('display:none')
 
@@ -6776,7 +6795,7 @@ def add_page():
                             scan_dlg.close()
 
                     # Sticky footer so buttons don't get pushed below the upload card on mobile
-                    with ui.row().classes('w-full items-center gap-2').style('position: sticky; bottom: 0; background: rgba(11,14,20,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); z-index: 20; padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08);'):
+                    with ui.row().classes('w-full items-center gap-2').style('position: sticky; bottom: 0; background: var(--mf-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); z-index: 20; padding: 14px 20px; border-top: 1px solid var(--mf-border);'):
                         run_btn = ui.button('Scan', icon='document_scanner', on_click=_run_ocr).props('unelevated').classes('flex-1').style(
                             'background: linear-gradient(135deg, #6366f1, #3b82f6) !important; color: #fff !important; border-radius: 10px; font-weight: 600;'
                         )
@@ -9719,7 +9738,7 @@ def about_page() -> None:
         return
 
     def content() -> None:
-      with ui.element('div').classes('mf-about-wrap w-full max-w-4xl mx-auto px-4 py-6 md:px-8'):
+      with ui.element('div').classes('w-full py-4'):
         #  App Info Card
         with ui.card().classes('my-card p-0').style('overflow: hidden;'):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #22C55E, #FBBF24); border-radius: 0;')
