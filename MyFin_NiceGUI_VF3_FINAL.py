@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.4'
+APP_VERSION = '9.3'
 
 
 def log(message: str) -> None:
@@ -3633,7 +3633,7 @@ a.mf-more-item.is-active:visited {
   align-items: flex-start;
   justify-content: space-between;
   gap: 6px;
-  max-width: 1440px;
+  max-width: 1180px;
   margin: 0 auto 16px auto;
   min-height: 56px;
 }
@@ -3676,7 +3676,7 @@ a.mf-more-item.is-active:visited {
   font-size: 24px !important;
 }
 .mf-canvas{
-  max-width: 1440px;
+  max-width: 1180px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -5165,90 +5165,87 @@ def methods_list() -> List[str]:
 @ui.page("/login")
 def login_page():
     ui.dark_mode(True)  # login page always uses dark theme
-    ui.page_title('Login | FinTrackr')
     # Premium login - responsive: side-by-side on desktop, stacked on mobile
-    with ui.element('div').style('width: 100vw; height: 100vh; position: fixed; top: 0; left: 0; display: flex; align-items: center; justify-content: center; background: #0b0e14; z-index: 10000;'):
-        with ui.element('div').classes('mf-login-hero mt-0').style('width: 100%; display: flex; justify-content: center; padding: 20px;'):
+    with ui.element('div').classes('mf-login-hero'):
+        with ui.element('div').style(
+            'display: flex; align-items: stretch; width: 100%; max-width: 960px;'
+            'border-radius: 28px; overflow: hidden;'
+            'box-shadow: 0 20px 60px rgba(0,0,0,0.18);'
+        ):
+            # Left panel - branding (hidden on mobile, visible on desktop)
             with ui.element('div').style(
-                'display: flex; align-items: stretch; width: 100%; max-width: 960px;'
-                'border-radius: 28px; overflow: hidden;'
-                'box-shadow: 0 25px 60px rgba(0,0,0,0.4);'
-                'border: 1px solid rgba(255,255,255,0.05);'
-            ):
-                # Left panel - branding (hidden on mobile, visible on desktop)
+                'flex: 1; display: none; flex-direction: column; align-items: center; justify-content: center;'
+                'background: linear-gradient(135deg, #0F1923 0%, #1A2332 40%, #0D3320 100%);'
+                'padding: 48px 40px; gap: 24px; min-height: 520px;'
+            ).classes('mf-login-left'):
                 with ui.element('div').style(
-                    'flex: 1; display: none; flex-direction: column; align-items: center; justify-content: center;'
-                    'background: linear-gradient(135deg, #0F1923 0%, #1A2332 40%, #0D3320 100%);'
-                    'padding: 48px 40px; gap: 24px; min-height: 520px;'
-                ).classes('mf-login-left'):
-                    with ui.element('div').style(
-                        'width: 80px; height: 80px; border-radius: 22px; display: flex; align-items: center; justify-content: center;'
-                        'background: rgba(255,255,255,0.18); backdrop-filter: blur(8px);'
-                        'box-shadow: 0 8px 32px rgba(0,0,0,0.12);'
-                    ):
-                        ui.icon('insights').style('font-size: 42px; color: #FBBF24;')
-                    ui.label('FinTrackr').style('font-size: 34px; font-weight: 800; color: #FBBF24; letter-spacing: -0.04em;')
-                    ui.label('Your premium personal finance dashboard').style(
-                        'color: rgba(255,255,255,0.85); font-size: 15px; text-align: center; max-width: 260px; line-height: 1.6;'
-                    )
-                    # Feature highlights
-                    for feat_icon, feat_text in [
-                        ('insights', 'Smart spending insights'),
-                        ('document_scanner', 'AI receipt scanning'),
-                        ('palette', '8 premium themes'),
-                        ('security', 'Passkey authentication'),
-                    ]:
-                        with ui.row().style(
-                            'align-items: center; gap: 10px; background: rgba(255,255,255,0.12);'
-                            'border-radius: 10px; padding: 8px 16px; width: 100%; max-width: 240px;'
-                        ):
-                            ui.icon(feat_icon).style('font-size: 18px; color: rgba(255,255,255,0.9);')
-                            ui.label(feat_text).style('font-size: 13px; color: rgba(255,255,255,0.9); font-weight: 500;')
-
-                # Right panel - sign-in form
-                with ui.element('div').style(
-                    'flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;'
-                    'padding: 48px 40px; background: var(--mf-bg);'
-                    'min-width: 0;'
+                    'width: 80px; height: 80px; border-radius: 22px; display: flex; align-items: center; justify-content: center;'
+                    'background: rgba(255,255,255,0.18); backdrop-filter: blur(8px);'
+                    'box-shadow: 0 8px 32px rgba(0,0,0,0.12);'
                 ):
-                    # Mobile-only logo (hidden on desktop where left panel shows it)
-                    with ui.column().classes('items-center gap-1 mb-6 mf-login-mobile-logo'):
-                        with ui.element('div').style(
-                            'width: 60px; height: 60px; border-radius: 18px; display: flex; align-items: center; justify-content: center;'
-                            'background: linear-gradient(135deg, #0F1923, #22C55E);'
-                            'box-shadow: 0 8px 24px rgba(34,197,94,0.30);'
-                        ):
-                            ui.icon('insights').style('font-size: 30px; color: #FBBF24;')
-                        ui.label('FinTrackr').classes('text-xl font-extrabold mt-2').style('letter-spacing: -0.03em; background: linear-gradient(135deg, #4F46E5, #06B6D4); -webkit-background-clip: text; -webkit-text-fill-color: transparent;')
+                    ui.icon('insights').style('font-size: 42px; color: #FBBF24;')
+                ui.label('FinTrackr').style('font-size: 34px; font-weight: 800; color: #FBBF24; letter-spacing: -0.04em;')
+                ui.label('Your premium personal finance dashboard').style(
+                    'color: rgba(255,255,255,0.85); font-size: 15px; text-align: center; max-width: 260px; line-height: 1.6;'
+                )
+                # Feature highlights
+                for feat_icon, feat_text in [
+                    ('insights', 'Smart spending insights'),
+                    ('document_scanner', 'AI receipt scanning'),
+                    ('palette', '8 premium themes'),
+                    ('security', 'Passkey authentication'),
+                ]:
+                    with ui.row().style(
+                        'align-items: center; gap: 10px; background: rgba(255,255,255,0.12);'
+                        'border-radius: 10px; padding: 8px 16px; width: 100%; max-width: 240px;'
+                    ):
+                        ui.icon(feat_icon).style('font-size: 18px; color: rgba(255,255,255,0.9);')
+                        ui.label(feat_text).style('font-size: 13px; color: rgba(255,255,255,0.9); font-weight: 500;')
 
-                    with ui.column().classes('w-full gap-0').style('max-width: 380px;'):
-                        ui.label('Welcome back').classes('text-2xl font-extrabold').style('letter-spacing: -0.02em;')
-                        ui.label('Sign in to manage your finances').classes('text-sm mb-6').style('color: var(--mf-muted)')
+            # Right panel - sign-in form
+            with ui.element('div').style(
+                'flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;'
+                'padding: 48px 40px; background: var(--mf-bg);'
+                'min-width: 0;'
+            ):
+                # Mobile-only logo (hidden on desktop where left panel shows it)
+                with ui.column().classes('items-center gap-1 mb-6 mf-login-mobile-logo'):
+                    with ui.element('div').style(
+                        'width: 60px; height: 60px; border-radius: 18px; display: flex; align-items: center; justify-content: center;'
+                        'background: linear-gradient(135deg, #0F1923, #22C55E);'
+                        'box-shadow: 0 8px 24px rgba(34,197,94,0.30);'
+                    ):
+                        ui.icon('insights').style('font-size: 30px; color: #FBBF24;')
+                    ui.label('FinTrackr').classes('text-xl font-extrabold mt-2').style('letter-spacing: -0.03em; background: linear-gradient(135deg, #4F46E5, #06B6D4); -webkit-background-clip: text; -webkit-text-fill-color: transparent;')
 
-                        u_in = ui.input("Username").classes("w-full").props("outlined dense")
-                        u_in.style("margin-bottom: 12px;")
-                        p_in = ui.input("Password", password=True, password_toggle_button=True).classes("w-full").props("outlined dense")
+                with ui.column().classes('w-full gap-0').style('max-width: 380px;'):
+                    ui.label('Welcome back').classes('text-2xl font-extrabold').style('letter-spacing: -0.02em;')
+                    ui.label('Sign in to manage your finances').classes('text-sm mb-6').style('color: var(--mf-muted)')
 
-                        def attempt():
-                            if check_login(u_in.value or "", p_in.value or ""):
-                                app.storage.user["logged_in"] = True
-                                ui.notify("Welcome", type="positive")
-                                nav_to("/")
-                            else:
-                                ui.notify("Invalid login", type="negative")
+                    u_in = ui.input("Username").classes("w-full").props("outlined dense")
+                    u_in.style("margin-bottom: 12px;")
+                    p_in = ui.input("Password", password=True, password_toggle_button=True).classes("w-full").props("outlined dense")
 
-                        ui.button("Sign in", on_click=attempt).classes("w-full mt-5").props("unelevated").style(
-                            "background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2)) !important;"
-                            "color: #fff !important; font-weight: 700; border-radius: 12px; padding: 14px 0;"
-                            "box-shadow: 0 4px 14px rgba(91,140,255,0.25); font-size: 15px;"
-                        )
+                    def attempt():
+                        if check_login(u_in.value or "", p_in.value or ""):
+                            app.storage.user["logged_in"] = True
+                            ui.notify("Welcome", type="positive")
+                            nav_to("/")
+                        else:
+                            ui.notify("Invalid login", type="negative")
 
-                        with ui.row().classes('w-full justify-center mt-5 gap-2'):
-                            ui.icon('lock').style('font-size: 14px; color: var(--mf-muted);')
-                            ui.label('256-bit encrypted').classes('text-xs').style('color: var(--mf-muted);')
+                    ui.button("Sign in", on_click=attempt).classes("w-full mt-5").props("unelevated").style(
+                        "background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2)) !important;"
+                        "color: #fff !important; font-weight: 700; border-radius: 12px; padding: 14px 0;"
+                        "box-shadow: 0 4px 14px rgba(91,140,255,0.25); font-size: 15px;"
+                    )
 
-                        with ui.row().classes('w-full justify-center mt-4'):
-                            ui.label(f'v{APP_VERSION}').classes('text-xs').style('color: var(--mf-muted); opacity: 0.5;')
+                    with ui.row().classes('w-full justify-center mt-5 gap-2'):
+                        ui.icon('lock').style('font-size: 14px; color: var(--mf-muted);')
+                        ui.label('256-bit encrypted').classes('text-xs').style('color: var(--mf-muted);')
+
+                    with ui.row().classes('w-full justify-center mt-4'):
+                        ui.label(f'v{APP_VERSION}').classes('text-xs').style('color: var(--mf-muted); opacity: 0.5;')
 
 
 
@@ -5259,2438 +5256,2365 @@ def dashboard_page():
         return
 
     def content():
-        container = ui.column().classes("w-full gap-0 p-0 m-0").style("background: transparent;")
-        spinner_row = ui.row().classes("w-full justify-center items-center py-20")
-        with spinner_row:
-            ui.spinner("bars", size="xl").style("color: #6366f1;")
-
-        def _render_actual_content():
-            # Safe: run recurring generation for today once per page load
-            # FIX: Defer heavy synchronous work so the page renders instantly.
-            def _deferred_recurring():
-                try:
-                    created = generate_recurring_for_date(today())
-                    if created:
-                        ui.notify(f"Auto-added {created} recurring entries for {today().isoformat()}", type="positive")
-                except Exception as e:
-                    _logger.error("Failed to generate recurring transactions: %s", e)
-            ui.timer(0.1, _deferred_recurring, once=True)
-    
-            tx = cached_df("transactions")
-            #  B2 fix: robust empty-data handling (no KeyError on cleaned sheets) 
-            if tx is None or tx.empty or len(tx) == 0:
-                with ui.card().classes("my-card p-6"):
-                    with ui.column().classes("items-center gap-3 w-full").style("padding: 30px 0;"):
-                        ui.icon("account_balance_wallet").style("font-size: 48px; color: var(--mf-muted); opacity: 0.3;")
-                        ui.label("No transactions yet").classes("text-lg font-bold")
-                        ui.label("Tap the + button or go to Add to create your first entry.").style("color: var(--mf-muted); text-align: center;")
-                return
-    
-            # --- normalize expected columns (robust to sheet header variations) ---
-            def _first_col(df, candidates):
-                for c in candidates:
-                    if c in df.columns:
-                        return c
-                lower_map = {str(col).strip().lower(): col for col in df.columns}
-                for c in candidates:
-                    key = str(c).strip().lower()
-                    if key in lower_map:
-                        return lower_map[key]
-                return None
-    
-            c_date = _first_col(tx, ["date", "Date", "DATE", "transaction_date", "Transaction Date"])
-            c_amount = _first_col(tx, ["amount", "Amount", "AMOUNT", "amt", "Amt", "value", "Value"])
-            c_type = _first_col(tx, ["type", "Type", "TYPE", "transaction_type", "Transaction Type", "Type (+/-)", "type (+/-)"])
-    
-            if c_date and c_date != "date":
-                tx["date"] = tx[c_date]
-            if c_amount and c_amount != "amount":
-                tx["amount"] = tx[c_amount]
-            if c_type and c_type != "type":
-                tx["type"] = tx[c_type]
-    
-            # ensure columns exist even if the sheet is missing them
-            for _col, _def in [("date", ""), ("amount", 0), ("type", ""), ("account", ""), ("category", ""), ("notes", ""), ("owner", "Family")]:
-                if _col not in tx.columns:
-                    tx[_col] = _def
-    
-            tx["date_parsed"] = tx["date"].apply(parse_date)
-            tx = tx[tx["date_parsed"].notna()].copy()
-            if tx.empty:
-                with ui.card().classes("my-card p-6"):
-                    with ui.column().classes("items-center gap-3 w-full").style("padding: 30px 0;"):
-                        ui.icon("event_busy").style("font-size: 48px; color: var(--mf-muted); opacity: 0.3;")
-                        ui.label("No valid transactions found").classes("text-lg font-bold")
-                        ui.label("Check that your transactions sheet has a 'date' column with valid dates.").style("color: var(--mf-muted); text-align: center;")
-                return
-            tx["amount_num"] = tx["amount"].apply(to_float)
-            # Normalize "type" column (sheet headers may vary in casing/spaces)
-            if "type" not in tx.columns:
-                _colmap = {str(c).strip().lower(): c for c in tx.columns}
-                _src = None
-                for _k in ("type", "txn type", "transaction type", "tx type"):
-                    if _k in _colmap:
-                        _src = _colmap[_k]
-                        break
-                if _src is None:
-                    for _k, _orig in _colmap.items():
-                        if "type" in _k:
-                            _src = _orig
-                            break
-                if _src is not None:
-                    tx["type"] = tx[_src]
-                else:
-                    tx["type"] = ""
-            tx["type_l"] = tx["type"].astype(str).str.lower().str.strip()
-    
-            mkey = month_key(today())
-            mtx = tx[tx["date_parsed"].apply(lambda d: month_key(d) == mkey)].copy()
-    
-            # Defensive normalization: some sheets may have different header casing/spacing
-            if "type_l" not in mtx.columns:
-                # try to locate a type-like column (case/space-insensitive)
-                colmap = {str(c).strip().lower(): c for c in mtx.columns}
-                src = None
-                for key in ("type", "txn type", "transaction type", "tx type", "category type"):
-                    if key in colmap:
-                        src = colmap[key]
-                        break
-                if src is None:
-                    # fallback: any column containing "type"
-                    for k, orig in colmap.items():
-                        if "type" in k:
-                            src = orig
-                            break
-                if src is not None:
-                    mtx["type_l"] = mtx[src].astype(str).str.strip().str.lower()
-                else:
-                    mtx["type_l"] = ""
-            if "amount_num" not in mtx.columns:
-                # try amount-like columns
-                colmap2 = {str(c).strip().lower(): c for c in mtx.columns}
-                src_amt = None
-                for key in ("amount", "amt", "value", "cad", "amount_cad"):
-                    if key in colmap2:
-                        src_amt = colmap2[key]
-                        break
-                if src_amt is not None:
-                    mtx["amount_num"] = pd.to_numeric(mtx[src_amt], errors="coerce").fillna(0.0)
-                else:
-                    mtx["amount_num"] = 0.0
-            typ = None
-            if "type_l" in mtx.columns:
-                typ = mtx["type_l"].astype(str).str.strip().str.lower()
-            else:
-                # fallback: use any type-like column
-                _colmap = {str(c).strip().lower(): c for c in mtx.columns}
-                _src = None
-                for _k in ("type", "txn type", "transaction type", "tx type"):
-                    if _k in _colmap:
-                        _src = _colmap[_k]; break
-                if _src is None:
-                    for _k, _orig in _colmap.items():
-                        if "type" in _k: _src = _orig; break
-                if _src is not None:
-                    typ = mtx[_src].astype(str).str.strip().str.lower()
-                else:
-                    typ = pd.Series([""] * len(mtx))
-            amt = mtx["amount_num"] if "amount_num" in mtx.columns else pd.Series([0.0] * len(mtx))
-            income = amt[typ.isin(["credit", "income"])].sum()
-            expense = amt[typ.isin(["debit", "expense"])].sum()
-            invest = amt[typ.isin(["investment"])].sum()
-            intl = amt[typ.isin(['international', 'international transfer', 'intl'])].sum()
-    
-            loc_draw = amt[typ.isin(['loc draw', 'loc withdrawal', 'loc_draw', 'loc_withdrawal'])].sum()
-            loc_repay = amt[typ.isin(['loc repay', 'loc repayment', 'loc_repay', 'loc_repayment'])].sum()
-            transfer_out = amt[typ.isin(['transfer', 'transfer out', 'transfer_out'])].sum()
-    
-            net = income + loc_draw - expense - invest - intl - loc_repay - transfer_out
-    
-    
-            # --- Pay-period view (smarter than calendar month for end-of-month salaries) ---
-            # Build a combined payday calendar (Salary 1: semimonthly, Salary 2: biweekly anchor)
+        # Safe: run recurring generation for today once per page load
+        # FIX: Defer heavy synchronous work so the page renders instantly.
+        def _deferred_recurring():
             try:
-                start_d = today()
-                # compute paydays ~90 days around today to find previous/next
-                window_start = start_d - dt.timedelta(days=60)
-                window_end = start_d + dt.timedelta(days=60)
-                all_pays: list[dt.date] = []
-                yy, mm = window_start.year, window_start.month
-                for _ in range(6):
-                    for p in abhi_pay_dates_for_month(yy, mm):
-                        if window_start <= p <= window_end:
-                            all_pays.append(p)
-                    mm += 1
-                    if mm == 13:
-                        yy += 1
-                        mm = 1
-                for p in wife_pay_dates_between(window_start, window_end):
+                created = generate_recurring_for_date(today())
+                if created:
+                    ui.notify(f"Auto-added {created} recurring entries for {today().isoformat()}", type="positive")
+            except Exception as e:
+                _logger.error("Failed to generate recurring transactions: %s", e)
+        ui.timer(0.1, _deferred_recurring, once=True)
+
+        tx = cached_df("transactions")
+        #  B2 fix: robust empty-data handling (no KeyError on cleaned sheets) 
+        if tx is None or tx.empty or len(tx) == 0:
+            with ui.card().classes("my-card p-6"):
+                with ui.column().classes("items-center gap-3 w-full").style("padding: 30px 0;"):
+                    ui.icon("account_balance_wallet").style("font-size: 48px; color: var(--mf-muted); opacity: 0.3;")
+                    ui.label("No transactions yet").classes("text-lg font-bold")
+                    ui.label("Tap the + button or go to Add to create your first entry.").style("color: var(--mf-muted); text-align: center;")
+            return
+
+        # --- normalize expected columns (robust to sheet header variations) ---
+        def _first_col(df, candidates):
+            for c in candidates:
+                if c in df.columns:
+                    return c
+            lower_map = {str(col).strip().lower(): col for col in df.columns}
+            for c in candidates:
+                key = str(c).strip().lower()
+                if key in lower_map:
+                    return lower_map[key]
+            return None
+
+        c_date = _first_col(tx, ["date", "Date", "DATE", "transaction_date", "Transaction Date"])
+        c_amount = _first_col(tx, ["amount", "Amount", "AMOUNT", "amt", "Amt", "value", "Value"])
+        c_type = _first_col(tx, ["type", "Type", "TYPE", "transaction_type", "Transaction Type", "Type (+/-)", "type (+/-)"])
+
+        if c_date and c_date != "date":
+            tx["date"] = tx[c_date]
+        if c_amount and c_amount != "amount":
+            tx["amount"] = tx[c_amount]
+        if c_type and c_type != "type":
+            tx["type"] = tx[c_type]
+
+        # ensure columns exist even if the sheet is missing them
+        for _col, _def in [("date", ""), ("amount", 0), ("type", ""), ("account", ""), ("category", ""), ("notes", ""), ("owner", "Family")]:
+            if _col not in tx.columns:
+                tx[_col] = _def
+
+        tx["date_parsed"] = tx["date"].apply(parse_date)
+        tx = tx[tx["date_parsed"].notna()].copy()
+        if tx.empty:
+            with ui.card().classes("my-card p-6"):
+                with ui.column().classes("items-center gap-3 w-full").style("padding: 30px 0;"):
+                    ui.icon("event_busy").style("font-size: 48px; color: var(--mf-muted); opacity: 0.3;")
+                    ui.label("No valid transactions found").classes("text-lg font-bold")
+                    ui.label("Check that your transactions sheet has a 'date' column with valid dates.").style("color: var(--mf-muted); text-align: center;")
+            return
+        tx["amount_num"] = tx["amount"].apply(to_float)
+        # Normalize "type" column (sheet headers may vary in casing/spaces)
+        if "type" not in tx.columns:
+            _colmap = {str(c).strip().lower(): c for c in tx.columns}
+            _src = None
+            for _k in ("type", "txn type", "transaction type", "tx type"):
+                if _k in _colmap:
+                    _src = _colmap[_k]
+                    break
+            if _src is None:
+                for _k, _orig in _colmap.items():
+                    if "type" in _k:
+                        _src = _orig
+                        break
+            if _src is not None:
+                tx["type"] = tx[_src]
+            else:
+                tx["type"] = ""
+        tx["type_l"] = tx["type"].astype(str).str.lower().str.strip()
+
+        mkey = month_key(today())
+        mtx = tx[tx["date_parsed"].apply(lambda d: month_key(d) == mkey)].copy()
+
+        # Defensive normalization: some sheets may have different header casing/spacing
+        if "type_l" not in mtx.columns:
+            # try to locate a type-like column (case/space-insensitive)
+            colmap = {str(c).strip().lower(): c for c in mtx.columns}
+            src = None
+            for key in ("type", "txn type", "transaction type", "tx type", "category type"):
+                if key in colmap:
+                    src = colmap[key]
+                    break
+            if src is None:
+                # fallback: any column containing "type"
+                for k, orig in colmap.items():
+                    if "type" in k:
+                        src = orig
+                        break
+            if src is not None:
+                mtx["type_l"] = mtx[src].astype(str).str.strip().str.lower()
+            else:
+                mtx["type_l"] = ""
+        if "amount_num" not in mtx.columns:
+            # try amount-like columns
+            colmap2 = {str(c).strip().lower(): c for c in mtx.columns}
+            src_amt = None
+            for key in ("amount", "amt", "value", "cad", "amount_cad"):
+                if key in colmap2:
+                    src_amt = colmap2[key]
+                    break
+            if src_amt is not None:
+                mtx["amount_num"] = pd.to_numeric(mtx[src_amt], errors="coerce").fillna(0.0)
+            else:
+                mtx["amount_num"] = 0.0
+        typ = None
+        if "type_l" in mtx.columns:
+            typ = mtx["type_l"].astype(str).str.strip().str.lower()
+        else:
+            # fallback: use any type-like column
+            _colmap = {str(c).strip().lower(): c for c in mtx.columns}
+            _src = None
+            for _k in ("type", "txn type", "transaction type", "tx type"):
+                if _k in _colmap:
+                    _src = _colmap[_k]; break
+            if _src is None:
+                for _k, _orig in _colmap.items():
+                    if "type" in _k: _src = _orig; break
+            if _src is not None:
+                typ = mtx[_src].astype(str).str.strip().str.lower()
+            else:
+                typ = pd.Series([""] * len(mtx))
+        amt = mtx["amount_num"] if "amount_num" in mtx.columns else pd.Series([0.0] * len(mtx))
+        income = amt[typ.isin(["credit", "income"])].sum()
+        expense = amt[typ.isin(["debit", "expense"])].sum()
+        invest = amt[typ.isin(["investment"])].sum()
+        intl = amt[typ.isin(['international', 'international transfer', 'intl'])].sum()
+
+        loc_draw = amt[typ.isin(['loc draw', 'loc withdrawal', 'loc_draw', 'loc_withdrawal'])].sum()
+        loc_repay = amt[typ.isin(['loc repay', 'loc repayment', 'loc_repay', 'loc_repayment'])].sum()
+        transfer_out = amt[typ.isin(['transfer', 'transfer out', 'transfer_out'])].sum()
+
+        net = income + loc_draw - expense - invest - intl - loc_repay - transfer_out
+
+
+        # --- Pay-period view (smarter than calendar month for end-of-month salaries) ---
+        # Build a combined payday calendar (Salary 1: semimonthly, Salary 2: biweekly anchor)
+        try:
+            start_d = today()
+            # compute paydays ~90 days around today to find previous/next
+            window_start = start_d - dt.timedelta(days=60)
+            window_end = start_d + dt.timedelta(days=60)
+            all_pays: list[dt.date] = []
+            yy, mm = window_start.year, window_start.month
+            for _ in range(6):
+                for p in abhi_pay_dates_for_month(yy, mm):
                     if window_start <= p <= window_end:
                         all_pays.append(p)
-                all_pays = sorted(set(all_pays))
-                prev_pay = max([p for p in all_pays if p <= start_d], default=None)
-                next_pay = min([p for p in all_pays if p > start_d], default=None)
-                if prev_pay is None:
-                    prev_pay = start_d - dt.timedelta(days=14)
-                if next_pay is None:
-                    next_pay = start_d + dt.timedelta(days=14)
-                # Determine whose payday
-                _pay_owner = ''
-                try:
-                    _abhi_dates = set()
-                    _y, _m = next_pay.year, next_pay.month
-                    for _offset in range(-1, 2):
-                        _ym = _m + _offset
-                        _yy = _y
-                        if _ym < 1: _ym = 12; _yy -= 1
-                        elif _ym > 12: _ym = 1; _yy += 1
-                        _abhi_dates.update(abhi_pay_dates_for_month(_yy, _ym))
-                    _indhu_dates = set(wife_pay_dates_between(next_pay - dt.timedelta(days=3), next_pay + dt.timedelta(days=3)))
-                    _is_abhi = next_pay in _abhi_dates
-                    _is_indhu = next_pay in _indhu_dates
-                    if _is_abhi and _is_indhu: _pay_owner = 'Both'
-                    elif _is_abhi: _pay_owner = 'Abhi'
-                    elif _is_indhu: _pay_owner = 'Indhu'
-                except Exception:
-                    pass
-    
-                pp_start = prev_pay
-                pp_end = next_pay
-    
-                ptx = tx[(tx['date_parsed'] >= pp_start) & (tx['date_parsed'] < pp_end)].copy()
-                ptyp = ptx['type_l']
-                pamt = ptx['amount_num']
-                # broaden type matching
-                income_pp = pamt[ptyp.isin(['credit','income'])].sum()
-                expense_pp = pamt[ptyp.isin(['debit','expense'])].sum()
-                invest_pp = pamt[ptyp.isin(['investment'])].sum()
-                intl_pp = pamt[ptyp.isin(['international', 'international transfer', 'intl'])].sum()
-                
-                loc_draw_pp = pamt[ptyp.isin(['loc draw', 'loc withdrawal', 'loc_draw', 'loc_withdrawal'])].sum()
-                loc_repay_pp = pamt[ptyp.isin(['loc repay', 'loc repayment', 'loc_repay', 'loc_repayment'])].sum()
-                transfer_out_pp = pamt[ptyp.isin(['transfer', 'transfer out', 'transfer_out'])].sum()
-    
-                net_pp = income_pp + loc_draw_pp - expense_pp - invest_pp - intl_pp - loc_repay_pp - transfer_out_pp
-            except Exception:
-                pp_start = today() - dt.timedelta(days=14)
-                pp_end = today() + dt.timedelta(days=14)
-                income_pp = expense_pp = invest_pp = intl_pp = net_pp = 0.0
-    
-            # Expenses for this month (reused by budgets + breakdown)
-            spend = mtx[mtx["type_l"].isin(["debit", "expense"])].copy()
-            if not spend.empty:
-                if "category" not in spend.columns:
-                    spend["category"] = "Uncategorized"
-                spend["category"] = spend["category"].astype(str).replace("", "Uncategorized")
-    
-            # --- Phase 4.6A: Hero summary (reduces tile clutter, feels like a bank app) ---
+                mm += 1
+                if mm == 13:
+                    yy += 1
+                    mm = 1
+            for p in wife_pay_dates_between(window_start, window_end):
+                if window_start <= p <= window_end:
+                    all_pays.append(p)
+            all_pays = sorted(set(all_pays))
+            prev_pay = max([p for p in all_pays if p <= start_d], default=None)
+            next_pay = min([p for p in all_pays if p > start_d], default=None)
+            if prev_pay is None:
+                prev_pay = start_d - dt.timedelta(days=14)
+            if next_pay is None:
+                next_pay = start_d + dt.timedelta(days=14)
+            # Determine whose payday
+            _pay_owner = ''
             try:
-                days_to_next = (next_pay - start_d).days if next_pay else None
-            except Exception:
-                days_to_next = None
-    
-            # Time-based greeting
-            _hour = datetime.datetime.now().hour
-            if _hour < 12: _greeting = 'Good morning'
-            elif _hour < 17: _greeting = 'Good afternoon'
-            else: _greeting = 'Good evening'
-    
-            # Daily average spending this month
-            _daily_avg = round(expense / max(today().day, 1), 2) if expense > 0 else 0.0
-    
-            # === RADICAL PARADIGM SHIFT: The Cashflow Rings Hero ===
-            # Replaces the flat text card with an interactive, Apple Watch-style ring dashboard.
-            _ring_income = min(1.0, income / (income + expense + 1)) if income > 0 else 0
-            _ring_expense = min(1.0, expense / (income + expense + 1)) if expense > 0 else 0
-            _income_dash = 2 * 3.14159 * 76 * _ring_income
-            _expense_dash = 2 * 3.14159 * 60 * _ring_expense
-            
-            with ui.element('div').classes('w-full flex-col items-center justify-center p-8 mt-2 relative').style(
-                'background: linear-gradient(145deg, rgba(15,23,42,0.9), rgba(30,41,59,0.95));'
-                'border-radius: 40px;'
-                'border: 1px solid rgba(255,255,255,0.08);'
-                'box-shadow: 0 32px 64px -12px rgba(0,0,0,0.5), inset 0 2px 4px rgba(255,255,255,0.1);'
-                'backdrop-filter: blur(24px);'
-                'overflow: hidden;'
-            ):
-                # Dynamic background mesh glow
-                ui.html(f'''
-                    <div style="position: absolute; top: -50px; left: -50px; width: 200px; height: 200px; background: radial-gradient(circle, rgba(14,165,233,0.15) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
-                    <div style="position: absolute; bottom: -50px; right: -50px; width: 200px; height: 200px; background: radial-gradient(circle, rgba(16,185,129,0.1) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
-                ''')
-                
-                # The Massive Rings SVG
-                ui.html(f'''
-                    <div style="position: relative; width: 190px; height: 190px; margin: 0 auto; filter: drop-shadow(0 8px 16px rgba(0,0,0,0.4));">
-                        <svg viewBox="0 0 170 170" style="transform: rotate(-90deg); width: 100%; height: 100%;">
-                            <!-- Income Ring Track -->
-                            <circle cx="85" cy="85" r="76" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="12" stroke-linecap="round"/>
-                            <!-- Income Ring Fill -->
-                            <circle cx="85" cy="85" r="76" fill="none" stroke="url(#incGrad)" stroke-width="12"
-                                stroke-dasharray="{_income_dash:.1f} 477.5" stroke-linecap="round"
-                                style="transition: stroke-dasharray 1.5s cubic-bezier(0.22,1,0.36,1);"/>
-                                
-                            <!-- Expense Ring Track -->
-                            <circle cx="85" cy="85" r="60" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="12" stroke-linecap="round"/>
-                            <!-- Expense Ring Fill -->
-                            <circle cx="85" cy="85" r="60" fill="none" stroke="url(#expGrad)" stroke-width="12"
-                                stroke-dasharray="{_expense_dash:.1f} 377" stroke-linecap="round"
-                                style="transition: stroke-dasharray 1.5s cubic-bezier(0.22,1,0.36,1) 0.2s;"/>
-                                
-                            <defs>
-                                <linearGradient id="incGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                                    <stop offset="0%" stop-color="#34D399"/>
-                                    <stop offset="100%" stop-color="#059669"/>
-                                </linearGradient>
-                                <linearGradient id="expGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                                    <stop offset="0%" stop-color="#F472B6"/>
-                                    <stop offset="100%" stop-color="#E11D48"/>
-                                </linearGradient>
-                            </defs>
-                        </svg>
-                        <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
-                            <span style="font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 2px;">Net</span>
-                            <span style="font-size: 30px; font-weight: 900; color: #fff; letter-spacing: -0.04em; font-feature-settings: 'tnum'; text-shadow: 0 4px 12px rgba(0,0,0,0.5);">{currency(net)}</span>
-                        </div>
-                    </div>
-                ''')
-                # Badges below rings
-                with ui.row().classes('w-full justify-center gap-4 mt-6 position-relative z-10'):
-                    with ui.element('div').classes('flex items-center gap-1.5').style('background: rgba(34, 197, 94, 0.15); padding: 6px 16px; border-radius: 24px; border: 1px solid rgba(34, 197, 94, 0.3); backdrop-filter: blur(8px); box-shadow: 0 4px 12px rgba(34,197,94,0.1);'):
-                        ui.icon('arrow_upward').style('font-size: 16px; color: #34D399;')
-                        ui.label(f"{currency(income)}").classes('text-sm font-extrabold').style('color: #34D399; font-feature-settings: "tnum";')
-                    with ui.element('div').classes('flex items-center gap-1.5').style('background: rgba(225, 29, 72, 0.15); padding: 6px 16px; border-radius: 24px; border: 1px solid rgba(225, 29, 72, 0.3); backdrop-filter: blur(8px); box-shadow: 0 4px 12px rgba(225,29,72,0.1);'):
-                        ui.icon('arrow_downward').style('font-size: 16px; color: #FB7185;')
-                        ui.label(f"{currency(expense)}").classes('text-sm font-extrabold').style('color: #FB7185; font-feature-settings: "tnum";')
-    
-            # === RADICAL PARADIGM SHIFT: Horizontal Scrollable Widgets ===
-            # Replaces the flat 2x2 grid and flat buttons with an Apple native-like horizontal tile row
-            with ui.element('div').classes('mf-h-scroll w-full mt-6 px-1'):
-                
-                # Tile 1: Floating Add Action (Gradient Burst)
-                def _goto_add(mode):
-                    app.storage.user['add_auto_open'] = mode
-                    nav_to('/add')
-                with ui.element('div').style('width: 140px; height: 110px; border-radius: 24px; background: linear-gradient(135deg, #3B82F6, #8B5CF6); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 12px 24px rgba(99,102,241,0.3); border: 1px solid rgba(255,255,255,0.2); cursor: pointer; transition: transform 0.2s;').on('click', lambda: _goto_add('expense')):
-                    with ui.element('div').style('width: 32px; height: 32px; border-radius: 12px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px);'):
-                        ui.icon('add').style('font-size: 20px; color: #fff; font-weight: 900;')
-                    with ui.column().classes('gap-0'):
-                        ui.label('Add').classes('text-sm font-extrabold text-white').style('letter-spacing: -0.02em;')
-                        ui.label('Expense').classes('text-xs text-white opacity-80 font-medium')
-                        
-                # Tile 2: Next Payday (Glass Tile)
-                with ui.element('div').style('width: 140px; height: 110px; border-radius: 24px; background: var(--mf-card-top); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--mf-border); cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.05);'):
-                    with ui.row().classes('justify-between items-start w-full'):
-                        with ui.element('div').style('width: 28px; height: 28px; border-radius: 10px; background: rgba(16,185,129,0.15); display: flex; align-items: center; justify-content: center;'):
-                            ui.icon('event').style('font-size: 16px; color: #10B981;')
-                        if days_to_next is not None:
-                            ui.label(f"{days_to_next}d").classes('text-xs font-bold').style('color: #10B981; margin-top: 4px;')
-                    with ui.column().classes('gap-0'):
-                        _po_label = f" ({_pay_owner})" if _pay_owner else ""
-                        ui.label(f'Next Payday{_po_label}').classes('text-[11px] font-semibold').style('color: var(--mf-muted); white-space: nowrap;')
-                        if next_pay:
-                            ui.label(next_pay.strftime('%b %d')).classes('text-base font-extrabold').style('color: var(--mf-text); letter-spacing: -0.02em;')
-                        else:
-                            ui.label('Unknown').classes('text-base font-extrabold').style('color: var(--mf-text);')
-    
-                # Tile 3: Daily Avg (Glass Tile)
-                with ui.element('div').style('width: 140px; height: 110px; border-radius: 24px; background: var(--mf-card-top); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--mf-border); box-shadow: 0 4px 12px rgba(0,0,0,0.05);'):
-                    with ui.row().classes('justify-between items-start w-full'):
-                        with ui.element('div').style('width: 28px; height: 28px; border-radius: 10px; background: rgba(244,63,94,0.15); display: flex; align-items: center; justify-content: center;'):
-                            ui.icon('local_fire_department').style('font-size: 16px; color: #F43F5E;')
-                    with ui.column().classes('gap-0'):
-                        ui.label('Daily Pacing').classes('text-xs font-semibold').style('color: var(--mf-muted);')
-                        ui.label(currency(_daily_avg)).classes('text-base font-extrabold').style('color: var(--mf-text); letter-spacing: -0.02em; font-feature-settings: "tnum";')
-    
-    
-    
-        # --- Monthly Cashflow Widget ---
-            try:
-                with ui.card().classes('my-card p-5 mt-6 w-full').style('border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); border: 1px solid var(--mf-border); background: var(--mf-card-top);'):
-                    with ui.row().classes('items-center gap-2 mb-4'):
-                        with ui.element('div').classes('mf-icon-box').style('background: rgba(59,130,246,0.1); width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;'):
-                            ui.icon('bar_chart').style('font-size: 16px; color: #3b82f6;')
-                        ui.label('Cashflow Trend').classes('text-lg font-extrabold').style('letter-spacing: -0.01em; color: var(--mf-text);')
-                    
-                    # Compute last 6 months cashflow
-                    _today_d = today()
-                    _mks = []
-                    _lbls = []
-                    for i in range(5, -1, -1):
-                        _d = _today_d.replace(day=1) - dt.timedelta(days=28*i)
-                        _m = _d.replace(day=1)
-                        _mks.append(month_key(_m))
-                        _lbls.append(_m.strftime('%b'))
-                    
-                    _inc_data = []
-                    _exp_data = []
-                    if not tx.empty and 'month' in tx.columns:
-                        for _mk in _mks:
-                            _m_tx = tx[tx['month'] == _mk]
-                            _m_typ = _m_tx['type_l'] if 'type_l' in _m_tx.columns else pd.Series([""] * len(_m_tx))
-                            _m_amt = _m_tx['amount_num'] if 'amount_num' in _m_tx.columns else pd.Series([0.0] * len(_m_tx))
-                            
-                            _m_inc = float(_m_amt[_m_typ.isin(['credit', 'income'])].sum())
-                            _m_exp = float(_m_amt[_m_typ.isin(['debit', 'expense'])].sum())
-                            _inc_data.append(_m_inc)
-                            _exp_data.append(round(_m_exp, 2))
-                    else:
-                        _inc_data = [0]*6
-                        _exp_data = [0]*6
-    
-                    ui.echart({
-                        'tooltip': {'trigger': 'axis', 'axisPointer': {'type': 'shadow'}},
-                        'legend': {'data': ['Income', 'Expense'], 'bottom': 0, 'textStyle': {'color': '#888'}},
-                        'grid': {'left': '2%', 'right': '2%', 'bottom': '15%', 'top': '5%', 'containLabel': True},
-                        'xAxis': [{'type': 'category', 'data': _lbls, 'axisLine': {'show': False}, 'axisTick': {'show': False}}],
-                        'yAxis': [{'type': 'value', 'splitLine': {'lineStyle': {'color': 'rgba(128,128,128,0.1)'}}}],
-                        'series': [
-                            {
-                                'name': 'Income', 'type': 'bar', 'data': _inc_data, 
-                                'itemStyle': {'color': '#10B981', 'borderRadius': [4,4,0,0]}
-                            },
-                            {
-                                'name': 'Expense', 'type': 'bar', 'data': _exp_data, 
-                                'itemStyle': {'color': '#F43F5E', 'borderRadius': [4,4,0,0]}
-                            }
-                        ]
-                    }).style('width: 100%; height: 220px;')
-            except Exception as e:
-                 import traceback; print("Widget error:", e); traceback.print_exc()
-
-            #  Upcoming Bills / Recurring Widget 
-            try:
-                _rec = read_df_optional('recurring')
-                if _rec is not None and not _rec.empty:
-                    _rcols = {str(c).strip().lower(): c for c in _rec.columns}
-                    _c_name = _rcols.get('notes') or _rcols.get('name') or _rcols.get('merchant') or 'notes'
-                    _c_amt = _rcols.get('amount') or 'amount'
-                    _c_day = _rcols.get('due_day') or _rcols.get('day') or 'due_day'
-                    
-                    with ui.element('div').classes('mx-2 mt-6').style('border-radius: 24px; background: var(--mf-card-top); padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); border: 1px solid var(--mf-border);'):
-                        with ui.row().classes('items-center justify-between w-full mb-4'):
-                            with ui.row().classes('items-center gap-2'):
-                                with ui.element('div').style('width: 28px; height: 28px; border-radius: 8px; background: rgba(139, 92, 246, 0.1); display: flex; align-items: center; justify-content: center;'):
-                                    ui.icon('autorenew').style('font-size: 16px; color: #8B5CF6;')
-                                ui.label('Upcoming Bills').classes('text-lg font-extrabold').style('color: var(--mf-text); letter-spacing: -0.01em;')
-                            ui.icon('chevron_right').style('color: var(--mf-muted); cursor: pointer;').on('click', lambda: nav_to('/recurring'))
-                        
-                        _today = today()
-                        _bills = []
-                        for _, _rr in _rec.iterrows():
-                            _rn = str(_rr.get(_c_name, '')).strip()
-                            _ra = to_float(_rr.get(_c_amt, 0))
-                            _rd_val = _rr.get(_c_day, 1)
-                            if str(_rd_val).strip().isdigit():
-                                _rd = int(float(_rd_val))
-                            else:
-                                _rd = 1
-                            if _rn and _ra > 0:
-                                # Calculate days until next due
-                                try:
-                                    _next_date = dt.date(_today.year, _today.month, min(_rd, calendar.monthrange(_today.year, _today.month)[1]))
-                                    if _next_date < _today:
-                                        _nm = _today.month + 1
-                                        _ny = _today.year
-                                        if _nm > 12: _nm = 1; _ny += 1
-                                        _next_date = dt.date(_ny, _nm, min(_rd, calendar.monthrange(_ny, _nm)[1]))
-                                    _bills.append((_rn, _ra, _next_date, (_next_date - _today).days))
-                                except Exception:
-                                    pass
-                        
-                        _bills.sort(key=lambda x: x[3])
-                        
-                        if not _bills:
-                            ui.label('No upcoming recurring bills.').classes('text-sm').style('color: var(--mf-muted);')
-                        else:
-                            with ui.column().classes('gap-3 w-full'):
-                                for _b_name, _b_amt, _b_date, _b_days in _bills[:4]:
-                                    with ui.row().classes('items-center justify-between w-full p-3').style('background: var(--mf-bg); border-radius: 12px; border: 1px solid var(--mf-border);'):
-                                        with ui.row().classes('items-center gap-3'):
-                                            with ui.element('div').style('width: 36px; height: 36px; border-radius: 10px; background: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center;'):
-                                                ui.icon('receipt_long').style('font-size: 18px; color: #3B82F6;')
-                                            with ui.column().classes('gap-0'):
-                                                ui.label(_b_name).classes('text-sm font-bold').style('color: var(--mf-text);')
-                                                _due_lbl = 'Today' if _b_days == 0 else f'In {_b_days} day{"s" if _b_days > 1 else ""}'
-                                                ui.label(_due_lbl).classes('text-xs').style('color: var(--mf-accent); font-weight: 600;')
-                                        ui.label(currency(_b_amt)).classes('text-sm font-extrabold').style('color: var(--mf-text); font-feature-settings: "tnum";')
-            except Exception:
-                pass  # Health score is optional
-    
-            # Pay period breakdown removed in v9.0
-    
-    
-            #  Smart Alert Banners (slim, at top  v9.0) 
-            # Alert logic kept but rendered as slim banners instead of a full card
-            _alert_banners_data: list[tuple[str, str, str, str]] = []
-            try:
-                if not spend.empty and 'category' in spend.columns:
-                    _uncat = spend[spend['category'].astype(str).str.strip().isin(['', 'Uncategorized', 'nan'])]
-                    if len(_uncat) > 0:
-                        _alert_banners_data.append(('label_off', f'{len(_uncat)} uncategorized transaction{"s" if len(_uncat) != 1 else ""} this month', 'warning', '/tx'))
-                if not spend.empty:
-                    _avg_txn = float(spend['amount_num'].mean())
-                    _large = spend[spend['amount_num'] > (_avg_txn * 3)]
-                    if len(_large) > 0:
-                        _top = _large.sort_values('amount_num', ascending=False).iloc[0]
-                        _alert_banners_data.append(('priority_high', f'Large transaction: {currency(float(_top["amount_num"]))} on {_top.get("date","")}', 'info', '/tx'))
-                try:
-                    _today_d = today()
-                    _day_of_month = _today_d.day
-                    _days_in_month = calendar.monthrange(_today_d.year, _today_d.month)[1]
-                    _projected = float(expense) / max(_day_of_month, 1) * _days_in_month if expense > 0 else 0
-                    _last_mk = month_key(_today_d.replace(day=1) - dt.timedelta(days=1)) if _today_d.month > 1 else month_key(dt.date(_today_d.year - 1, 12, 1))
-                    _last_spend = tx[tx['type_l'].isin(['debit', 'expense']) & (tx['month'] == _last_mk)]
-                    _last_total = float(_last_spend['amount_num'].sum()) if not _last_spend.empty else 0
-                    if _last_total > 0 and _projected > _last_total * 1.2:
-                        _pct_over = int(round((_projected / _last_total - 1) * 100))
-                        _alert_banners_data.append(('speed', f'Spending pace {_pct_over}% above last month (projected {currency(_projected)})', 'warning', '/reports'))
-                except Exception:
-                    pass
-                if income == 0:
-                    _alert_banners_data.append(('info', 'No income recorded this month yet', 'info', '/add'))
-                if not spend.empty and 'notes' in spend.columns:
-                    _dup_keys = spend.apply(lambda r: f"{r.get('date','')}|{r['amount_num']}|{str(r.get('notes','')).strip()}", axis=1)
-                    _dup_count = int(_dup_keys.duplicated(keep=False).sum())
-                    if _dup_count >= 4:
-                        _alert_banners_data.append(('difference', f'{_dup_count // 2}+ possible duplicate transactions', 'warning', '/tx'))
-                try:
-                    cards_df = cached_df('cards')
-                    if not cards_df.empty:
-                        for _, _cd in cards_df.iterrows():
-                            _limit = parse_money(_cd.get('max_limit'), default=0)
-                            _method = str(_cd.get('method_name', '')).strip()
-                            if _limit > 0 and _method and not spend.empty:
-                                _card_spend = float(spend[spend.get('method', pd.Series(dtype=str)).astype(str).str.strip() == _method]['amount_num'].sum())
-                                if _card_spend >= _limit * 0.85:
-                                    _pct_used = int(round(_card_spend / _limit * 100))
-                                    _alert_banners_data.append(('credit_card', f'{_cd.get("card_name", _method)}: {_pct_used}% of limit used', 'warning' if _pct_used < 100 else 'error', '/cards'))
-                except Exception:
-                    pass
-                if _alert_banners_data:
-                    for _ab_icon, _ab_msg, _ab_sev, _ab_path in _alert_banners_data[:3]:
-                        _sev_colors = {'error': '#ef4444', 'warning': '#f59e0b', 'info': '#3b82f6'}
-                        _bc = _sev_colors.get(_ab_sev, '#3b82f6')
-                        with ui.element('div').style(
-                            f'display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-radius: 10px;'
-                            f'background: {_bc}0D; border: 1px solid {_bc}22; margin-bottom: 8px; cursor: pointer;'
-                        ).on('click', lambda p=_ab_path: nav_to(p)):
-                            ui.icon(_ab_icon).style(f'font-size: 16px; color: {_bc};')
-                            ui.label(_ab_msg).classes('text-xs font-medium').style(f'color: {_bc};')
-                            ui.icon('chevron_right').style(f'font-size: 14px; color: {_bc}; margin-left: auto; opacity: 0.5;')
+                _abhi_dates = set()
+                _y, _m = next_pay.year, next_pay.month
+                for _offset in range(-1, 2):
+                    _ym = _m + _offset
+                    _yy = _y
+                    if _ym < 1: _ym = 12; _yy -= 1
+                    elif _ym > 12: _ym = 1; _yy += 1
+                    _abhi_dates.update(abhi_pay_dates_for_month(_yy, _ym))
+                _indhu_dates = set(wife_pay_dates_between(next_pay - dt.timedelta(days=3), next_pay + dt.timedelta(days=3)))
+                _is_abhi = next_pay in _abhi_dates
+                _is_indhu = next_pay in _indhu_dates
+                if _is_abhi and _is_indhu: _pay_owner = 'Both'
+                elif _is_abhi: _pay_owner = 'Abhi'
+                elif _is_indhu: _pay_owner = 'Indhu'
             except Exception:
                 pass
-    
-            # Quick actions + data quality
-            # Phase 4.6A: Quick actions moved into the Overview card to reduce clutter
-            # Task 9: Premium Budgets section
-            budgets = read_df_optional('budgets')
-            if budgets is not None and not budgets.empty and (not spend.empty) and "category" in spend.columns:
-                bcols = {str(c).strip().lower(): c for c in budgets.columns}
-                c_cat = bcols.get('category') or bcols.get('cat')
-                c_budget = bcols.get('budget_monthly') or bcols.get('monthly_budget') or bcols.get('budget')
-                if c_cat and c_budget:
-                    bmap: dict[str, float] = {}
-                    for _, r in budgets.iterrows():
-                        k = str(r.get(c_cat, '')).strip()
-                        if not k:
-                            continue
-                        bmap[k] = parse_money(r.get(c_budget, 0), default=0.0)
-                    if bmap:
-                        spend_by_cat = spend.groupby('category', as_index=False)['amount_num'].sum()
-                        rows = []
-                        for _, r in spend_by_cat.iterrows():
-                            cat = str(r['category'])
-                            if cat in bmap and bmap[cat] > 0:
-                                rows.append((cat, float(r['amount_num']), float(bmap[cat])))
-                        present = set([x[0] for x in rows])
-                        for cat, bud in bmap.items():
-                            if cat not in present and bud > 0:
-                                rows.append((cat, 0.0, float(bud)))
-                        rows.sort(key=lambda x: (x[1]/x[2]) if x[2] else 0.0, reverse=True)
-    
-                        # In-app budget alerts (background notifications)
-                        try:
-                            alerts80 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 0.80 and (s/b) < 1.0]
-                            alerts100 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 1.0]
-                            if alerts100:
-                                ui.notify(f'Over budget: {alerts100[0][0]} ({currency(alerts100[0][1])} / {currency(alerts100[0][2])})', type='negative')
-                            elif alerts80:
-                                ui.notify(f'Budget warning (80%+): {alerts80[0][0]} ({currency(alerts80[0][1])} / {currency(alerts80[0][2])})', type='warning')
-                        except Exception:
-                            pass
-    
-                        if rows:
-                            # Total budget summary
-                            _total_budgeted = sum(b for _, _, b in rows)
-                            _total_spent = sum(s for _, s, _ in rows)
-                            _overall_pct = min(1.0, _total_spent / _total_budgeted) if _total_budgeted > 0 else 0.0
-                            _remaining = max(0, _total_budgeted - _total_spent)
-    
-                            ui.label("Budgets").classes("text-lg font-extrabold mt-8 px-2").style("letter-spacing: -0.02em;")
-                            with ui.element('div').style('display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; padding: 0 8px; margin-top: 8px;'):
-                                for cat, spent_amt, bud_amt in rows[:8]:
-                                    pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
-                                    _c_color = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else '#8B5CF6')
-                                    with ui.element('div').style(f'background: var(--mf-card-top); border: 1px solid var(--mf-border); border-radius: 20px; padding: 16px; position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);'):
-                                        ui.element('div').style(f'position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; border-radius: 50%; background: {_c_color}; filter: blur(30px); opacity: 0.2; pointer-events: none;')
-                                        with ui.row().classes('justify-between items-start w-full'):
-                                            with ui.element('div').style(f'width: 28px; height: 28px; border-radius: 8px; background: {_c_color}1a; display: flex; align-items: center; justify-content: center;'):
-                                                ui.icon('receipt_long').style(f'font-size: 14px; color: {_c_color};')
-                                            ui.label(f'{int(round(pct*100))}%').classes('text-[10px] font-bold').style(f'color: {_c_color}; background: {_c_color}10; padding: 2px 6px; border-radius: 12px;')
-                                        ui.label(cat).classes('text-sm font-bold mt-1').style('color: var(--mf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em;')
-                                        with ui.row().classes('items-baseline gap-1'):
-                                            ui.label(currency(spent_amt)).classes('text-base font-extrabold').style(f'color: {_c_color}; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
-                                            ui.label(f'/ {currency(bud_amt)}').classes('text-[9px] font-semibold').style('color: var(--mf-muted);')
-                                        with ui.element('div').style('width: 100%; height: 4px; border-radius: 2px; background: rgba(0,0,0,0.3); margin-top: auto; overflow: hidden;'):
-                                            ui.element('div').style(f'height: 100%; width: {pct*100}%; background: {_c_color}; border-radius: 2px;')
-    
-            # Upcoming salary section removed in v9.0 (payday info now in hero card)
-    
-            # Task 8: Spending Breakdown removed (user finds it PowerBI-like)
-    
-            # Top merchants section removed in v9.0
-    
-            #  Dashboard section helpers (closure over spend, expense, tx, etc.) 
-            # _render_insights() and _render_alerts() removed in v9.0
-    
-            def _render_recent_tx():
-                # === RADICAL PARADIGM SHIFT: The Timeline Feed ===
-                try:
-                    if not tx.empty and "date_parsed" in tx.columns:
-                        _recent_tx = tx.sort_values("date_parsed", ascending=False).head(5)
-                        if not _recent_tx.empty:
-                            with ui.column().classes("w-full mt-6 px-2"):
-                                with ui.row().classes("items-center justify-between w-full mb-3"):
-                                    ui.label("Recent Activity").classes("text-lg font-extrabold").style("letter-spacing: -0.02em; color: var(--mf-text);")
-                                    ui.button("See all", on_click=lambda: nav_to("/tx")).props("flat dense").style("border-radius: 8px; font-size: 13px; font-weight: 600; text-transform: none; color: #3b82f6;")
-    
-                                with ui.element('div').style('width: 100%; border-radius: 20px; background: var(--mf-card-top); border: 1px solid var(--mf-border); box-shadow: 0 4px 12px rgba(0,0,0,0.05); overflow: hidden;'):
-                                    _last_date_group = None
-                                    _total_cnt = len(_recent_tx)
-                                    for _idx, (_, _rtx) in enumerate(_recent_tx.iterrows()):
-                                        _rt_type = str(_rtx.get("type", "") or "").strip().lower()
-                                        _rt_is_income = _rt_type in ("credit", "income")
-                                        _rt_amt = float(_rtx.get("amount_num", 0) or 0)
-                                        _rt_note = str(_rtx.get("notes", "") or "")[:35] or str(_rtx.get("category", "") or "")
-                                        _rt_cat = str(_rtx.get("category", "") or "")
-                                        
-                                        # Apple Wallet style row (compacted for crispness)
-                                        _rt_color = "#10B981" if _rt_is_income else "var(--mf-text)"
-                                        _rt_sign = "+" if _rt_is_income else ""
-                                        # Context-aware icons
-                                        _cl = _rt_cat.lower()
-                                        _nl = _rt_note.lower()
-                                        if _rt_is_income:
-                                            _rt_icon, _icon_color = ("arrow_downward", "#10B981") if "refund" in _nl else ("attach_money", "#10B981")
-                                        elif "grocer" in _cl or "walmart" in _nl or "costco" in _nl:
-                                            _rt_icon, _icon_color = "shopping_cart", "#F59E0B"
-                                        elif "rent" in _cl or "mortgage" in _cl:
-                                            _rt_icon, _icon_color = "home", "#3B82F6"
-                                        elif "utilit" in _cl or "hydro" in _nl or "water" in _nl:
-                                            _rt_icon, _icon_color = "bolt", "#EAB308"
-                                        elif "subscript" in _cl or "netflix" in _nl or "spotify" in _nl:
-                                            _rt_icon, _icon_color = "play_circle", "#EC4899"
-                                        elif "din" in _cl or "restaurant" in _cl or "food" in _cl:
-                                            _rt_icon, _icon_color = "restaurant", "#F43F5E"
-                                        elif "fuel" in _cl or "gas" in _cl or "shell" in _nl or "petro" in _nl:
-                                            _rt_icon, _icon_color = "local_gas_station", "#64748B"
-                                        elif "shop" in _cl or "amazon" in _nl:
-                                            _rt_icon, _icon_color = "local_mall", "#8B5CF6"
-                                        elif "house" in _cl:
-                                            _rt_icon, _icon_color = "roofing", "#06B6D4"
-                                        elif "travel" in _cl or "flight" in _cl or "hotel" in _cl:
-                                            _rt_icon, _icon_color = "flight", "#0EA5E9"
-                                        elif "health" in _cl or "pharmacy" in _cl or "drug" in _nl:
-                                            _rt_icon, _icon_color = "favorite", "#EF4444"
-                                        elif "transfer" in _cl or "e-transfer" in _nl:
-                                            _rt_icon, _icon_color = "swap_horiz", "#6366F1"
-                                        elif "car" in _cl or "auto" in _cl:
-                                            _rt_icon, _icon_color = "directions_car", "#F97316"
-                                        else:
-                                            _rt_icon, _icon_color = "storefront", "#9CA3AF"
-                                        _icon_bg = f"{_icon_color}26"
-                                        
-                                        _bb = "border-bottom: 1px solid var(--mf-border);" if _idx < _total_cnt - 1 else ""
-                                        with ui.element("div").style(f"display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; {_bb}"):
-                                            with ui.row().classes("items-center gap-3 flex-1").style("min-width: 0;"):
-                                                with ui.element("div").style(
-                                                    f"width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;"
-                                                    f"background: {_icon_bg}; flex-shrink: 0;"
-                                                ):
-                                                    ui.icon(_rt_icon).style(f"font-size: 18px; color: {_icon_color};")
-                                                
-                                                with ui.column().classes("gap-0 flex-1").style("min-width: 0; overflow: hidden;"):
-                                                    ui.label(_rt_note).classes("text-sm font-bold").style("white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mf-text); letter-spacing: -0.01em;")
-                                                    ui.label(_rt_cat).classes("text-xs font-medium").style("color: var(--mf-muted);")
-                                                    
-                                            ui.label(f"{_rt_sign}{currency(_rt_amt)}").classes("text-sm font-extrabold").style(
-                                                f"color: {_rt_color}; font-feature-settings: 'tnum'; white-space: nowrap; letter-spacing: -0.02em;"
-                                            )
-                except Exception:
-                    pass
-    
-            #  Dashboard Grid (responsive 2-col on desktop) 
-            with ui.element('div').classes('mf-dash-grid'):
-                with ui.element('div'):
-                    _render_recent_tx()
-    
-    
-        shell(content)
-    
-    
-    @ui.page("/add")
-    def add_page():
-        if not require_login():
-            nav_to("/login")
-            return
-    
-        #  8.7: Custom chip-select  completely replaces Quasar q-select 
-        def _chip_select(options, value, label=None, hint=None, scrollable=False, disabled=False, max_chips=8, accent_color='#6366f1'):
-            """Chip-based option picker.  For high-cardinality fields (>max_chips)
-            renders a custom pure-HTML dropdown instead.
-            Returns object with .value / .props() / .on() / .set_visibility()."""
-    
-            _use_dropdown = len(options) > max_chips
-    
-            #  CUSTOM DROPDOWN MODE (9+ options  e.g. Category) 
-            if _use_dropdown:
-                _dd_state = {'value': value, 'disabled': disabled, 'open': False}
-                _dd_cbs: list = []
-                _dd_items: dict = {}
-    
-                _dd_container = ui.column().classes('w-full gap-1')
-                with _dd_container:
-                    if label:
-                        ui.label(label).classes('text-xs font-medium').style(
-                            'color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;'
-                        )
-    
-                    # Trigger button  shows current value + arrow
-                    _trigger = ui.element('div').classes('mf-dd-trigger')
-                    with _trigger:
-                        _dd_label = ui.label(str(value)).style('pointer-events:none; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;')
-                        ui.icon('expand_more').classes('mf-dd-arrow').style('pointer-events:none; font-size:20px; color:var(--mf-muted); transition:transform 0.15s;')
-    
-                    # Options panel  hidden until clicked
-                    _panel = ui.element('div').classes('mf-dd-panel')
-                    _panel.style('display:none;')
-                    with _panel:
-                        for opt in options:
-                            _cls = 'mf-dd-item'
-                            if opt == value:
-                                _cls += ' active'
-                            item = ui.element('div').classes(_cls)
-                            with item:
-                                ui.label(str(opt)).style('pointer-events:none;')
-                            _dd_items[opt] = item
-    
-                    if hint:
-                        ui.label(hint).classes('text-xs').style('color: var(--mf-muted); opacity: 0.6;')
-    
-                def _dd_toggle():
-                    if _dd_state['disabled']:
-                        return
-                    _dd_state['open'] = not _dd_state['open']
-                    if _dd_state['open']:
-                        _panel.style('display:block;')
-                        _trigger.classes(add='open')
+
+            pp_start = prev_pay
+            pp_end = next_pay
+
+            ptx = tx[(tx['date_parsed'] >= pp_start) & (tx['date_parsed'] < pp_end)].copy()
+            ptyp = ptx['type_l']
+            pamt = ptx['amount_num']
+            # broaden type matching
+            income_pp = pamt[ptyp.isin(['credit','income'])].sum()
+            expense_pp = pamt[ptyp.isin(['debit','expense'])].sum()
+            invest_pp = pamt[ptyp.isin(['investment'])].sum()
+            intl_pp = pamt[ptyp.isin(['international', 'international transfer', 'intl'])].sum()
+            
+            loc_draw_pp = pamt[ptyp.isin(['loc draw', 'loc withdrawal', 'loc_draw', 'loc_withdrawal'])].sum()
+            loc_repay_pp = pamt[ptyp.isin(['loc repay', 'loc repayment', 'loc_repay', 'loc_repayment'])].sum()
+            transfer_out_pp = pamt[ptyp.isin(['transfer', 'transfer out', 'transfer_out'])].sum()
+
+            net_pp = income_pp + loc_draw_pp - expense_pp - invest_pp - intl_pp - loc_repay_pp - transfer_out_pp
+        except Exception:
+            pp_start = today() - dt.timedelta(days=14)
+            pp_end = today() + dt.timedelta(days=14)
+            income_pp = expense_pp = invest_pp = intl_pp = net_pp = 0.0
+
+        # Expenses for this month (reused by budgets + breakdown)
+        spend = mtx[mtx["type_l"].isin(["debit", "expense"])].copy()
+        if not spend.empty:
+            if "category" not in spend.columns:
+                spend["category"] = "Uncategorized"
+            spend["category"] = spend["category"].astype(str).replace("", "Uncategorized")
+
+        # --- Phase 4.6A: Hero summary (reduces tile clutter, feels like a bank app) ---
+        try:
+            days_to_next = (next_pay - start_d).days if next_pay else None
+        except Exception:
+            days_to_next = None
+
+        # Time-based greeting
+        _hour = datetime.datetime.now().hour
+        if _hour < 12: _greeting = 'Good morning'
+        elif _hour < 17: _greeting = 'Good afternoon'
+        else: _greeting = 'Good evening'
+
+        # Daily average spending this month
+        _daily_avg = round(expense / max(today().day, 1), 2) if expense > 0 else 0.0
+
+        # === RADICAL PARADIGM SHIFT: The Cashflow Rings Hero ===
+        # Replaces the flat text card with an interactive, Apple Watch-style ring dashboard.
+        _ring_income = min(1.0, income / (income + expense + 1)) if income > 0 else 0
+        _ring_expense = min(1.0, expense / (income + expense + 1)) if expense > 0 else 0
+        _income_dash = 2 * 3.14159 * 76 * _ring_income
+        _expense_dash = 2 * 3.14159 * 60 * _ring_expense
+        
+        with ui.element('div').classes('w-full flex-col items-center justify-center p-8 mt-2 relative').style(
+            'background: linear-gradient(145deg, rgba(15,23,42,0.9), rgba(30,41,59,0.95));'
+            'border-radius: 40px;'
+            'border: 1px solid rgba(255,255,255,0.08);'
+            'box-shadow: 0 32px 64px -12px rgba(0,0,0,0.5), inset 0 2px 4px rgba(255,255,255,0.1);'
+            'backdrop-filter: blur(24px);'
+            'overflow: hidden;'
+        ):
+            # Dynamic background mesh glow
+            ui.html(f'''
+                <div style="position: absolute; top: -50px; left: -50px; width: 200px; height: 200px; background: radial-gradient(circle, rgba(14,165,233,0.15) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
+                <div style="position: absolute; bottom: -50px; right: -50px; width: 200px; height: 200px; background: radial-gradient(circle, rgba(16,185,129,0.1) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
+            ''')
+            
+            # The Massive Rings SVG
+            ui.html(f'''
+                <div style="position: relative; width: 190px; height: 190px; margin: 0 auto; filter: drop-shadow(0 8px 16px rgba(0,0,0,0.4));">
+                    <svg viewBox="0 0 170 170" style="transform: rotate(-90deg); width: 100%; height: 100%;">
+                        <!-- Income Ring Track -->
+                        <circle cx="85" cy="85" r="76" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="12" stroke-linecap="round"/>
+                        <!-- Income Ring Fill -->
+                        <circle cx="85" cy="85" r="76" fill="none" stroke="url(#incGrad)" stroke-width="12"
+                            stroke-dasharray="{_income_dash:.1f} 477.5" stroke-linecap="round"
+                            style="transition: stroke-dasharray 1.5s cubic-bezier(0.22,1,0.36,1);"/>
+                            
+                        <!-- Expense Ring Track -->
+                        <circle cx="85" cy="85" r="60" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="12" stroke-linecap="round"/>
+                        <!-- Expense Ring Fill -->
+                        <circle cx="85" cy="85" r="60" fill="none" stroke="url(#expGrad)" stroke-width="12"
+                            stroke-dasharray="{_expense_dash:.1f} 377" stroke-linecap="round"
+                            style="transition: stroke-dasharray 1.5s cubic-bezier(0.22,1,0.36,1) 0.2s;"/>
+                            
+                        <defs>
+                            <linearGradient id="incGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#34D399"/>
+                                <stop offset="100%" stop-color="#059669"/>
+                            </linearGradient>
+                            <linearGradient id="expGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#F472B6"/>
+                                <stop offset="100%" stop-color="#E11D48"/>
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                    <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
+                        <span style="font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 2px;">Net</span>
+                        <span style="font-size: 30px; font-weight: 900; color: #fff; letter-spacing: -0.04em; font-feature-settings: 'tnum'; text-shadow: 0 4px 12px rgba(0,0,0,0.5);">{currency(net)}</span>
+                    </div>
+                </div>
+            ''')
+            # Badges below rings
+            with ui.row().classes('w-full justify-center gap-4 mt-6 position-relative z-10'):
+                with ui.element('div').classes('flex items-center gap-1.5').style('background: rgba(34, 197, 94, 0.15); padding: 6px 16px; border-radius: 24px; border: 1px solid rgba(34, 197, 94, 0.3); backdrop-filter: blur(8px); box-shadow: 0 4px 12px rgba(34,197,94,0.1);'):
+                    ui.icon('arrow_upward').style('font-size: 16px; color: #34D399;')
+                    ui.label(f"{currency(income)}").classes('text-sm font-extrabold').style('color: #34D399; font-feature-settings: "tnum";')
+                with ui.element('div').classes('flex items-center gap-1.5').style('background: rgba(225, 29, 72, 0.15); padding: 6px 16px; border-radius: 24px; border: 1px solid rgba(225, 29, 72, 0.3); backdrop-filter: blur(8px); box-shadow: 0 4px 12px rgba(225,29,72,0.1);'):
+                    ui.icon('arrow_downward').style('font-size: 16px; color: #FB7185;')
+                    ui.label(f"{currency(expense)}").classes('text-sm font-extrabold').style('color: #FB7185; font-feature-settings: "tnum";')
+
+        # === RADICAL PARADIGM SHIFT: Horizontal Scrollable Widgets ===
+        # Replaces the flat 2x2 grid and flat buttons with an Apple native-like horizontal tile row
+        with ui.element('div').classes('mf-h-scroll w-full mt-6 px-1'):
+            
+            # Tile 1: Floating Add Action (Gradient Burst)
+            def _goto_add(mode):
+                app.storage.user['add_auto_open'] = mode
+                nav_to('/add')
+            with ui.element('div').style('width: 140px; height: 110px; border-radius: 24px; background: linear-gradient(135deg, #3B82F6, #8B5CF6); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 12px 24px rgba(99,102,241,0.3); border: 1px solid rgba(255,255,255,0.2); cursor: pointer; transition: transform 0.2s;').on('click', lambda: _goto_add('expense')):
+                with ui.element('div').style('width: 32px; height: 32px; border-radius: 12px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px);'):
+                    ui.icon('add').style('font-size: 20px; color: #fff; font-weight: 900;')
+                with ui.column().classes('gap-0'):
+                    ui.label('Add').classes('text-sm font-extrabold text-white').style('letter-spacing: -0.02em;')
+                    ui.label('Expense').classes('text-xs text-white opacity-80 font-medium')
+                    
+            # Tile 2: Next Payday (Glass Tile)
+            with ui.element('div').style('width: 140px; height: 110px; border-radius: 24px; background: var(--mf-card-top); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--mf-border); cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.05);'):
+                with ui.row().classes('justify-between items-start w-full'):
+                    with ui.element('div').style('width: 28px; height: 28px; border-radius: 10px; background: rgba(16,185,129,0.15); display: flex; align-items: center; justify-content: center;'):
+                        ui.icon('event').style('font-size: 16px; color: #10B981;')
+                    if days_to_next is not None:
+                        ui.label(f"{days_to_next}d").classes('text-xs font-bold').style('color: #10B981; margin-top: 4px;')
+                with ui.column().classes('gap-0'):
+                    _po_label = f" ({_pay_owner})" if _pay_owner else ""
+                    ui.label(f'Next Payday{_po_label}').classes('text-[11px] font-semibold').style('color: var(--mf-muted); white-space: nowrap;')
+                    if next_pay:
+                        ui.label(next_pay.strftime('%b %d')).classes('text-base font-extrabold').style('color: var(--mf-text); letter-spacing: -0.02em;')
                     else:
-                        _panel.style('display:none;')
-                        _trigger.classes(remove='open')
-    
-                def _dd_pick(opt):
-                    if _dd_state['disabled'] or _dd_state['value'] == opt:
-                        _dd_state['open'] = False
-                        _panel.style('display:none;')
-                        _trigger.classes(remove='open')
-                        return
-                    old = _dd_state['value']
-                    _dd_state['value'] = opt
-                    _dd_label.text = str(opt)
-                    if old in _dd_items:
-                        _dd_items[old].classes(remove='active')
-                    if opt in _dd_items:
-                        _dd_items[opt].classes(add='active')
+                        ui.label('Unknown').classes('text-base font-extrabold').style('color: var(--mf-text);')
+
+            # Tile 3: Daily Avg (Glass Tile)
+            with ui.element('div').style('width: 140px; height: 110px; border-radius: 24px; background: var(--mf-card-top); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--mf-border); box-shadow: 0 4px 12px rgba(0,0,0,0.05);'):
+                with ui.row().classes('justify-between items-start w-full'):
+                    with ui.element('div').style('width: 28px; height: 28px; border-radius: 10px; background: rgba(244,63,94,0.15); display: flex; align-items: center; justify-content: center;'):
+                        ui.icon('local_fire_department').style('font-size: 16px; color: #F43F5E;')
+                with ui.column().classes('gap-0'):
+                    ui.label('Daily Pacing').classes('text-xs font-semibold').style('color: var(--mf-muted);')
+                    ui.label(currency(_daily_avg)).classes('text-base font-extrabold').style('color: var(--mf-text); letter-spacing: -0.02em; font-feature-settings: "tnum";')
+
+
+        #  Upcoming Bills / Recurring Widget 
+        try:
+            _rec = read_df_optional('recurring')
+            if _rec is not None and not _rec.empty:
+                _rcols = {str(c).strip().lower(): c for c in _rec.columns}
+                _c_name = _rcols.get('notes') or _rcols.get('name') or _rcols.get('merchant') or 'notes'
+                _c_amt = _rcols.get('amount') or 'amount'
+                _c_day = _rcols.get('due_day') or _rcols.get('day') or 'due_day'
+                
+                with ui.element('div').classes('mx-2 mt-6').style('border-radius: 24px; background: var(--mf-card-top); padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); border: 1px solid var(--mf-border);'):
+                    with ui.row().classes('items-center justify-between w-full mb-4'):
+                        with ui.row().classes('items-center gap-2'):
+                            with ui.element('div').style('width: 28px; height: 28px; border-radius: 8px; background: rgba(139, 92, 246, 0.1); display: flex; align-items: center; justify-content: center;'):
+                                ui.icon('autorenew').style('font-size: 16px; color: #8B5CF6;')
+                            ui.label('Upcoming Bills').classes('text-lg font-extrabold').style('color: var(--mf-text); letter-spacing: -0.01em;')
+                        ui.icon('chevron_right').style('color: var(--mf-muted); cursor: pointer;').on('click', lambda: nav_to('/recurring'))
+                    
+                    _today = today()
+                    _bills = []
+                    for _, _rr in _rec.iterrows():
+                        _rn = str(_rr.get(_c_name, '')).strip()
+                        _ra = to_float(_rr.get(_c_amt, 0))
+                        _rd_val = _rr.get(_c_day, 1)
+                        if str(_rd_val).strip().isdigit():
+                            _rd = int(float(_rd_val))
+                        else:
+                            _rd = 1
+                        if _rn and _ra > 0:
+                            # Calculate days until next due
+                            try:
+                                _next_date = dt.date(_today.year, _today.month, min(_rd, calendar.monthrange(_today.year, _today.month)[1]))
+                                if _next_date < _today:
+                                    _nm = _today.month + 1
+                                    _ny = _today.year
+                                    if _nm > 12: _nm = 1; _ny += 1
+                                    _next_date = dt.date(_ny, _nm, min(_rd, calendar.monthrange(_ny, _nm)[1]))
+                                _bills.append((_rn, _ra, _next_date, (_next_date - _today).days))
+                            except Exception:
+                                pass
+                    
+                    _bills.sort(key=lambda x: x[3])
+                    
+                    if not _bills:
+                        ui.label('No upcoming recurring bills.').classes('text-sm').style('color: var(--mf-muted);')
+                    else:
+                        with ui.column().classes('gap-3 w-full'):
+                            for _b_name, _b_amt, _b_date, _b_days in _bills[:4]:
+                                with ui.row().classes('items-center justify-between w-full p-3').style('background: var(--mf-bg); border-radius: 12px; border: 1px solid var(--mf-border);'):
+                                    with ui.row().classes('items-center gap-3'):
+                                        with ui.element('div').style('width: 36px; height: 36px; border-radius: 10px; background: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center;'):
+                                            ui.icon('receipt_long').style('font-size: 18px; color: #3B82F6;')
+                                        with ui.column().classes('gap-0'):
+                                            ui.label(_b_name).classes('text-sm font-bold').style('color: var(--mf-text);')
+                                            _due_lbl = 'Today' if _b_days == 0 else f'In {_b_days} day{"s" if _b_days > 1 else ""}'
+                                            ui.label(_due_lbl).classes('text-xs').style('color: var(--mf-accent); font-weight: 600;')
+                                    ui.label(currency(_b_amt)).classes('text-sm font-extrabold').style('color: var(--mf-text); font-feature-settings: "tnum";')
+        except Exception:
+            pass  # Health score is optional
+
+        # Pay period breakdown removed in v9.0
+
+
+        #  Smart Alert Banners (slim, at top  v9.0) 
+        # Alert logic kept but rendered as slim banners instead of a full card
+        _alert_banners_data: list[tuple[str, str, str, str]] = []
+        try:
+            if not spend.empty and 'category' in spend.columns:
+                _uncat = spend[spend['category'].astype(str).str.strip().isin(['', 'Uncategorized', 'nan'])]
+                if len(_uncat) > 0:
+                    _alert_banners_data.append(('label_off', f'{len(_uncat)} uncategorized transaction{"s" if len(_uncat) != 1 else ""} this month', 'warning', '/tx'))
+            if not spend.empty:
+                _avg_txn = float(spend['amount_num'].mean())
+                _large = spend[spend['amount_num'] > (_avg_txn * 3)]
+                if len(_large) > 0:
+                    _top = _large.sort_values('amount_num', ascending=False).iloc[0]
+                    _alert_banners_data.append(('priority_high', f'Large transaction: {currency(float(_top["amount_num"]))} on {_top.get("date","")}', 'info', '/tx'))
+            try:
+                _today_d = today()
+                _day_of_month = _today_d.day
+                _days_in_month = calendar.monthrange(_today_d.year, _today_d.month)[1]
+                _projected = float(expense) / max(_day_of_month, 1) * _days_in_month if expense > 0 else 0
+                _last_mk = month_key(_today_d.replace(day=1) - dt.timedelta(days=1)) if _today_d.month > 1 else month_key(dt.date(_today_d.year - 1, 12, 1))
+                _last_spend = tx[tx['type_l'].isin(['debit', 'expense']) & (tx['month'] == _last_mk)]
+                _last_total = float(_last_spend['amount_num'].sum()) if not _last_spend.empty else 0
+                if _last_total > 0 and _projected > _last_total * 1.2:
+                    _pct_over = int(round((_projected / _last_total - 1) * 100))
+                    _alert_banners_data.append(('speed', f'Spending pace {_pct_over}% above last month (projected {currency(_projected)})', 'warning', '/reports'))
+            except Exception:
+                pass
+            if income == 0:
+                _alert_banners_data.append(('info', 'No income recorded this month yet', 'info', '/add'))
+            if not spend.empty and 'notes' in spend.columns:
+                _dup_keys = spend.apply(lambda r: f"{r.get('date','')}|{r['amount_num']}|{str(r.get('notes','')).strip()}", axis=1)
+                _dup_count = int(_dup_keys.duplicated(keep=False).sum())
+                if _dup_count >= 4:
+                    _alert_banners_data.append(('difference', f'{_dup_count // 2}+ possible duplicate transactions', 'warning', '/tx'))
+            try:
+                cards_df = cached_df('cards')
+                if not cards_df.empty:
+                    for _, _cd in cards_df.iterrows():
+                        _limit = parse_money(_cd.get('max_limit'), default=0)
+                        _method = str(_cd.get('method_name', '')).strip()
+                        if _limit > 0 and _method and not spend.empty:
+                            _card_spend = float(spend[spend.get('method', pd.Series(dtype=str)).astype(str).str.strip() == _method]['amount_num'].sum())
+                            if _card_spend >= _limit * 0.85:
+                                _pct_used = int(round(_card_spend / _limit * 100))
+                                _alert_banners_data.append(('credit_card', f'{_cd.get("card_name", _method)}: {_pct_used}% of limit used', 'warning' if _pct_used < 100 else 'error', '/cards'))
+            except Exception:
+                pass
+            if _alert_banners_data:
+                for _ab_icon, _ab_msg, _ab_sev, _ab_path in _alert_banners_data[:3]:
+                    _sev_colors = {'error': '#ef4444', 'warning': '#f59e0b', 'info': '#3b82f6'}
+                    _bc = _sev_colors.get(_ab_sev, '#3b82f6')
+                    with ui.element('div').style(
+                        f'display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-radius: 10px;'
+                        f'background: {_bc}0D; border: 1px solid {_bc}22; margin-bottom: 8px; cursor: pointer;'
+                    ).on('click', lambda p=_ab_path: nav_to(p)):
+                        ui.icon(_ab_icon).style(f'font-size: 16px; color: {_bc};')
+                        ui.label(_ab_msg).classes('text-xs font-medium').style(f'color: {_bc};')
+                        ui.icon('chevron_right').style(f'font-size: 14px; color: {_bc}; margin-left: auto; opacity: 0.5;')
+        except Exception:
+            pass
+
+        # Quick actions + data quality
+        # Phase 4.6A: Quick actions moved into the Overview card to reduce clutter
+        # Task 9: Premium Budgets section
+        budgets = read_df_optional('budgets')
+        if budgets is not None and not budgets.empty and (not spend.empty) and "category" in spend.columns:
+            bcols = {str(c).strip().lower(): c for c in budgets.columns}
+            c_cat = bcols.get('category') or bcols.get('cat')
+            c_budget = bcols.get('budget_monthly') or bcols.get('monthly_budget') or bcols.get('budget')
+            if c_cat and c_budget:
+                bmap: dict[str, float] = {}
+                for _, r in budgets.iterrows():
+                    k = str(r.get(c_cat, '')).strip()
+                    if not k:
+                        continue
+                    bmap[k] = parse_money(r.get(c_budget, 0), default=0.0)
+                if bmap:
+                    spend_by_cat = spend.groupby('category', as_index=False)['amount_num'].sum()
+                    rows = []
+                    for _, r in spend_by_cat.iterrows():
+                        cat = str(r['category'])
+                        if cat in bmap and bmap[cat] > 0:
+                            rows.append((cat, float(r['amount_num']), float(bmap[cat])))
+                    present = set([x[0] for x in rows])
+                    for cat, bud in bmap.items():
+                        if cat not in present and bud > 0:
+                            rows.append((cat, 0.0, float(bud)))
+                    rows.sort(key=lambda x: (x[1]/x[2]) if x[2] else 0.0, reverse=True)
+
+                    # In-app budget alerts (background notifications)
+                    try:
+                        alerts80 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 0.80 and (s/b) < 1.0]
+                        alerts100 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 1.0]
+                        if alerts100:
+                            ui.notify(f'Over budget: {alerts100[0][0]} ({currency(alerts100[0][1])} / {currency(alerts100[0][2])})', type='negative')
+                        elif alerts80:
+                            ui.notify(f'Budget warning (80%+): {alerts80[0][0]} ({currency(alerts80[0][1])} / {currency(alerts80[0][2])})', type='warning')
+                    except Exception:
+                        pass
+
+                    if rows:
+                        # Total budget summary
+                        _total_budgeted = sum(b for _, _, b in rows)
+                        _total_spent = sum(s for _, s, _ in rows)
+                        _overall_pct = min(1.0, _total_spent / _total_budgeted) if _total_budgeted > 0 else 0.0
+                        _remaining = max(0, _total_budgeted - _total_spent)
+
+                        ui.label("Budgets").classes("text-lg font-extrabold mt-8 px-2").style("letter-spacing: -0.02em;")
+                        with ui.element('div').style('display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; padding: 0 8px; margin-top: 8px;'):
+                            for cat, spent_amt, bud_amt in rows[:8]:
+                                pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
+                                _c_color = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else '#8B5CF6')
+                                with ui.element('div').style(f'background: var(--mf-card-top); border: 1px solid var(--mf-border); border-radius: 20px; padding: 16px; position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);'):
+                                    ui.element('div').style(f'position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; border-radius: 50%; background: {_c_color}; filter: blur(30px); opacity: 0.2; pointer-events: none;')
+                                    with ui.row().classes('justify-between items-start w-full'):
+                                        with ui.element('div').style(f'width: 28px; height: 28px; border-radius: 8px; background: {_c_color}1a; display: flex; align-items: center; justify-content: center;'):
+                                            ui.icon('receipt_long').style(f'font-size: 14px; color: {_c_color};')
+                                        ui.label(f'{int(round(pct*100))}%').classes('text-[10px] font-bold').style(f'color: {_c_color}; background: {_c_color}10; padding: 2px 6px; border-radius: 12px;')
+                                    ui.label(cat).classes('text-sm font-bold mt-1').style('color: var(--mf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em;')
+                                    with ui.row().classes('items-baseline gap-1'):
+                                        ui.label(currency(spent_amt)).classes('text-base font-extrabold').style(f'color: {_c_color}; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
+                                        ui.label(f'/ {currency(bud_amt)}').classes('text-[9px] font-semibold').style('color: var(--mf-muted);')
+                                    with ui.element('div').style('width: 100%; height: 4px; border-radius: 2px; background: rgba(0,0,0,0.3); margin-top: auto; overflow: hidden;'):
+                                        ui.element('div').style(f'height: 100%; width: {pct*100}%; background: {_c_color}; border-radius: 2px;')
+
+        # Upcoming salary section removed in v9.0 (payday info now in hero card)
+
+        # Task 8: Spending Breakdown removed (user finds it PowerBI-like)
+
+        # Top merchants section removed in v9.0
+
+        #  Dashboard section helpers (closure over spend, expense, tx, etc.) 
+        # _render_insights() and _render_alerts() removed in v9.0
+
+        def _render_recent_tx():
+            # === RADICAL PARADIGM SHIFT: The Timeline Feed ===
+            try:
+                if not tx.empty and "date_parsed" in tx.columns:
+                    _recent_tx = tx.sort_values("date_parsed", ascending=False).head(5)
+                    if not _recent_tx.empty:
+                        with ui.column().classes("w-full mt-6 px-2"):
+                            with ui.row().classes("items-center justify-between w-full mb-3"):
+                                ui.label("Recent Activity").classes("text-lg font-extrabold").style("letter-spacing: -0.02em; color: var(--mf-text);")
+                                ui.button("See all", on_click=lambda: nav_to("/tx")).props("flat dense").style("border-radius: 8px; font-size: 13px; font-weight: 600; text-transform: none; color: #3b82f6;")
+
+                            with ui.element('div').style('width: 100%; border-radius: 20px; background: var(--mf-card-top); border: 1px solid var(--mf-border); box-shadow: 0 4px 12px rgba(0,0,0,0.05); overflow: hidden;'):
+                                _last_date_group = None
+                                _total_cnt = len(_recent_tx)
+                                for _idx, (_, _rtx) in enumerate(_recent_tx.iterrows()):
+                                    _rt_type = str(_rtx.get("type", "") or "").strip().lower()
+                                    _rt_is_income = _rt_type in ("credit", "income")
+                                    _rt_amt = float(_rtx.get("amount_num", 0) or 0)
+                                    _rt_note = str(_rtx.get("notes", "") or "")[:35] or str(_rtx.get("category", "") or "")
+                                    _rt_cat = str(_rtx.get("category", "") or "")
+                                    
+                                    # Apple Wallet style row (compacted for crispness)
+                                    _rt_color = "#10B981" if _rt_is_income else "var(--mf-text)"
+                                    _rt_sign = "+" if _rt_is_income else ""
+                                    # Context-aware icons
+                                    _cl = _rt_cat.lower()
+                                    _nl = _rt_note.lower()
+                                    if _rt_is_income:
+                                        _rt_icon, _icon_color = ("arrow_downward", "#10B981") if "refund" in _nl else ("attach_money", "#10B981")
+                                    elif "grocer" in _cl or "walmart" in _nl or "costco" in _nl:
+                                        _rt_icon, _icon_color = "shopping_cart", "#F59E0B"
+                                    elif "rent" in _cl or "mortgage" in _cl:
+                                        _rt_icon, _icon_color = "home", "#3B82F6"
+                                    elif "utilit" in _cl or "hydro" in _nl or "water" in _nl:
+                                        _rt_icon, _icon_color = "bolt", "#EAB308"
+                                    elif "subscript" in _cl or "netflix" in _nl or "spotify" in _nl:
+                                        _rt_icon, _icon_color = "play_circle", "#EC4899"
+                                    elif "din" in _cl or "restaurant" in _cl or "food" in _cl:
+                                        _rt_icon, _icon_color = "restaurant", "#F43F5E"
+                                    elif "fuel" in _cl or "gas" in _cl or "shell" in _nl or "petro" in _nl:
+                                        _rt_icon, _icon_color = "local_gas_station", "#64748B"
+                                    elif "shop" in _cl or "amazon" in _nl:
+                                        _rt_icon, _icon_color = "local_mall", "#8B5CF6"
+                                    elif "house" in _cl:
+                                        _rt_icon, _icon_color = "roofing", "#06B6D4"
+                                    elif "travel" in _cl or "flight" in _cl or "hotel" in _cl:
+                                        _rt_icon, _icon_color = "flight", "#0EA5E9"
+                                    elif "health" in _cl or "pharmacy" in _cl or "drug" in _nl:
+                                        _rt_icon, _icon_color = "favorite", "#EF4444"
+                                    elif "transfer" in _cl or "e-transfer" in _nl:
+                                        _rt_icon, _icon_color = "swap_horiz", "#6366F1"
+                                    elif "car" in _cl or "auto" in _cl:
+                                        _rt_icon, _icon_color = "directions_car", "#F97316"
+                                    else:
+                                        _rt_icon, _icon_color = "storefront", "#9CA3AF"
+                                    _icon_bg = f"{_icon_color}26"
+                                    
+                                    _bb = "border-bottom: 1px solid var(--mf-border);" if _idx < _total_cnt - 1 else ""
+                                    with ui.element("div").style(f"display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; {_bb}"):
+                                        with ui.row().classes("items-center gap-3 flex-1").style("min-width: 0;"):
+                                            with ui.element("div").style(
+                                                f"width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;"
+                                                f"background: {_icon_bg}; flex-shrink: 0;"
+                                            ):
+                                                ui.icon(_rt_icon).style(f"font-size: 18px; color: {_icon_color};")
+                                            
+                                            with ui.column().classes("gap-0 flex-1").style("min-width: 0; overflow: hidden;"):
+                                                ui.label(_rt_note).classes("text-sm font-bold").style("white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mf-text); letter-spacing: -0.01em;")
+                                                ui.label(_rt_cat).classes("text-xs font-medium").style("color: var(--mf-muted);")
+                                                
+                                        ui.label(f"{_rt_sign}{currency(_rt_amt)}").classes("text-sm font-extrabold").style(
+                                            f"color: {_rt_color}; font-feature-settings: 'tnum'; white-space: nowrap; letter-spacing: -0.02em;"
+                                        )
+            except Exception:
+                pass
+
+        #  Dashboard Grid (responsive 2-col on desktop) 
+        with ui.element('div').classes('mf-dash-grid'):
+            with ui.element('div'):
+                _render_recent_tx()
+
+
+    shell(content)
+
+
+@ui.page("/add")
+def add_page():
+    if not require_login():
+        nav_to("/login")
+        return
+
+    #  8.7: Custom chip-select  completely replaces Quasar q-select 
+    def _chip_select(options, value, label=None, hint=None, scrollable=False, disabled=False, max_chips=8, accent_color='#6366f1'):
+        """Chip-based option picker.  For high-cardinality fields (>max_chips)
+        renders a custom pure-HTML dropdown instead.
+        Returns object with .value / .props() / .on() / .set_visibility()."""
+
+        _use_dropdown = len(options) > max_chips
+
+        #  CUSTOM DROPDOWN MODE (9+ options  e.g. Category) 
+        if _use_dropdown:
+            _dd_state = {'value': value, 'disabled': disabled, 'open': False}
+            _dd_cbs: list = []
+            _dd_items: dict = {}
+
+            _dd_container = ui.column().classes('w-full gap-1')
+            with _dd_container:
+                if label:
+                    ui.label(label).classes('text-xs font-medium').style(
+                        'color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;'
+                    )
+
+                # Trigger button  shows current value + arrow
+                _trigger = ui.element('div').classes('mf-dd-trigger')
+                with _trigger:
+                    _dd_label = ui.label(str(value)).style('pointer-events:none; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;')
+                    ui.icon('expand_more').classes('mf-dd-arrow').style('pointer-events:none; font-size:20px; color:var(--mf-muted); transition:transform 0.15s;')
+
+                # Options panel  hidden until clicked
+                _panel = ui.element('div').classes('mf-dd-panel')
+                _panel.style('display:none;')
+                with _panel:
+                    for opt in options:
+                        _cls = 'mf-dd-item'
+                        if opt == value:
+                            _cls += ' active'
+                        item = ui.element('div').classes(_cls)
+                        with item:
+                            ui.label(str(opt)).style('pointer-events:none;')
+                        _dd_items[opt] = item
+
+                if hint:
+                    ui.label(hint).classes('text-xs').style('color: var(--mf-muted); opacity: 0.6;')
+
+            def _dd_toggle():
+                if _dd_state['disabled']:
+                    return
+                _dd_state['open'] = not _dd_state['open']
+                if _dd_state['open']:
+                    _panel.style('display:block;')
+                    _trigger.classes(add='open')
+                else:
+                    _panel.style('display:none;')
+                    _trigger.classes(remove='open')
+
+            def _dd_pick(opt):
+                if _dd_state['disabled'] or _dd_state['value'] == opt:
                     _dd_state['open'] = False
                     _panel.style('display:none;')
                     _trigger.classes(remove='open')
-                    for cb in _dd_cbs:
-                        try:
-                            cb(opt)
-                        except Exception:
-                            pass
-    
-                _trigger.on('click', lambda _: _dd_toggle())
-                for opt in options:
-                    _dd_items[opt].on('click', lambda _, o=opt: _dd_pick(o))
-    
-                class _SelDropdown:
-                    @property
-                    def value(self_):
-                        return _dd_state['value']
-                    @value.setter
-                    def value(self_, v):
-                        if v in _dd_items:
-                            _dd_pick(v)
-                        else:
-                            _dd_state['value'] = v
-                            _dd_label.text = str(v)
-                    def set_visibility(self_, visible):
-                        _dd_container.set_visibility(visible)
-                    def on_change(self_, fn):
-                        _dd_cbs.append(fn)
-                        return self_
-                    def props(self_, prop_str=''):
-                        if 'disable' in prop_str and 'remove' not in prop_str:
-                            _dd_state['disabled'] = True
-                            _trigger.classes(add='disabled')
-                        elif 'enable' in prop_str or 'remove' in prop_str:
-                            _dd_state['disabled'] = False
-                            _trigger.classes(remove='disabled')
-                        return self_
-                    def on(self_, event, fn):
-                        _dd_cbs.append(lambda v: fn(v))
-                        return self_
-                return _SelDropdown()
-    
-            #  CHIP MODE (8 options  Method, Account, etc.) 
-            _state = {'value': value, 'disabled': disabled}
-            _chips: dict = {}
-            _cbs: list = []
-    
-            def _pick(opt):
-                if _state['disabled'] or _state['value'] == opt:
                     return
-                old = _state['value']
-                _state['value'] = opt
-                if old in _chips:
-                    _chips[old].classes(remove='active')
-                    _chips[old].style('background: rgba(0,0,0,0.15) !important; color: var(--mf-text) !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05) !important; font-weight: 600;')
-                if opt in _chips:
-                    _chips[opt].classes(add='active')
-                    _chips[opt].style(f'background: linear-gradient(135deg, {accent_color}, {accent_color}dd) !important; color: white !important; box-shadow: 0 4px 12px {accent_color}40; border: none !important; font-weight: 700;')
-                for cb in _cbs:
+                old = _dd_state['value']
+                _dd_state['value'] = opt
+                _dd_label.text = str(opt)
+                if old in _dd_items:
+                    _dd_items[old].classes(remove='active')
+                if opt in _dd_items:
+                    _dd_items[opt].classes(add='active')
+                _dd_state['open'] = False
+                _panel.style('display:none;')
+                _trigger.classes(remove='open')
+                for cb in _dd_cbs:
                     try:
                         cb(opt)
                     except Exception:
                         pass
-    
-            _container = ui.column().classes('w-full gap-2')
-            with _container:
-                if label:
-                    with ui.row().classes('items-center gap-2 mb-1'):
-                        ui.label(label).classes('text-xs font-bold').style(
-                            'color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.9;'
-                        )
-                _row_cls = 'mf-chip-row' + (' mf-chip-scroll' if scrollable else '')
-                with ui.element('div').classes(_row_cls).style('gap: 10px; padding-bottom: 4px;'):
-                    for opt in options:
-                        _cls = 'mf-chip'
-                        if opt == value:
-                            _cls += ' active'
-                        if disabled:
-                            _cls += ' disabled'
-                        
-                        # Premium chip styling base overrides
-                        chip = ui.element('div').classes(_cls)
-                        if not disabled:
-                            chip.on('click', lambda _, o=opt: _pick(o))
-                            if opt == value:
-                                # Active Premium State
-                                chip.style(f'background: linear-gradient(135deg, {accent_color}, {accent_color}dd) !important; color: white !important; box-shadow: 0 4px 12px {accent_color}40; border: none !important; font-weight: 700;')
-                            else:
-                                # Inactive Premium State (Lighter Grey)
-                                chip.style('background: rgba(255,255,255,0.08) !important; color: var(--mf-text) !important; border: 1px solid rgba(255,255,255,0.1) !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); font-weight: 600;')
-                        
-                        with chip:
-                            ui.label(str(opt)).style('pointer-events: none;')
-                        _chips[opt] = chip
-                if hint:
-                    ui.label(hint).classes('text-[11px] font-medium').style('color: var(--mf-muted); opacity: 0.5;')
-    
-            class _Sel:
+
+            _trigger.on('click', lambda _: _dd_toggle())
+            for opt in options:
+                _dd_items[opt].on('click', lambda _, o=opt: _dd_pick(o))
+
+            class _SelDropdown:
                 @property
                 def value(self_):
-                    return _state['value']
+                    return _dd_state['value']
                 @value.setter
                 def value(self_, v):
-                    if v in _chips:
-                        _pick(v)
+                    if v in _dd_items:
+                        _dd_pick(v)
                     else:
-                        # Allow setting value to text not in options (e.g. split label)
-                        _state['value'] = v
+                        _dd_state['value'] = v
+                        _dd_label.text = str(v)
                 def set_visibility(self_, visible):
-                    _container.set_visibility(visible)
+                    _dd_container.set_visibility(visible)
                 def on_change(self_, fn):
-                    _cbs.append(fn)
+                    _dd_cbs.append(fn)
                     return self_
                 def props(self_, prop_str=''):
-                    """Compatibility shim  handles 'disable'/'enable' props."""
                     if 'disable' in prop_str and 'remove' not in prop_str:
-                        _state['disabled'] = True
-                        for c in _chips.values():
-                            c.classes(add='disabled')
+                        _dd_state['disabled'] = True
+                        _trigger.classes(add='disabled')
                     elif 'enable' in prop_str or 'remove' in prop_str:
-                        _state['disabled'] = False
-                        for c in _chips.values():
-                            c.classes(remove='disabled')
+                        _dd_state['disabled'] = False
+                        _trigger.classes(remove='disabled')
                     return self_
                 def on(self_, event, fn):
-                    """Compatibility shim  maps any change event to on_change."""
-                    _cbs.append(lambda v: fn(v))
+                    _dd_cbs.append(lambda v: fn(v))
                     return self_
-            return _Sel()
-    
-        def open_add_dialog(entry_type: str, *, preset_category: str | None = None, preset_method: str | None = None, preset_account: str | None = None, auto_scan: bool = False):
-            rules = load_rules()
-            owners = owners_list()
-            accounts = accounts_list()
-            categories = categories_list()
-            methods = methods_list()
-    
-            # Remember last-used method/account for Expense (Debit) so you don't reselect every time.
-            last_debit_method = str(app.storage.user.get('last_debit_method', '') or '').strip()
-            last_debit_account = str(app.storage.user.get('last_debit_account', '') or '').strip()
-    
-            # Map entry types to accent colors and icons
-            _dlg_accents = {
-                'debit': ('#ef4444', 'shopping_cart', 'Expense'),
-                'expense': ('#ef4444', 'shopping_cart', 'Expense'),
-                'credit': ('#22c55e', 'trending_up', 'Income'),
-                'income': ('#22c55e', 'trending_up', 'Income'),
-                'investment': ('#a855f7', 'show_chart', 'Investment'),
-                'cc repay': ('#eab308', 'credit_card', 'CC Repay'),
-                'cc_repay': ('#eab308', 'credit_card', 'CC Repay'),
-                'loc draw': ('#60a5fa', 'account_balance', 'LOC Draw'),
-                'loc_draw': ('#60a5fa', 'account_balance', 'LOC Draw'),
-                'loc withdrawal': ('#60a5fa', 'account_balance', 'LOC Draw'),
-                'loc_withdrawal': ('#60a5fa', 'account_balance', 'LOC Draw'),
-                'loc repay': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
-                'loc_repay': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
-                'loc repayment': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
-                'loc_repayment': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
-                'international': ('#f472b6', 'public', 'International Transfer'),
-                'international transfer': ('#f472b6', 'public', 'International Transfer'),
-            }
-            _accent, _dicon, _dlabel = _dlg_accents.get(entry_type.lower(), ('#6366f1', 'add_circle', entry_type))
-    
-            dlg = ui.dialog()
-            with dlg, ui.card().classes("my-card mf-add-dialog w-full max-w-[800px]").style("max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 32px; box-shadow: 0 40px 80px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.05); background: linear-gradient(180deg, var(--mf-surface-1), var(--mf-surface-2));"):
-                # Premium dialog header  accent strip + header area with background
-                ui.element('div').style(f'height: 6px; background: linear-gradient(90deg, {_accent}, {_accent}88); border-radius: 32px 32px 0 0;')
-                with ui.element('div').style(
-                    f'padding: 24px 24px 16px 24px; width: 100%; box-sizing: border-box;'
-                    f'background: linear-gradient(180deg, {_accent}1A, transparent);'
-                    f'border-bottom: 1px solid rgba(255,255,255,0.03);'
-                ):
-                    with ui.row().classes('items-center gap-4').style('width: 100%;'):
-                        with ui.element('div').style(
-                            f'width: 48px; height: 48px; border-radius: 16px; display: flex; align-items: center; justify-content: center;'
-                            f'background: linear-gradient(135deg, {_accent}33, {_accent}11); border: 1px solid {_accent}44; box-shadow: 0 8px 16px {_accent}1A;'
-                        ):
-                            ui.icon(_dicon).style(f'font-size: 24px; color: {_accent};')
-                        with ui.column().classes('gap-1'):
-                            ui.label(f"Add {_dlabel}").classes('text-2xl font-black').style('letter-spacing: -0.03em; color: var(--mf-text);')
-                            ui.label('Fill in the details below').classes('text-sm font-medium').style('color: var(--mf-muted);')
-                        ui.element('div').style('flex: 1;')
-                        ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.5; background: rgba(128,128,128,0.1); border-radius: 50%; padding: 4px; transition: opacity 0.2s; position: absolute; right: 20px; top: 20px;')
-    
-                #  Section 1: Date & Amount 
-                with ui.element('div').style('padding: 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
-                    with ui.row().classes('items-center gap-2 mb-4'):
-                        ui.icon('event').style(f'font-size: 16px; color: {_accent}; opacity: 0.9;')
-                        ui.label('Date & Amount').classes('text-xs font-black').style('text-transform: uppercase; letter-spacing: 0.1em; color: var(--mf-muted); opacity: 0.8;')
+            return _SelDropdown()
+
+        #  CHIP MODE (8 options  Method, Account, etc.) 
+        _state = {'value': value, 'disabled': disabled}
+        _chips: dict = {}
+        _cbs: list = []
+
+        def _pick(opt):
+            if _state['disabled'] or _state['value'] == opt:
+                return
+            old = _state['value']
+            _state['value'] = opt
+            if old in _chips:
+                _chips[old].classes(remove='active')
+                _chips[old].style('background: rgba(0,0,0,0.15) !important; color: var(--mf-text) !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05) !important; font-weight: 600;')
+            if opt in _chips:
+                _chips[opt].classes(add='active')
+                _chips[opt].style(f'background: linear-gradient(135deg, {accent_color}, {accent_color}dd) !important; color: white !important; box-shadow: 0 4px 12px {accent_color}40; border: none !important; font-weight: 700;')
+            for cb in _cbs:
+                try:
+                    cb(opt)
+                except Exception:
+                    pass
+
+        _container = ui.column().classes('w-full gap-2')
+        with _container:
+            if label:
+                with ui.row().classes('items-center gap-2 mb-1'):
+                    ui.label(label).classes('text-xs font-bold').style(
+                        'color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.9;'
+                    )
+            _row_cls = 'mf-chip-row' + (' mf-chip-scroll' if scrollable else '')
+            with ui.element('div').classes(_row_cls).style('gap: 10px; padding-bottom: 4px;'):
+                for opt in options:
+                    _cls = 'mf-chip'
+                    if opt == value:
+                        _cls += ' active'
+                    if disabled:
+                        _cls += ' disabled'
                     
-                    with ui.row().classes('w-full gap-4'):
-                        # Neumorphic Date Input
-                        with ui.element('div').classes('flex-1 position-relative'):
-                            d_date = ui.input(value=today().isoformat()).props("type=date dense borderless").classes("w-full mf-premium-input")
-                            d_date.style('background: rgba(0,0,0,0.2) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px; padding: 4px 12px; font-weight: 600; font-size: 15px; color: var(--mf-text); box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); transition: all 0.2s ease;')
-    
-                        # Neumorphic Amount Input (Giant font for emphasis)
-                        with ui.element('div').classes('flex-1 position-relative'):
-                            d_amount = ui.number(value=0).props("dense borderless").classes("w-full mf-premium-input")
-                            d_amount.style('background: rgba(0,0,0,0.2) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px; padding: 4px 12px; font-weight: 800; font-size: 18px; color: var(--mf-text); font-feature-settings: "tnum"; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); transition: all 0.2s ease;')
-    
-    
-                _et = entry_type.lower().strip()
-                is_debit = _et in ('debit', 'expense')
-                is_income = _et in ('credit', 'income')
-                is_invest = _et == 'investment'
-                is_cc_repay = _et in ('cc repay', 'cc_repay', 'ccrepay', 'credit card repay', 'credit card repayment')
-                is_loc_draw = _et in ('loc draw', 'loc_draw', 'loc withdrawal', 'loc_withdrawal')
-                is_loc_repay = _et in ('loc repay', 'loc_repay', 'loc repayment', 'loc_repayment')
-    
-                # Phase 6.5+: OCR-triggered multi-category split (Walmart/Costco/Superstore)
-                # Stores a plan of category->amount which will be written as multiple transaction rows on Save.
-                split_plan: Dict[str, Any] = {
-                    "enabled": False,
-                    "merchant": "",
-                    "amounts": {},  # e.g., {"Groceries": 120.00, "Household": 30.00, "Shopping": 10.00, "Health": 5.00}
-                    "detected_amounts": {},
-                }
-    
-                def _norm_merchant(s: str) -> str:
-                    return re.sub(r'\s+', ' ', (s or '').strip().lower())
-    
-                def _is_split_merchant(s: str) -> bool:
-                    """Merchants where we offer OCR-driven multi-category split."""
-                    t = _norm_merchant(s)
-                    return ('walmart' in t) or ('costco' in t) or ('superstore' in t)
-                # Per 5.14 UX rules:
-                # - Income: Method fixed to Bank (no method dropdown)
-                # - Investment: Method fixed to Bank, Account disabled, Category default Investment
-                # - CC Repay: Method fixed to Card (no method dropdown)
-                fixed_method = None
-                hide_method = False
-                disable_account = False
-                hide_category = False
-                fixed_category = preset_category
-    
-                if is_income:
-                    fixed_method = 'Bank'
-                    hide_method = True
-                    disable_account = True  # income goes to bank; avoid card/LOC accounts
-                if is_invest:
-                    fixed_method = 'Bank'
-                    hide_method = True
-                    disable_account = True
-                    if not fixed_category:
-                        fixed_category = 'Investment'
-                if is_cc_repay:
-                    fixed_method = 'Card'
-                    hide_method = True
-                    hide_category = True
-                    fixed_category = 'CC Repay'
-                    # 8.4: Restrict CC Repay to only credit card / LOC accounts
-                    CC_REPAY_ACCOUNTS = ["RBC Line of Credit", "RBC VISA", "RBC Mastercard", "CT Mastercard - Black", "CT Mastercard - Grey"]
-                    accounts = [a for a in accounts if a in CC_REPAY_ACCOUNTS]
-                    if not accounts:
-                        accounts = CC_REPAY_ACCOUNTS
-                if is_loc_draw:
-                    if not fixed_method:
-                        fixed_method = preset_method or 'Card'
-                    hide_method = True
-                    if not fixed_category:
-                        fixed_category = preset_category or 'LOC Utilization'
-                if is_loc_repay:
-                    if not fixed_method:
-                        fixed_method = preset_method or 'Bank'
-                    hide_method = True
-                    if not fixed_category:
-                        fixed_category = preset_category or 'Repayment'
-    
-                default_method = ("Card" if is_debit else ("Bank" if (is_income or is_invest or is_loc_repay) else ("Card" if is_loc_draw else "Bank")))
-    
-                # Presets override remembered defaults.
-                method_default = (fixed_method or preset_method or (last_debit_method if (is_debit and last_debit_method in methods) else default_method))
-                # Choose a sensible default account
-                if disable_account:
-                    # Prefer a non-card/bank-like account for Investment (locked)
-                    def _is_card_account(name: str) -> bool:
-                        n = (name or '').lower()
-                        return any(x in n for x in ['mastercard', 'visa', 'card', 'ct ', 'canadiantire', 'credit'])
-                    bank_candidates = [a for a in accounts if a and (not _is_card_account(str(a)))]
-                    account_default = (preset_account or (bank_candidates[0] if bank_candidates else (accounts[0] if accounts else "")))
-                    if is_income:
-                        accounts = bank_candidates  # hide card/LOC accounts for income
+                    # Premium chip styling base overrides
+                    chip = ui.element('div').classes(_cls)
+                    if not disabled:
+                        chip.on('click', lambda _, o=opt: _pick(o))
+                        if opt == value:
+                            # Active Premium State
+                            chip.style(f'background: linear-gradient(135deg, {accent_color}, {accent_color}dd) !important; color: white !important; box-shadow: 0 4px 12px {accent_color}40; border: none !important; font-weight: 700;')
+                        else:
+                            # Inactive Premium State (Lighter Grey)
+                            chip.style('background: rgba(255,255,255,0.08) !important; color: var(--mf-text) !important; border: 1px solid rgba(255,255,255,0.1) !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); font-weight: 600;')
+                    
+                    with chip:
+                        ui.label(str(opt)).style('pointer-events: none;')
+                    _chips[opt] = chip
+            if hint:
+                ui.label(hint).classes('text-[11px] font-medium').style('color: var(--mf-muted); opacity: 0.5;')
+
+        class _Sel:
+            @property
+            def value(self_):
+                return _state['value']
+            @value.setter
+            def value(self_, v):
+                if v in _chips:
+                    _pick(v)
                 else:
-                    account_default = (preset_account or (last_debit_account if (is_debit and last_debit_account in accounts) else (accounts[0] if accounts else "")))
-    
-    
-                # Ensure defaults are valid options (NiceGUI select raises if value not in options)
-                if method_default and method_default not in methods:
-                    methods = [method_default] + [m for m in methods if m != method_default]
-                # 8.4: For CC Repay, force default to first valid CC account (not a stale last_debit_account)
-                if is_cc_repay and account_default not in (accounts or []):
-                    account_default = accounts[0] if accounts else ""
-                if account_default and account_default not in (accounts or []):
-                    accounts = [account_default] + [a for a in (accounts or []) if a != account_default]
-    
-                #  Section 2: Payment 
+                    # Allow setting value to text not in options (e.g. split label)
+                    _state['value'] = v
+            def set_visibility(self_, visible):
+                _container.set_visibility(visible)
+            def on_change(self_, fn):
+                _cbs.append(fn)
+                return self_
+            def props(self_, prop_str=''):
+                """Compatibility shim  handles 'disable'/'enable' props."""
+                if 'disable' in prop_str and 'remove' not in prop_str:
+                    _state['disabled'] = True
+                    for c in _chips.values():
+                        c.classes(add='disabled')
+                elif 'enable' in prop_str or 'remove' in prop_str:
+                    _state['disabled'] = False
+                    for c in _chips.values():
+                        c.classes(remove='disabled')
+                return self_
+            def on(self_, event, fn):
+                """Compatibility shim  maps any change event to on_change."""
+                _cbs.append(lambda v: fn(v))
+                return self_
+        return _Sel()
+
+    def open_add_dialog(entry_type: str, *, preset_category: str | None = None, preset_method: str | None = None, preset_account: str | None = None, auto_scan: bool = False):
+        rules = load_rules()
+        owners = owners_list()
+        accounts = accounts_list()
+        categories = categories_list()
+        methods = methods_list()
+
+        # Remember last-used method/account for Expense (Debit) so you don't reselect every time.
+        last_debit_method = str(app.storage.user.get('last_debit_method', '') or '').strip()
+        last_debit_account = str(app.storage.user.get('last_debit_account', '') or '').strip()
+
+        # Map entry types to accent colors and icons
+        _dlg_accents = {
+            'debit': ('#ef4444', 'shopping_cart', 'Expense'),
+            'expense': ('#ef4444', 'shopping_cart', 'Expense'),
+            'credit': ('#22c55e', 'trending_up', 'Income'),
+            'income': ('#22c55e', 'trending_up', 'Income'),
+            'investment': ('#a855f7', 'show_chart', 'Investment'),
+            'cc repay': ('#eab308', 'credit_card', 'CC Repay'),
+            'cc_repay': ('#eab308', 'credit_card', 'CC Repay'),
+            'loc draw': ('#60a5fa', 'account_balance', 'LOC Draw'),
+            'loc_draw': ('#60a5fa', 'account_balance', 'LOC Draw'),
+            'loc withdrawal': ('#60a5fa', 'account_balance', 'LOC Draw'),
+            'loc_withdrawal': ('#60a5fa', 'account_balance', 'LOC Draw'),
+            'loc repay': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
+            'loc_repay': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
+            'loc repayment': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
+            'loc_repayment': ('#2dd4bf', 'swap_horiz', 'LOC Repay'),
+            'international': ('#f472b6', 'public', 'International Transfer'),
+            'international transfer': ('#f472b6', 'public', 'International Transfer'),
+        }
+        _accent, _dicon, _dlabel = _dlg_accents.get(entry_type.lower(), ('#6366f1', 'add_circle', entry_type))
+
+        dlg = ui.dialog()
+        with dlg, ui.card().classes("my-card mf-add-dialog w-full max-w-[480px]").style("max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 32px; box-shadow: 0 40px 80px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.05); background: linear-gradient(180deg, var(--mf-surface-1), var(--mf-surface-2));"):
+            # Premium dialog header  accent strip + header area with background
+            ui.element('div').style(f'height: 6px; background: linear-gradient(90deg, {_accent}, {_accent}88); border-radius: 32px 32px 0 0;')
+            with ui.element('div').style(
+                f'padding: 24px 24px 16px 24px; width: 100%; box-sizing: border-box;'
+                f'background: linear-gradient(180deg, {_accent}1A, transparent);'
+                f'border-bottom: 1px solid rgba(255,255,255,0.03);'
+            ):
+                with ui.row().classes('items-center gap-4').style('width: 100%;'):
+                    with ui.element('div').style(
+                        f'width: 48px; height: 48px; border-radius: 16px; display: flex; align-items: center; justify-content: center;'
+                        f'background: linear-gradient(135deg, {_accent}33, {_accent}11); border: 1px solid {_accent}44; box-shadow: 0 8px 16px {_accent}1A;'
+                    ):
+                        ui.icon(_dicon).style(f'font-size: 24px; color: {_accent};')
+                    with ui.column().classes('gap-1'):
+                        ui.label(f"Add {_dlabel}").classes('text-2xl font-black').style('letter-spacing: -0.03em; color: var(--mf-text);')
+                        ui.label('Fill in the details below').classes('text-sm font-medium').style('color: var(--mf-muted);')
+                    ui.element('div').style('flex: 1;')
+                    ui.button('', icon='close', on_click=dlg.close).props('flat round dense').style('opacity: 0.5; background: rgba(128,128,128,0.1); border-radius: 50%; padding: 4px; transition: opacity 0.2s; position: absolute; right: 20px; top: 20px;')
+
+            #  Section 1: Date & Amount 
+            with ui.element('div').style('padding: 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-2 mb-4'):
+                    ui.icon('event').style(f'font-size: 16px; color: {_accent}; opacity: 0.9;')
+                    ui.label('Date & Amount').classes('text-xs font-black').style('text-transform: uppercase; letter-spacing: 0.1em; color: var(--mf-muted); opacity: 0.8;')
+                
+                with ui.row().classes('w-full gap-4'):
+                    # Neumorphic Date Input
+                    with ui.element('div').classes('flex-1 position-relative'):
+                        d_date = ui.input(value=today().isoformat()).props("type=date dense borderless").classes("w-full mf-premium-input")
+                        d_date.style('background: rgba(0,0,0,0.2) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px; padding: 4px 12px; font-weight: 600; font-size: 15px; color: var(--mf-text); box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); transition: all 0.2s ease;')
+
+                    # Neumorphic Amount Input (Giant font for emphasis)
+                    with ui.element('div').classes('flex-1 position-relative'):
+                        d_amount = ui.number(value=0).props("dense borderless").classes("w-full mf-premium-input")
+                        d_amount.style('background: rgba(0,0,0,0.2) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px; padding: 4px 12px; font-weight: 800; font-size: 18px; color: var(--mf-text); font-feature-settings: "tnum"; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); transition: all 0.2s ease;')
+
+
+            _et = entry_type.lower().strip()
+            is_debit = _et in ('debit', 'expense')
+            is_income = _et in ('credit', 'income')
+            is_invest = _et == 'investment'
+            is_cc_repay = _et in ('cc repay', 'cc_repay', 'ccrepay', 'credit card repay', 'credit card repayment')
+            is_loc_draw = _et in ('loc draw', 'loc_draw', 'loc withdrawal', 'loc_withdrawal')
+            is_loc_repay = _et in ('loc repay', 'loc_repay', 'loc repayment', 'loc_repayment')
+
+            # Phase 6.5+: OCR-triggered multi-category split (Walmart/Costco/Superstore)
+            # Stores a plan of category->amount which will be written as multiple transaction rows on Save.
+            split_plan: Dict[str, Any] = {
+                "enabled": False,
+                "merchant": "",
+                "amounts": {},  # e.g., {"Groceries": 120.00, "Household": 30.00, "Shopping": 10.00, "Health": 5.00}
+                "detected_amounts": {},
+            }
+
+            def _norm_merchant(s: str) -> str:
+                return re.sub(r'\s+', ' ', (s or '').strip().lower())
+
+            def _is_split_merchant(s: str) -> bool:
+                """Merchants where we offer OCR-driven multi-category split."""
+                t = _norm_merchant(s)
+                return ('walmart' in t) or ('costco' in t) or ('superstore' in t)
+            # Per 5.14 UX rules:
+            # - Income: Method fixed to Bank (no method dropdown)
+            # - Investment: Method fixed to Bank, Account disabled, Category default Investment
+            # - CC Repay: Method fixed to Card (no method dropdown)
+            fixed_method = None
+            hide_method = False
+            disable_account = False
+            hide_category = False
+            fixed_category = preset_category
+
+            if is_income:
+                fixed_method = 'Bank'
+                hide_method = True
+                disable_account = True  # income goes to bank; avoid card/LOC accounts
+            if is_invest:
+                fixed_method = 'Bank'
+                hide_method = True
+                disable_account = True
+                if not fixed_category:
+                    fixed_category = 'Investment'
+            if is_cc_repay:
+                fixed_method = 'Card'
+                hide_method = True
+                hide_category = True
+                fixed_category = 'CC Repay'
+                # 8.4: Restrict CC Repay to only credit card / LOC accounts
+                CC_REPAY_ACCOUNTS = ["RBC Line of Credit", "RBC VISA", "RBC Mastercard", "CT Mastercard - Black", "CT Mastercard - Grey"]
+                accounts = [a for a in accounts if a in CC_REPAY_ACCOUNTS]
+                if not accounts:
+                    accounts = CC_REPAY_ACCOUNTS
+            if is_loc_draw:
+                if not fixed_method:
+                    fixed_method = preset_method or 'Card'
+                hide_method = True
+                if not fixed_category:
+                    fixed_category = preset_category or 'LOC Utilization'
+            if is_loc_repay:
+                if not fixed_method:
+                    fixed_method = preset_method or 'Bank'
+                hide_method = True
+                if not fixed_category:
+                    fixed_category = preset_category or 'Repayment'
+
+            default_method = ("Card" if is_debit else ("Bank" if (is_income or is_invest or is_loc_repay) else ("Card" if is_loc_draw else "Bank")))
+
+            # Presets override remembered defaults.
+            method_default = (fixed_method or preset_method or (last_debit_method if (is_debit and last_debit_method in methods) else default_method))
+            # Choose a sensible default account
+            if disable_account:
+                # Prefer a non-card/bank-like account for Investment (locked)
+                def _is_card_account(name: str) -> bool:
+                    n = (name or '').lower()
+                    return any(x in n for x in ['mastercard', 'visa', 'card', 'ct ', 'canadiantire', 'credit'])
+                bank_candidates = [a for a in accounts if a and (not _is_card_account(str(a)))]
+                account_default = (preset_account or (bank_candidates[0] if bank_candidates else (accounts[0] if accounts else "")))
+                if is_income:
+                    accounts = bank_candidates  # hide card/LOC accounts for income
+            else:
+                account_default = (preset_account or (last_debit_account if (is_debit and last_debit_account in accounts) else (accounts[0] if accounts else "")))
+
+
+            # Ensure defaults are valid options (NiceGUI select raises if value not in options)
+            if method_default and method_default not in methods:
+                methods = [method_default] + [m for m in methods if m != method_default]
+            # 8.4: For CC Repay, force default to first valid CC account (not a stale last_debit_account)
+            if is_cc_repay and account_default not in (accounts or []):
+                account_default = accounts[0] if accounts else ""
+            if account_default and account_default not in (accounts or []):
+                accounts = [account_default] + [a for a in (accounts or []) if a != account_default]
+
+            #  Section 2: Payment 
+            ui.element('div').style('height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); margin: 0 24px;')
+            with ui.element('div').style('padding: 16px 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-2 mb-3'):
+                    ui.icon('account_balance_wallet').style(f'font-size: 16px; color: {_accent}; opacity: 0.9;')
+                    ui.label('Payment').classes('text-xs font-black').style('text-transform: uppercase; letter-spacing: 0.1em; color: var(--mf-muted); opacity: 0.8;')
+
+                # 8.7: Chip-based selects  no Quasar q-select
+                if hide_method:
+                    d_method = None
+                else:
+                    d_method = _chip_select(
+                        methods or ["Bank"], value=(method_default if method_default in (methods or []) else (methods or ["Bank"])[0]),
+                        label="Payment Method",
+                        hint="Select payment method" if is_debit else None,
+                        accent_color=_accent
+                    )
+
+                d_account = _chip_select(
+                    accounts or ["Bank"], value=(account_default if account_default in (accounts or []) else (accounts or ["Bank"])[0]),
+                    label="Account",
+                    hint="Choose your account" if is_debit else None,
+                    disabled=disable_account,
+                    accent_color=_accent
+                )
+
+                if hide_method and fixed_method:
+                    ui.label(f"Method: {fixed_method}").classes("text-[11px] font-bold").style("color: var(--mf-muted); opacity: 0.5; margin-top: -4px;")
+
+            #  Section 3: Category & Notes 
+            # 8.2.2: hide_category=True for CC Repay (not an expense, no category needed)
+            if not hide_category:
                 ui.element('div').style('height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); margin: 0 24px;')
-                with ui.element('div').style('padding: 16px 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
-                    with ui.row().classes('items-center gap-2 mb-3'):
-                        ui.icon('account_balance_wallet').style(f'font-size: 16px; color: {_accent}; opacity: 0.9;')
-                        ui.label('Payment').classes('text-xs font-black').style('text-transform: uppercase; letter-spacing: 0.1em; color: var(--mf-muted); opacity: 0.8;')
-    
-                    # 8.7: Chip-based selects  no Quasar q-select
-                    if hide_method:
-                        d_method = None
-                    else:
-                        d_method = _chip_select(
-                            methods or ["Bank"], value=(method_default if method_default in (methods or []) else (methods or ["Bank"])[0]),
-                            label="Payment Method",
-                            hint="Select payment method" if is_debit else None,
-                            accent_color=_accent
-                        )
-    
-                    d_account = _chip_select(
-                        accounts or ["Bank"], value=(account_default if account_default in (accounts or []) else (accounts or ["Bank"])[0]),
-                        label="Account",
-                        hint="Choose your account" if is_debit else None,
-                        disabled=disable_account,
-                        accent_color=_accent
-                    )
-    
-                    if hide_method and fixed_method:
-                        ui.label(f"Method: {fixed_method}").classes("text-[11px] font-bold").style("color: var(--mf-muted); opacity: 0.5; margin-top: -4px;")
-    
-                #  Section 3: Category & Notes 
-                # 8.2.2: hide_category=True for CC Repay (not an expense, no category needed)
+            with ui.element('div').style('padding: 16px 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
                 if not hide_category:
-                    ui.element('div').style('height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); margin: 0 24px;')
-                with ui.element('div').style('padding: 16px 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
-                    if not hide_category:
-                        with ui.row().classes('items-center gap-2 mb-3'):
-                            ui.icon('category').style(f'font-size: 16px; color: {_accent}; opacity: 0.9;')
-                            ui.label('Category & Details').classes('text-xs font-black').style('text-transform: uppercase; letter-spacing: 0.1em; color: var(--mf-muted); opacity: 0.8;')
-    
-                    d_category = _chip_select(
-                        categories or ["Uncategorized"],
-                        value=(fixed_category or "Uncategorized"),
-                        label="Category",
-                        hint="Pick a spending category" if is_debit else None,
-                        accent_color=_accent
-                    )
-                    if hide_category:
-                        d_category.set_visibility(False)
-                    
-                    with ui.element('div').classes('mt-4 position-relative'):
-                        d_notes = ui.textarea("Notes / Merchant", value="").props("dense borderless rows=2 autogrow").classes("w-full mf-premium-input")
-                        d_notes.style('background: rgba(0,0,0,0.2) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px; padding: 12px 16px; font-weight: 500; font-size: 14px; color: var(--mf-text); box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); transition: all 0.2s ease;')
-                    
-                    with ui.element('div').style('margin-top: 16px; padding: 12px 16px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px solid rgba(255,255,255,0.03); display: flex; align-items: center; gap: 12px;'):
-                        d_rec = ui.checkbox("Mark as recurring template").style('font-weight: 600; font-size: 13px; color: var(--mf-muted);')
-                    if hide_category:
-                        d_rec.set_visibility(False)
-    
-                # Receipt scan (Expense only): opens camera on mobile, runs free OCR in the browser (tesseract.js)
-                if entry_type.lower() == 'debit':
-                    scan_state: Dict[str, Any] = {"data_url": None}
-    
-                    scan_dlg = ui.dialog()
-                    scan_progress_dlg = ui.dialog()
-                    with scan_progress_dlg, ui.card().classes('p-4').style('min-width:260px'):
-                        ui.spinner(size='lg')
-                        ui.label('Scanning...').classes('text-subtitle1')
-                    parsed_state: Dict[str, Any] = {"parsed": None}
-                    with scan_dlg, ui.card().classes('my-card p-0 w-[720px] max-w-[95vw]').style('background: #0B0E14; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 0 40px rgba(99,102,241,0.2); max-height: min(88vh, 80dvh); height: min(88vh, 80dvh); display:flex; flex-direction:column; overflow:hidden; border-radius: 28px;'):
-                        ui.element('div').style('height: 6px; width: 100%; background: linear-gradient(90deg, #6366f1, #3b82f6, #10b981); flex-shrink: 0;')
-                        with ui.column().classes('w-full').style('flex:1; overflow-y:auto; padding: 24px;'):
-                            with ui.row().classes('items-center gap-4 mb-5'):
-                                with ui.element("div").style("width: 48px; height: 48px; border-radius: 14px; background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(59,130,246,0.1)); display: flex; align-items: center; justify-content: center; border: 1px solid rgba(99,102,241,0.3);"):
-                                    ui.icon("document_scanner").style("font-size: 26px; color: #818cf8;")
-                                with ui.column().classes("gap-0"):
-                                    ui.label('Smart Scan').classes('text-xl font-extrabold').style('letter-spacing: -0.02em; color: white;')
-                                    ui.label('Auto-extract merchant, total & date').classes('text-sm').style('color: rgba(255,255,255,0.6)')
-    
-                            preview = ui.image('').classes('w-full rounded').style('display:none')
-    
-                            scan_spinner = ui.spinner(size='lg').classes('mx-auto').style('display:none')
-    
-                            # Parsed preview (filled after OCR)
-                            with ui.card().classes('my-card p-3 w-full').style('display:none') as parsed_card:
-                                ui.label('Detected fields (review before applying)').classes('text-sm font-bold')
-                                pv_merchant = ui.input('Merchant', value='').props('readonly').classes('w-full')
-                                pv_date = ui.input('Date', value='').props('readonly').classes('w-full')
-                                pv_amount = ui.input('Total amount', value='').props('readonly').classes('w-full')
-                                pv_last4 = ui.input('Card last-4', value='').props('readonly').classes('w-full')
-                                pv_conf = ui.label('').classes('text-xs').style('color: var(--mf-muted)')
-    
-                            raw_out = ui.textarea('OCR text (debug)', value='').props('readonly').classes('w-full')
-                            raw_out.style('max-height: 160px')
-    
-                            async def _on_upload(e: Any) -> None:
-                                """Store uploaded image as a data URL for client-side OCR (tesseract.js).
-    
-                                NOTE: On Render/iOS, NiceGUI's upload content reader is async.
-                                If we don't await it, we end up passing a coroutine (not bytes) and the
-                                OCR pipeline fails with: "a bytes-like object is required, not 'coroutine'".
-                                """
-    
-                                async def _read_bytes(obj: Any) -> Optional[bytes]:
-                                    if obj is None:
-                                        return None
-                                    if isinstance(obj, (bytes, bytearray)):
-                                        return bytes(obj)
-                                    if hasattr(obj, 'read'):
-                                        try:
-                                            if hasattr(obj, 'seek'):
-                                                obj.seek(0)
-                                        except Exception:
-                                            pass
-                                        res = obj.read()
-                                        if asyncio.iscoroutine(res):
-                                            res = await res
-                                        if isinstance(res, (bytes, bytearray)):
-                                            return bytes(res)
+                    with ui.row().classes('items-center gap-2 mb-3'):
+                        ui.icon('category').style(f'font-size: 16px; color: {_accent}; opacity: 0.9;')
+                        ui.label('Category & Details').classes('text-xs font-black').style('text-transform: uppercase; letter-spacing: 0.1em; color: var(--mf-muted); opacity: 0.8;')
+
+                d_category = _chip_select(
+                    categories or ["Uncategorized"],
+                    value=(fixed_category or "Uncategorized"),
+                    label="Category",
+                    hint="Pick a spending category" if is_debit else None,
+                    accent_color=_accent
+                )
+                if hide_category:
+                    d_category.set_visibility(False)
+                
+                with ui.element('div').classes('mt-4 position-relative'):
+                    d_notes = ui.textarea("Notes / Merchant", value="").props("dense borderless rows=2 autogrow").classes("w-full mf-premium-input")
+                    d_notes.style('background: rgba(0,0,0,0.2) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px; padding: 12px 16px; font-weight: 500; font-size: 14px; color: var(--mf-text); box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); transition: all 0.2s ease;')
+                
+                with ui.element('div').style('margin-top: 16px; padding: 12px 16px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px solid rgba(255,255,255,0.03); display: flex; align-items: center; gap: 12px;'):
+                    d_rec = ui.checkbox("Mark as recurring template").style('font-weight: 600; font-size: 13px; color: var(--mf-muted);')
+                if hide_category:
+                    d_rec.set_visibility(False)
+
+            # Receipt scan (Expense only): opens camera on mobile, runs free OCR in the browser (tesseract.js)
+            if entry_type.lower() == 'debit':
+                scan_state: Dict[str, Any] = {"data_url": None}
+
+                scan_dlg = ui.dialog()
+                scan_progress_dlg = ui.dialog()
+                with scan_progress_dlg, ui.card().classes('p-4').style('min-width:260px'):
+                    ui.spinner(size='lg')
+                    ui.label('Scanning...').classes('text-subtitle1')
+                parsed_state: Dict[str, Any] = {"parsed": None}
+                with scan_dlg, ui.card().classes('my-card p-0 w-[720px] max-w-[95vw]').style('background: #0B0E14; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 0 40px rgba(99,102,241,0.2); max-height: min(88vh, 80dvh); height: min(88vh, 80dvh); display:flex; flex-direction:column; overflow:hidden; border-radius: 28px;'):
+                    ui.element('div').style('height: 6px; width: 100%; background: linear-gradient(90deg, #6366f1, #3b82f6, #10b981); flex-shrink: 0;')
+                    with ui.column().classes('w-full').style('flex:1; overflow-y:auto; padding: 24px;'):
+                        with ui.row().classes('items-center gap-4 mb-5'):
+                            with ui.element("div").style("width: 48px; height: 48px; border-radius: 14px; background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(59,130,246,0.1)); display: flex; align-items: center; justify-content: center; border: 1px solid rgba(99,102,241,0.3);"):
+                                ui.icon("document_scanner").style("font-size: 26px; color: #818cf8;")
+                            with ui.column().classes("gap-0"):
+                                ui.label('Smart Scan').classes('text-xl font-extrabold').style('letter-spacing: -0.02em; color: white;')
+                                ui.label('Auto-extract merchant, total & date').classes('text-sm').style('color: rgba(255,255,255,0.6)')
+
+                        preview = ui.image('').classes('w-full rounded').style('display:none')
+
+                        scan_spinner = ui.spinner(size='lg').classes('mx-auto').style('display:none')
+
+                        # Parsed preview (filled after OCR)
+                        with ui.card().classes('my-card p-3 w-full').style('display:none') as parsed_card:
+                            ui.label('Detected fields (review before applying)').classes('text-sm font-bold')
+                            pv_merchant = ui.input('Merchant', value='').props('readonly').classes('w-full')
+                            pv_date = ui.input('Date', value='').props('readonly').classes('w-full')
+                            pv_amount = ui.input('Total amount', value='').props('readonly').classes('w-full')
+                            pv_last4 = ui.input('Card last-4', value='').props('readonly').classes('w-full')
+                            pv_conf = ui.label('').classes('text-xs').style('color: var(--mf-muted)')
+
+                        raw_out = ui.textarea('OCR text (debug)', value='').props('readonly').classes('w-full')
+                        raw_out.style('max-height: 160px')
+
+                        async def _on_upload(e: Any) -> None:
+                            """Store uploaded image as a data URL for client-side OCR (tesseract.js).
+
+                            NOTE: On Render/iOS, NiceGUI's upload content reader is async.
+                            If we don't await it, we end up passing a coroutine (not bytes) and the
+                            OCR pipeline fails with: "a bytes-like object is required, not 'coroutine'".
+                            """
+
+                            async def _read_bytes(obj: Any) -> Optional[bytes]:
+                                if obj is None:
                                     return None
-    
-                                try:
-                                    data: Optional[bytes] = None
-                                    if hasattr(e, 'content'):
-                                        data = await _read_bytes(getattr(e, 'content'))
-                                    if data is None and hasattr(e, 'file'):
-                                        f = getattr(e, 'file')
-                                        data = await _read_bytes(f)
-                                        if data is None and hasattr(f, 'file'):
-                                            data = await _read_bytes(getattr(f, 'file'))
-                                    if data is None and isinstance(e, dict):
-                                        c = e.get('content') or e.get('file')
-                                        data = await _read_bytes(c)
-    
-                                    if not data:
-                                        raise ValueError('no file bytes received')
-    
-                                    mime = getattr(e, 'type', None) or getattr(e, 'mime_type', None) or 'image/jpeg'
-                                    # Keep original bytes for server-side OCR (faster + no huge base64 on mobile)
-                                    scan_state['img_bytes'] = data
-    
-                                    # Generate a lightweight preview (downscaled) to avoid iOS lag when selecting images
+                                if isinstance(obj, (bytes, bytearray)):
+                                    return bytes(obj)
+                                if hasattr(obj, 'read'):
                                     try:
-                                        from PIL import Image
-                                        im = Image.open(io.BytesIO(data))
-                                        im = im.convert('RGB')
-                                        im.thumbnail((900, 900))
-                                        buf = io.BytesIO()
-                                        im.save(buf, format='JPEG', quality=70, optimize=True)
-                                        preview_bytes = buf.getvalue()
-                                        scan_state['data_url'] = f"data:image/jpeg;base64,{base64.b64encode(preview_bytes).decode('utf-8')}"
+                                        if hasattr(obj, 'seek'):
+                                            obj.seek(0)
                                     except Exception:
-                                        # fallback: still allow previewless scanning
-                                        scan_state['data_url'] = f"data:{mime};base64,{base64.b64encode(data).decode('utf-8')}"
-    
-                                    if scan_state.get('data_url'):
-                                        preview.set_source(scan_state['data_url'])
-                                        preview.style('display:block')
-                                    else:
-                                        preview.style('display:none')
-    
-                                    raw_out.value = ''
-                                    parsed_state['parsed'] = None
-                                    parsed_card.style('display:none')
-                                    apply_btn.disable()
-                                    _sync_run_btn()
-                                except Exception as ex:
-                                    ui.notify(f'Upload failed: {ex}', type='negative')
-    
-                            upload_holder = ui.column().classes('w-full')
-                            upload_receipt = None
-    
-                            def _mount_upload():
-                                nonlocal upload_receipt
-                                upload_holder.clear()
-                                with upload_holder:
-                                    upload_receipt = ui.upload(auto_upload=True, on_upload=_on_upload, label='Capture / Upload receipt').props("accept='image/*'").classes('w-full')
-                            
-                            _mount_upload()
-    
-                            def _sync_run_btn():
-                                """Enable/disable the Run scan button based on whether we have an image."""
+                                        pass
+                                    res = obj.read()
+                                    if asyncio.iscoroutine(res):
+                                        res = await res
+                                    if isinstance(res, (bytes, bytearray)):
+                                        return bytes(res)
+                                return None
+
+                            try:
+                                data: Optional[bytes] = None
+                                if hasattr(e, 'content'):
+                                    data = await _read_bytes(getattr(e, 'content'))
+                                if data is None and hasattr(e, 'file'):
+                                    f = getattr(e, 'file')
+                                    data = await _read_bytes(f)
+                                    if data is None and hasattr(f, 'file'):
+                                        data = await _read_bytes(getattr(f, 'file'))
+                                if data is None and isinstance(e, dict):
+                                    c = e.get('content') or e.get('file')
+                                    data = await _read_bytes(c)
+
+                                if not data:
+                                    raise ValueError('no file bytes received')
+
+                                mime = getattr(e, 'type', None) or getattr(e, 'mime_type', None) or 'image/jpeg'
+                                # Keep original bytes for server-side OCR (faster + no huge base64 on mobile)
+                                scan_state['img_bytes'] = data
+
+                                # Generate a lightweight preview (downscaled) to avoid iOS lag when selecting images
                                 try:
-                                    has_img = bool(scan_state.get('img_bytes') or scan_state.get('data_url'))
-                                    if has_img:
-                                        try: run_btn.enable()
-                                        except Exception: run_btn.props('disable=false')
-                                    else:
-                                        try: run_btn.disable()
-                                        except Exception: run_btn.props('disable=true')
+                                    from PIL import Image
+                                    im = Image.open(io.BytesIO(data))
+                                    im = im.convert('RGB')
+                                    im.thumbnail((900, 900))
+                                    buf = io.BytesIO()
+                                    im.save(buf, format='JPEG', quality=70, optimize=True)
+                                    preview_bytes = buf.getvalue()
+                                    scan_state['data_url'] = f"data:image/jpeg;base64,{base64.b64encode(preview_bytes).decode('utf-8')}"
                                 except Exception:
-                                    pass
-    
-                            def _sync_apply_btn():
-                                """Enable/disable the Apply button based on whether we have parsed OCR results."""
-                                try:
-                                    parsed = parsed_state.get('parsed') or scan_state.get('parsed')
-                                    if parsed:
-                                        try: apply_btn.enable()
-                                        except Exception: apply_btn.props('disable=false')
-                                    else:
-                                        try: apply_btn.disable()
-                                        except Exception: apply_btn.props('disable=true')
-                                except Exception:
-                                    pass
-    
-                            def _reset_scan_ui():
-                                scan_state['data_url'] = None
-                                scan_state['img_bytes'] = None
-                                scan_state['ocr_text'] = ''
-                                scan_state['parsed'] = None
+                                    # fallback: still allow previewless scanning
+                                    scan_state['data_url'] = f"data:{mime};base64,{base64.b64encode(data).decode('utf-8')}"
+
+                                if scan_state.get('data_url'):
+                                    preview.set_source(scan_state['data_url'])
+                                    preview.style('display:block')
+                                else:
+                                    preview.style('display:none')
+
                                 raw_out.value = ''
-                                _sync_apply_btn()
+                                parsed_state['parsed'] = None
+                                parsed_card.style('display:none')
+                                apply_btn.disable()
                                 _sync_run_btn()
-                                if hasattr(upload_receipt, 'reset'):
-                                    upload_receipt.reset()
-    
-                            async def _run_ocr() -> None:
-                                if not scan_state.get('data_url') and not scan_state.get('img_bytes'):
-                                    # Some mobile browsers show upload as complete but the server event may not fire.
-                                    # Try to recover from the upload component's value before warning the user.
-                                    try:
-                                        maybe_files = getattr(upload_receipt, 'value', None)
-                                        if maybe_files:
-                                            await _on_upload(maybe_files[0])
-                                    except Exception:
-                                        pass
-                                    if not scan_state.get('data_url') and not scan_state.get('img_bytes'):
-                                        ui.notify('Please upload a receipt image first.', type='warning')
-                                        return
-                                ui.notify('Scanning', type='info', timeout=8.0)
-                                # Show busy indicator (mobile Safari can take a while)
-                                try:
-                                    scan_spinner.style('display:block')
-                                except Exception:
-                                    pass
-                                try:
-                                    run_btn.disable()
-                                except Exception:
-                                    pass
-    
-                                use_gcv = bool((os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON') or '').strip())
-                                result = None
-                                if use_gcv:
-                                    # Prefer server-side OCR (Google Vision) to reduce mobile lag and improve accuracy
-                                    gcv_text, gcv_dbg = await run.io_bound(lambda: server_ocr_from_data_url(str(scan_state.get('data_url') or ''), return_debug=True))
-                                    if str(gcv_text).strip():
-                                        result = {'ok': True, 'text': str(gcv_text), 'debug': str(gcv_dbg or '')}
-                                    else:
-                                        raw_out.value = (gcv_dbg or 'OCR returned empty text.')
-                                        try:
-                                            scan_progress_dlg.close()
-                                        except Exception:
-                                            pass
-                                        ui.notify('OCR failed. Details shown in OCR debug box.', type='negative')
-                                        return
-                                else:
-                                    # Quick client-side dependency check (if CDN blocked, fail fast with clear message)
-                                    try:
-                                        dep = await ui.run_javascript("return {ok: !!window.Tesseract, ua: navigator.userAgent}", timeout=5.0)
-                                        if not (isinstance(dep, dict) and dep.get('ok')):
-                                            ui.notify('OCR engine not loaded. Please refresh the page and try again (network/CDN blocked).', type='negative')
-                                            return
-                                    except Exception:
-                                        # If this check fails, continue and let main OCR report errors.
-                                        pass
-                                    
-                                    img_literal = json.dumps(str(scan_state.get('data_url', '')))
-                                    # Clean, robust JS OCR (client-side). If it fails or returns empty, fall back to server OCR.
-                                    js = f"""
-    (async () => {{
-      try {{
-        const img = {img_literal};
-        if (!img) return {{ ok:false, error:'no image' }};
-        if (window.Tesseract && typeof Tesseract.recognize === 'function') {{
-          const preprocess = async (dataUrl) => new Promise((resolve) => {{
-            const im = new Image();
-            im.onload = () => {{
-              try {{
-                const maxW = 1400;
-                const maxH = 2400;
-                let w = im.width, h = im.height;
-                const scale = Math.min(1, maxW / w, maxH / h);
-                w = Math.max(1, Math.floor(w * scale));
-                h = Math.max(1, Math.floor(h * scale));
-                const c = document.createElement('canvas');
-                c.width = w; c.height = h;
-                const ctx = c.getContext('2d', {{ willReadFrequently: true }});
-                ctx.drawImage(im, 0, 0, w, h);
-                const imgData = ctx.getImageData(0, 0, w, h);
-                const d = imgData.data;
-                const contrast = 1.2;
-                const intercept = -18;
-                for (let i = 0; i < d.length; i += 4) {{
-                  const r = d[i], g = d[i+1], b = d[i+2];
-                  let y = 0.2126*r + 0.7152*g + 0.0722*b;
-                  y = y * contrast + intercept;
-                  y = Math.max(0, Math.min(255, y));
-                  const v = (y > 150) ? 255 : 0;
-                  d[i] = d[i+1] = d[i+2] = v;
-                }}
-                ctx.putImageData(imgData, 0, 0);
-                resolve(c.toDataURL('image/jpeg', 0.9));
-              }} catch (e) {{ resolve(dataUrl); }}
-            }};
-            im.onerror = () => resolve(dataUrl);
-            im.src = dataUrl;
-          }});
-          const small = await preprocess(img);
-          const res = await Tesseract.recognize(small, 'eng');
-          return {{ ok:true, text:(res?.data?.text || '') }};
-        }}
-        return {{ ok:false, error:'tesseract.js not loaded' }};
-      }} catch (e) {{
-        return {{ ok:false, error:String(e) }};
-      }}
-    }})()
-    """
-                                    try:
-                                        result = await ui.run_javascript(js, timeout=120.0)
-                                    except TimeoutError:
-                                        result = None
-                                    except Exception:
-                                        result = None
-                                    # If client OCR failed (or returned empty), fall back to server OCR
-                                    if (not result) or (not isinstance(result, dict)) or (not result.get('ok')) or (not str((result or {}).get('text') or '').strip()):
-                                        fallback_text = server_ocr_from_data_url(str(scan_state.get('data_url') or ''), return_debug=True)[0]
-                                        if str(fallback_text).strip():
-                                            result = {'ok': True, 'text': str(fallback_text)}
-                                    if not result or not isinstance(result, dict) or not result.get('ok'):
-                                        err = (result or {}).get('error', 'Unknown OCR error') if isinstance(result, dict) else 'Unknown OCR error'
-                                        ui.notify(f'OCR failed: {err}', type='negative')
-                                        return
-    
-                                text = str(result.get('text') or '')
-                                raw_out.value = text
-    
-                                parsed = parse_receipt_text(text)
-                                parsed_state['parsed'] = parsed
-                                # Phase 6.5: OCR line-item intelligence (rule-sheet driven)
-                                try:
-                                    rules = load_rules(force=False)
-                                    items = extract_receipt_line_items(text)
-    
-                                    # Category split:
-                                    # Prefer priced line-items. If we can't reliably extract line-items (common on some receipts),
-                                    # fall back to receipt-level keyword signals (e.g., PHARMACY/RX => Health).
-                                    detected_total = float(parsed.get('amount') or 0.0)
-                                    category_amounts: Dict[str, float] = {}
-                                    category_debug: str = ""
-    
-                                    if items:
-                                        cat_result = classify_receipt_items(items, rules)
-                                        category_amounts = cat_result.get('detected_amounts', {}) or {}
-                                        category_debug = f"line-item classification: {len(items)} items, total={cat_result.get('detected_total', 0)}"
-                                    else:
-                                        lowtxt = (text or "").lower()
-    
-                                        def _blank_split(total: float, main: str) -> Dict[str, float]:
-                                            total = float(total or 0.0)
-                                            out = {'Groceries': 0.0, 'Household': 0.0, 'Shopping': 0.0, 'Health': 0.0}
-                                            if main in out:
-                                                out[main] = round(total, 2)
-                                            else:
-                                                # For 'Uncategorized' or unexpected categories, add them
-                                                out[main] = round(total, 2)
-                                            return out
-    
-                                        # Strong overrides first
-                                        if any(k in lowtxt for k in ['pharmacy', 'pharm', ' rx', 'rx ', 'prescription', 'drug', 'dispens', 'otc ', ' otc', 'wellness', 'health care']):
-                                            category_amounts = _blank_split(detected_total, 'Health')
-                                            category_debug = "(fallback) receipt-level signal: Health (pharmacy/rx)"
-                                        elif any(k in lowtxt for k in ['petro canada', 'petro-canada', 'shell', 'costco gas', 'co-op', 'esso', 'gas station']):
-                                            category_amounts = _blank_split(detected_total, 'Auto & Transport')
-                                            category_debug = "(fallback) receipt-level signal: Auto & Transport (gas merchant)"
-                                        elif any(k in lowtxt for k in ["gill's supermarket", "bombay spices", "dino's", "superstore", "no frills", "freshco", "loblaws"]):
-                                            category_amounts = _blank_split(detected_total, 'Groceries')
-                                            category_debug = "(fallback) receipt-level signal: Groceries (grocery merchant)"
-                                        elif any(k in lowtxt for k in ['dollarama', 'dollar tree', 'canadian tire', 'ikea', 'winners', 'marshall', 'value village']):
-                                            category_amounts = _blank_split(detected_total, 'Shopping')
-                                            category_debug = "(fallback) receipt-level signal: Shopping (store keyword)"
-                                        else:
-                                            # Lightweight scoring
-                                            scores = {'Groceries': 0.0, 'Household': 0.0, 'Shopping': 0.0, 'Health': 0.0}
-    
-                                            shop_kw = ['shirt', 'jeans', 'pant', 'pants', 'sock', 'socks', 'shoe', 'shoes', 'apparel', 'clothing', 'jacket', 'coat']
-                                            house_kw = ['table', 'tables', 'chair', 'chairs', 'desk', 'furniture', 'rug', 'lamp', 'detergent', 'bleach', 'soap', 'paper', 'towel', 'towels', 'toilet', 'tissue', 'dish', 'clean', 'cleaner', 'garbage', 'trash', 'broom', 'mop', 'shampoo', 'household', 'hhold', 'lysol', 'clorox', 'windex', 'swiffer', 'tide', 'downy', 'bounce', 'glad', 'hefty', 'charmin', 'bounty', 'sponge']
-                                            health_kw = ['vitamin', 'medicine', 'medical', 'clinic', 'doctor', 'pharmacy', 'pharm', 'rx', 'otc', 'drug', 'prescription', 'tylenol', 'advil', 'supplement', 'health', 'wellness']
-                                            # groceries as a base if we detect typical produce/food words
-                                            grocery_kw = ['banana', 'bananas', 'apple', 'apples', 'milk', 'bread', 'tofu', 'spinach', 'cauliflower', 'watermelon', 'pear', 'avocado', 'yogurt']
-    
-                                            for w in shop_kw:
-                                                if w in lowtxt:
-                                                    scores['Shopping'] += 1.0
-                                            for w in house_kw:
-                                                if w in lowtxt:
-                                                    scores['Household'] += 1.0
-                                            for w in health_kw:
-                                                if w in lowtxt:
-                                                    scores['Health'] += 1.5
-                                            for w in grocery_kw:
-                                                if w in lowtxt:
-                                                    scores['Groceries'] += 1.0
-    
-                                            # Walmart is multi-category  do NOT bias toward Groceries
-    
-                                            best = max(scores, key=lambda k: scores[k])
-                                            if scores[best] <= 0.0:
-                                                best = 'Uncategorized'
-                                            category_amounts = _blank_split(detected_total, best)
-                                            category_debug = f"(fallback) receipt-level signal: {best} | scores={scores}"
-                                    # Persist line-items and category split for the Split dialog
-                                    parsed['line_items'] = items
-                                    parsed['category_amounts'] = category_amounts
-                                    parsed['category_split_debug'] = category_debug
-                                    parsed['classified_items'] = cat_result.get('items', []) if items else []
-                                except Exception as _cls_err:
-                                    import traceback
-                                    _tb = traceback.format_exc()
-                                    print(f"[FinTrackr] classify_receipt_items error: {_cls_err}\n{_tb}")
-                                    # Ensure parsed still has empty defaults so the rest of the flow works
-                                    parsed.setdefault('category_amounts', {})
-                                    parsed.setdefault('classified_items', [])
-    
-                                merch = str(parsed.get('merchant') or '').strip()
-                                last4 = str(parsed.get('card_last4') or '').strip()
-                                rdate = parsed.get('date')
-                                amt = parsed.get('amount')
-                                conf = float(parsed.get('amount_confidence') or 0.0)
-                                src = str(parsed.get('amount_source') or '')
-    
-                                # Update preview UI
-                                pv_merchant.value = merch
-                                pv_date.value = (rdate.isoformat() if rdate else '')
-                                pv_amount.value = (f"{float(amt):.2f}" if amt is not None else '')
-                                pv_last4.value = last4
-                                pv_conf.text = f"Amount confidence: {conf:.1f}/10 (source: {src})" + ("  please double-check" if conf < 3.0 else "")
-                                parsed_card.style('display:block')
-                                apply_btn.enable()
-    
-                                if conf < 3.0:
-                                    ui.notify('Low confidence TOTAL detected  verify amount before applying.', type='warning', timeout=2.0)
-                                else:
-                                    ui.notify('Scan complete. Review and tap Apply.', type='positive', timeout=1.2)
-    
-                            def _apply_to_form() -> None:
-                                parsed = parsed_state.get('parsed') or {}
-                                if not parsed:
-                                    ui.notify('Nothing to apply yet.', type='warning')
-                                    return
-    
-                                merch = str(parsed.get('merchant') or '').strip()
-                                last4 = str(parsed.get('card_last4') or '').strip()
-                                rdate = parsed.get('date')
-                                amt = parsed.get('amount')
-                                conf = float(parsed.get('amount_confidence') or 0.0)
-    
-                                if rdate:
-                                    d_date.value = rdate.isoformat()
-                                if amt is not None:
-                                    # Even when low confidence, pre-fill but warn. User can edit before saving.
-                                    try:
-                                        d_amount.value = float(amt)
-                                    except Exception:
-                                        pass
-    
-                                # Notes hint
-                                if merch or last4:
-                                    prefix = []
-                                    if merch:
-                                        prefix.append(merch)
-                                    if last4:
-                                        prefix.append(f"****{last4}")
-                                    hint = ' '.join(prefix)
-                                    if not str(d_notes.value or '').strip():
-                                        d_notes.value = hint
-                                    else:
-                                        d_notes.value = f"{hint} | {d_notes.value}"
-    
-                                # Try auto-pick account from detected last-4 (optional).
-                                # If no mapping exists / no match, we keep the remembered default selection.
-                                if last4:
-                                    try:
-                                        cards_df = cached_df('cards', force=True)
-                                        acct = pick_account_from_last4(cards_df, last4)
-                                        if acct and (acct in accounts):
-                                            d_account.value = acct
-                                            # Most receipts are card-based; set method if available.
-                                            if 'Card' in methods:
-                                                d_method.value = 'Card'
-                                    except Exception:
-                                        pass
-    
-                                # Phase 6.5+: Build detected category amounts from OCR line-item classification
-                                try:
-                                    split_plan['merchant'] = merch
-                                    split_plan['enabled'] = False
-                                    split_plan['amounts'] = {}
-                                    det = {}
-                                    try:
-                                        cat_amounts = (parsed or {}).get('category_amounts') or {}
-                                        if isinstance(cat_amounts, dict):
-                                            for k in ['Groceries', 'Household', 'Shopping', 'Health']:
-                                                v = float(cat_amounts.get(k, 0.0) or 0.0)
-                                                if v > 0.0001:
-                                                    det[k] = round(v, 2)
-                                    except Exception:
-                                        det = {}
-                                    split_plan['detected_amounts'] = det
-    
-                                    # Count how many distinct categories OCR detected
-                                    _detected_cats = [k for k, v in det.items() if v > 0.01]
-                                    _n_cats = len(_detected_cats)
-    
-                                    if entry_type.lower() == 'debit' and _n_cats >= 2:
-                                        # Multi-category receipt: open split dialog (any store, not just Walmart)
-                                        # Set category to the largest bucket so single-save still works if user skips split
-                                        _dominant = max(det, key=det.get) if det else 'Groceries'
-                                        _set_category_safely(_dominant)
-                                        _open_split_dialog()
-                                    elif _n_cats == 1:
-                                        # Single-category receipt: use the OCR-detected category directly
-                                        # (overrides the Notes-based rule inference which may default to Groceries)
-                                        _set_category_safely(_detected_cats[0])
-                                    else:
-                                        # No OCR categories detected: fall back to Notes-based suggestion
-                                        _refresh_suggestion_now()
-                                except Exception:
-                                    # Fallback: use Notes-based suggestion
-                                    _refresh_suggestion_now()
-                                if conf < 3.0:
-                                    ui.notify('Applied, but amount confidence was low  please verify before saving.', type='warning')
-                                else:
-                                    ui.notify('Applied scan results. Please review and save.', type='positive')
-                                _reset_scan_ui()
-                                scan_dlg.close()
-    
-                        # Sticky footer so buttons don't get pushed below the upload card on mobile
-                        with ui.row().classes('w-full items-center gap-2').style('position: sticky; bottom: 0; background: rgba(11,14,20,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); z-index: 20; padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08);'):
-                            run_btn = ui.button('Scan', icon='document_scanner', on_click=_run_ocr).props('unelevated').classes('flex-1').style(
-                                'background: linear-gradient(135deg, #6366f1, #3b82f6) !important; color: #fff !important; border-radius: 10px; font-weight: 600;'
-                            )
-                            apply_btn = ui.button('Apply', icon='check', on_click=_apply_to_form).props('unelevated')
-                            apply_btn.classes('flex-1').style('border-radius: 10px; font-weight: 600;')
-                            apply_btn.disable()
-                            ui.button('', icon='close', on_click=scan_dlg.close).props('flat round dense').style('border: 1px solid var(--mf-border); border-radius: 10px;')
-    
-                    def _open_scan_dialog():
-                        """Open the receipt scanner dialog (and reset it so user can scan again)."""
-                        _mount_upload()
-                        _reset_scan_ui()
-                        try:
-                            ui.run_javascript("""try{const el=document.querySelector('.q-uploader__input'); if(el) el.value='';}catch(e){}""")
-                        except Exception:
-                            pass
-                        scan_dlg.open()
-    
-                    with ui.element('div').style('padding: 12px 24px 0 24px;'):
-                        btn_scan_receipt = ui.button('Scan receipt', icon='document_scanner', on_click=_open_scan_dialog).props('outline').classes('w-full').style(
-                            'border-radius: 12px; border-color: var(--mf-border); color: var(--mf-text); font-weight: 600;'
-                        )
-    
-                    # Auto-open scan dialog if requested (from "Scan Now" hero button)
-                    if auto_scan:
-                        _open_scan_dialog()
-    
-    
-                    # Phase 6.5: Multi-category split UI  shown only after OCR Apply for Walmart/Costco/Superstore
-                    with ui.element('div').style('padding: 0 24px;'):
-                        split_banner = ui.element('div').style(
-                            'display:none; background: linear-gradient(135deg, rgba(34,197,94,0.10), rgba(251,191,36,0.08));'
-                            'border: 1px solid rgba(34,197,94,0.25); border-radius: 14px; padding: 14px 16px;'
-                            'margin: 4px 0;'
-                        )
-                    with split_banner:
-                        with ui.row().classes('items-center gap-2 mb-2'):
-                            ui.icon('call_split').style('font-size: 18px; color: #22c55e;')
-                            ui.label('Split Active').classes('text-sm font-bold').style('color: #22c55e;')
-                        split_hint = ui.label("").classes("text-xs").style("color: var(--mf-text); line-height: 1.5;")
-                        split_item_list = ui.column().classes('gap-1 mt-1')
-    
-                    split_dlg = ui.dialog()
-                    with split_dlg, ui.card().classes("my-card mf-split-card p-4 w-[600px] max-w-[95vw]").style("max-height: 78vh; overflow-y:auto;"):
-                        ui.label("Split this receipt").classes("text-lg font-bold")
-                        ui.label("We detected line items. Adjust amounts if needed, then Apply.").classes("text-xs").style("color: var(--mf-muted)")
-    
-                        # Four fixed buckets (your preferred setup)
-                        split_cats = ["Groceries", "Household", "Shopping", "Health"]
-                        amt_inputs: Dict[str, Any] = {}
-                        pct_labels: Dict[str, Any] = {}
-                        warn_lbl = ui.label("").classes("text-xs q-mt-sm").style("color: var(--mf-muted)")
-    
-                        def _round2(x: float) -> float:
+                            except Exception as ex:
+                                ui.notify(f'Upload failed: {ex}', type='negative')
+
+                        upload_holder = ui.column().classes('w-full')
+                        upload_receipt = None
+
+                        def _mount_upload():
+                            nonlocal upload_receipt
+                            upload_holder.clear()
+                            upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt')                                .props("accept='image/*'")                                .classes('w-full')                                .on_upload(_on_upload)
+
+                        def _sync_run_btn():
+                            """Enable/disable the Run scan button based on whether we have an image."""
                             try:
-                                return round(float(x), 2)
-                            except Exception:
-                                return 0.0
-    
-                        def _sum_amounts() -> float:
-                            total = 0.0
-                            for c in split_cats:
-                                total += float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0))
-                            return _round2(total)
-    
-                        def _refresh_pcts(_: Any = None) -> None:
-                            total_amt = _round2(float(to_float(d_amount.value)))
-                            cur_sum = _sum_amounts()
-                            # percent labels
-                            for c in split_cats:
-                                v = _round2(float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0)))
-                                pct = 0
-                                if total_amt > 0.0001:
-                                    pct = int(round(100.0 * (v / total_amt)))
-                                try:
-                                    pct_labels[c].text = f"{pct}%"
-                                except Exception:
-                                    pass
-                            # warning / remainder
-                            diff = _round2(total_amt - cur_sum)
-                            if abs(diff) <= 0.02:
-                                warn_lbl.text = f"Total: ${total_amt:,.2f}  Split: ${cur_sum:,.2f}"
-                            else:
-                                # show remainder direction
-                                if diff > 0:
-                                    warn_lbl.text = f"Total: ${total_amt:,.2f}  Split: ${cur_sum:,.2f}  Remaining: ${diff:,.2f}"
+                                has_img = bool(scan_state.get('img_bytes') or scan_state.get('data_url'))
+                                if has_img:
+                                    try: run_btn.enable()
+                                    except Exception: run_btn.props('disable=false')
                                 else:
-                                    warn_lbl.text = f"Total: ${total_amt:,.2f}  Split: ${cur_sum:,.2f}  Over by: ${abs(diff):,.2f}"
-    
-                        # Grid-like rows
-                        for c in split_cats:
-                            with ui.row().classes("w-full items-center justify-between gap-2 q-mt-sm"):
-                                ui.label(c).classes("text-sm font-medium")
-                                pct_labels[c] = ui.label("0%").classes("text-xs").style("color: var(--mf-muted)")
-                                amt_inputs[c] = ui.number(value=0, step=0.01).props('dense outlined prefix=$').classes('w-40')
-                                amt_inputs[c].on('update:model-value', _refresh_pcts)
-    
-                        def _largest_bucket() -> str:
-                            """Return the category with the largest current amount (for remainder allocation)."""
-                            best_cat, best_val = 'Groceries', 0.0
-                            for c in split_cats:
-                                try:
-                                    v = float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0))
-                                except Exception:
-                                    v = 0.0
-                                if v > best_val:
-                                    best_val = v
-                                    best_cat = c
-                            return best_cat
-    
-                        def _reset_to_detected() -> None:
-                            det = split_plan.get('detected_amounts') or {}
-                            total_amt = _round2(float(to_float(d_amount.value)))
-                            # start with detected
-                            for c in split_cats:
-                                try:
-                                    amt_inputs[c].value = _round2(float(det.get(c, 0.0)))
-                                except Exception:
-                                    amt_inputs[c].value = 0.0
-                            # ensure it sums to total by allocating remainder to the largest bucket
-                            cur_sum = _sum_amounts()
-                            diff = _round2(total_amt - cur_sum)
-                            if abs(diff) > 0.02:
-                                target = _largest_bucket()
-                                try:
-                                    amt_inputs[target].value = _round2(float(to_float(amt_inputs[target].value)) + diff)
-                                except Exception:
-                                    pass
-                            _refresh_pcts()
-    
-                        def _all_to_groceries() -> None:
-                            total_amt = _round2(float(to_float(d_amount.value)))
-                            for c in split_cats:
-                                amt_inputs[c].value = 0.0
-                            amt_inputs['Groceries'].value = total_amt
-                            _refresh_pcts()
-    
-                        with ui.row().classes('w-full justify-between items-center q-mt-md'):
-                            ui.button('Reset to detected', on_click=_reset_to_detected).props('flat')
-                            ui.button('All to Groceries', on_click=_all_to_groceries).props('flat')
-    
-                        def _apply_multi_split() -> None:
-                            total_amt = _round2(float(to_float(d_amount.value)))
-                            cur_sum = _sum_amounts()
-                            diff = _round2(total_amt - cur_sum)
-                            # If slightly off, auto-fix by nudging the largest bucket
-                            if abs(diff) <= 0.05:
-                                target = _largest_bucket()
-                                try:
-                                    amt_inputs[target].value = _round2(float(to_float(amt_inputs[target].value)) + diff)
-                                except Exception:
-                                    pass
-                                cur_sum = _sum_amounts()
-                                diff = _round2(total_amt - cur_sum)
-                            if abs(diff) > 0.05:
-                                ui.notify('Split must match the receipt total (adjust amounts).', type='warning')
-                                return
-    
-                            plan: Dict[str, float] = {}
-                            for c in split_cats:
-                                v = _round2(float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0)))
-                                if v > 0.009:
-                                    plan[c] = v
-    
-                            # Store plan; actual save happens on Save click
-                            split_plan['enabled'] = True
-                            split_plan['amounts'] = plan
-                            n_cats = len(plan)
-    
-                            # Show prominent split banner in main dialog
-                            try:
-                                split_banner.style('display: block;')
-                                parts = [f"{k}: ${v:.2f}" for k, v in plan.items()]
-                                split_hint.text = f"Will save as {n_cats} separate transactions:"
-                                split_item_list.clear()
-                                with split_item_list:
-                                    for k, v in plan.items():
-                                        pct = int(round(100 * (v / total_amt))) if total_amt > 0 else 0
-                                        with ui.row().classes('items-center gap-2'):
-                                            ui.element('div').style(f'width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink: 0;')
-                                            ui.label(f"{k}  ${v:.2f} ({pct}%)").classes('text-xs font-medium')
-                                # Disable category selector (split overrides it)
-                                d_category.props('disable')
-                                d_category.value = f'Split ({n_cats} categories)'
+                                    try: run_btn.disable()
+                                    except Exception: run_btn.props('disable=true')
                             except Exception:
                                 pass
-    
-                            split_dlg.close()
-                            ui.notify(f'Split applied: {n_cats} categories will be saved separately.', type='positive')
-    
-                        with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
-                            ui.button("Cancel", on_click=split_dlg.close).props("flat")
-                            ui.button("Apply", on_click=_apply_multi_split).props("unelevated")
-    
-                    def _open_split_dialog() -> None:
-                        # Initialize from detected amounts (or fallback)
-                        _reset_to_detected()
-                        split_dlg.open()
-    
-                # --- Live category suggestion (Phase 6.2+): auto-categorize as you type Notes (debounced),
-                #     show a small chip "Auto: <Category>", and never override a manual category choice ---
-                category_touched = {"v": False}         # user manually changed category
-                _setting_category = {"v": False}        # internal guard so programmatic changes don't mark touched
-                _debounce_task = {"t": None}
-    
-                # Small chip-style feedback (shown only when auto is active and suggestion is meaningful)
-                with ui.element('div').style('padding: 0 24px;'):
-                    suggest_chip = ui.chip("").classes("q-mt-xs").style(
-                        "background: rgba(120,160,255,0.14); border: 1px solid var(--mf-border); color: var(--mf-text);"
-                    )
-                try:
-                    suggest_chip.set_visibility(False)
-                except Exception:
-                    suggest_chip.visible = False
-    
-                # Use the rules loaded at dialog open; fall back to a non-forced load once if empty.
-                _active_rules = rules or []
-                if not _active_rules:
-                    try:
-                        _active_rules = load_rules(force=False) or []
-                    except Exception:
-                        _active_rules = []
-    
-                def _set_category_safely(val: str) -> None:
-                    try:
-                        _setting_category["v"] = True
-                        d_category.value = val
-                    finally:
-                        _setting_category["v"] = False
-    
-                def _update_chip(text: str, show: bool) -> None:
-                    try:
-                        suggest_chip.set_text(text)
-                    except Exception:
-                        suggest_chip.text = text
-                    try:
-                        suggest_chip.set_visibility(show)
-                    except Exception:
-                        suggest_chip.visible = bool(show)
-    
-                def _refresh_suggestion_now() -> None:
-                    if category_touched["v"]:
-                        _update_chip("", False)
-                        return
-    
-                    active_rules = _active_rules
-                    note_txt = str(d_notes.value or "").strip()
-                    if not active_rules:
-                        _set_category_safely("Uncategorized")
-                        _update_chip("", False)
-                        return
-    
-                    suggestion = infer_category(note_txt, active_rules) or "Uncategorized"
-                    _set_category_safely(suggestion)
-                    show = bool(note_txt) and suggestion != "Uncategorized"
-                    _update_chip(f"Auto: {suggestion}", show)
-    
-                async def _debounced_refresh() -> None:
-                    try:
-                        await asyncio.sleep(0.35)
-                        _refresh_suggestion_now()
-                    except Exception:
-                        pass
-    
-                def _schedule_refresh(_: Any = None) -> None:
-                    t = _debounce_task.get("t")
-                    try:
-                        if t and not t.done():
-                            t.cancel()
-                    except Exception:
-                        pass
-                    try:
-                        _debounce_task["t"] = asyncio.create_task(_debounced_refresh())
-                    except Exception:
-                        _refresh_suggestion_now()
-    
-                def _on_category_change(e: Any) -> None:
-                    if _setting_category["v"]:
-                        return
-                    category_touched["v"] = True
-                    _update_chip("", False)
-    
-                d_category.on('update:model-value', _on_category_change)
-                d_notes.on('update:model-value', _schedule_refresh)
-                _refresh_suggestion_now()
-    
-                def autofill():
-                    category_touched["v"] = True
-                    _update_chip("", False)
-                    fresh_rules = load_rules(force=True)
-                    if not fresh_rules:
-                        ui.notify('No rules loaded (check Rules sheet columns). Keeping Uncategorized.', type='warning')
-                        d_category.value = 'Uncategorized'
-                        return
-                    d_category.value = infer_category(d_notes.value or "", fresh_rules) or "Uncategorized"
-                    ui.notify("Category updated", type="positive")
-    
-                with ui.element('div').style('padding: 0 24px;'):
-                    ui.button("Auto-category", on_click=autofill).props("flat")
-    
-                def save():
-    
-                    dd = parse_date(d_date.value) or today()
-    
-                    amt = float(to_float(d_amount.value))
-    
-                    owner = "Family"
-    
-                    method = str(((d_method.value if d_method is not None else method_default) or "Bank")).strip()
-    
-                    account = str(d_account.value or "").strip()
-    
-                    # Remember last-used card/account for Expenses (Debit) so next time it's preselected.
-                    try:
-                        if entry_type.lower() == 'debit':
-                            if method:
-                                app.storage.user['last_debit_method'] = method
-                            if account:
-                                app.storage.user['last_debit_account'] = account
-                    except Exception:
-                        pass
-    
-                    category = str(d_category.value or "Uncategorized").strip()
-    
-                    notes = str(d_notes.value or "").strip()
-    
-                    # Phase 6.5+: If a multi-split plan is enabled, save as multiple linked transactions
-                    if entry_type.lower() == 'debit' and bool(split_plan.get("enabled")) and isinstance(split_plan.get("amounts"), dict):
-                        try:
-                            total_amt = float(to_float(d_amount.value))
-                            plan: Dict[str, float] = {k: float(v) for k, v in (split_plan.get('amounts') or {}).items()}
-                            # Validate plan sums to total (tolerate rounding)
-                            s = round(sum(plan.values()), 2)
-                            if abs(round(total_amt - s, 2)) > 0.05:
-                                ui.notify('Split total does not match receipt total. Please adjust and try again.', type='warning')
+
+                        def _sync_apply_btn():
+                            """Enable/disable the Apply button based on whether we have parsed OCR results."""
+                            try:
+                                parsed = parsed_state.get('parsed') or scan_state.get('parsed')
+                                if parsed:
+                                    try: apply_btn.enable()
+                                    except Exception: apply_btn.props('disable=false')
+                                else:
+                                    try: apply_btn.disable()
+                                    except Exception: apply_btn.props('disable=true')
+                            except Exception:
+                                pass
+
+                        def _reset_scan_ui():
+                            scan_state['data_url'] = None
+                            scan_state['img_bytes'] = None
+                            scan_state['ocr_text'] = ''
+                            scan_state['parsed'] = None
+                            raw_out.value = ''
+                            _sync_apply_btn()
+                            _sync_run_btn()
+                            if hasattr(upload_receipt, 'reset'):
+                                upload_receipt.reset()
+
+                        async def _run_ocr() -> None:
+                            if not scan_state.get('data_url') and not scan_state.get('img_bytes'):
+                                # Some mobile browsers show upload as complete but the server event may not fire.
+                                # Try to recover from the upload component's value before warning the user.
+                                try:
+                                    maybe_files = getattr(upload_receipt, 'value', None)
+                                    if maybe_files:
+                                        await _on_upload(maybe_files[0])
+                                except Exception:
+                                    pass
+                                if not scan_state.get('data_url') and not scan_state.get('img_bytes'):
+                                    ui.notify('Please upload a receipt image first.', type='warning')
+                                    return
+                            ui.notify('Scanning', type='info', timeout=8.0)
+                            # Show busy indicator (mobile Safari can take a while)
+                            try:
+                                scan_spinner.style('display:block')
+                            except Exception:
+                                pass
+                            try:
+                                run_btn.disable()
+                            except Exception:
+                                pass
+
+                            use_gcv = bool((os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON') or '').strip())
+                            result = None
+                            if use_gcv:
+                                # Prefer server-side OCR (Google Vision) to reduce mobile lag and improve accuracy
+                                gcv_text, gcv_dbg = await run.io_bound(lambda: server_ocr_from_data_url(str(scan_state.get('data_url') or ''), return_debug=True))
+                                if str(gcv_text).strip():
+                                    result = {'ok': True, 'text': str(gcv_text), 'debug': str(gcv_dbg or '')}
+                                else:
+                                    raw_out.value = (gcv_dbg or 'OCR returned empty text.')
+                                    try:
+                                        scan_progress_dlg.close()
+                                    except Exception:
+                                        pass
+                                    ui.notify('OCR failed. Details shown in OCR debug box.', type='negative')
+                                    return
+                            else:
+                                # Quick client-side dependency check (if CDN blocked, fail fast with clear message)
+                                try:
+                                    dep = await ui.run_javascript("return {ok: !!window.Tesseract, ua: navigator.userAgent}", timeout=5.0)
+                                    if not (isinstance(dep, dict) and dep.get('ok')):
+                                        ui.notify('OCR engine not loaded. Please refresh the page and try again (network/CDN blocked).', type='negative')
+                                        return
+                                except Exception:
+                                    # If this check fails, continue and let main OCR report errors.
+                                    pass
+                                
+                                img_literal = json.dumps(str(scan_state.get('data_url', '')))
+                                # Clean, robust JS OCR (client-side). If it fails or returns empty, fall back to server OCR.
+                                js = f"""
+(async () => {{
+  try {{
+    const img = {img_literal};
+    if (!img) return {{ ok:false, error:'no image' }};
+    if (window.Tesseract && typeof Tesseract.recognize === 'function') {{
+      const preprocess = async (dataUrl) => new Promise((resolve) => {{
+        const im = new Image();
+        im.onload = () => {{
+          try {{
+            const maxW = 1400;
+            const maxH = 2400;
+            let w = im.width, h = im.height;
+            const scale = Math.min(1, maxW / w, maxH / h);
+            w = Math.max(1, Math.floor(w * scale));
+            h = Math.max(1, Math.floor(h * scale));
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            const ctx = c.getContext('2d', {{ willReadFrequently: true }});
+            ctx.drawImage(im, 0, 0, w, h);
+            const imgData = ctx.getImageData(0, 0, w, h);
+            const d = imgData.data;
+            const contrast = 1.2;
+            const intercept = -18;
+            for (let i = 0; i < d.length; i += 4) {{
+              const r = d[i], g = d[i+1], b = d[i+2];
+              let y = 0.2126*r + 0.7152*g + 0.0722*b;
+              y = y * contrast + intercept;
+              y = Math.max(0, Math.min(255, y));
+              const v = (y > 150) ? 255 : 0;
+              d[i] = d[i+1] = d[i+2] = v;
+            }}
+            ctx.putImageData(imgData, 0, 0);
+            resolve(c.toDataURL('image/jpeg', 0.9));
+          }} catch (e) {{ resolve(dataUrl); }}
+        }};
+        im.onerror = () => resolve(dataUrl);
+        im.src = dataUrl;
+      }});
+      const small = await preprocess(img);
+      const res = await Tesseract.recognize(small, 'eng');
+      return {{ ok:true, text:(res?.data?.text || '') }};
+    }}
+    return {{ ok:false, error:'tesseract.js not loaded' }};
+  }} catch (e) {{
+    return {{ ok:false, error:String(e) }};
+  }}
+}})()
+"""
+                                try:
+                                    result = await ui.run_javascript(js, timeout=120.0)
+                                except TimeoutError:
+                                    result = None
+                                except Exception:
+                                    result = None
+                                # If client OCR failed (or returned empty), fall back to server OCR
+                                if (not result) or (not isinstance(result, dict)) or (not result.get('ok')) or (not str((result or {}).get('text') or '').strip()):
+                                    fallback_text = server_ocr_from_data_url(str(scan_state.get('data_url') or ''), return_debug=True)[0]
+                                    if str(fallback_text).strip():
+                                        result = {'ok': True, 'text': str(fallback_text)}
+                                if not result or not isinstance(result, dict) or not result.get('ok'):
+                                    err = (result or {}).get('error', 'Unknown OCR error') if isinstance(result, dict) else 'Unknown OCR error'
+                                    ui.notify(f'OCR failed: {err}', type='negative')
+                                    return
+
+                            text = str(result.get('text') or '')
+                            raw_out.value = text
+
+                            parsed = parse_receipt_text(text)
+                            parsed_state['parsed'] = parsed
+                            # Phase 6.5: OCR line-item intelligence (rule-sheet driven)
+                            try:
+                                rules = load_rules(force=False)
+                                items = extract_receipt_line_items(text)
+
+                                # Category split:
+                                # Prefer priced line-items. If we can't reliably extract line-items (common on some receipts),
+                                # fall back to receipt-level keyword signals (e.g., PHARMACY/RX => Health).
+                                detected_total = float(parsed.get('amount') or 0.0)
+                                category_amounts: Dict[str, float] = {}
+                                category_debug: str = ""
+
+                                if items:
+                                    cat_result = classify_receipt_items(items, rules)
+                                    category_amounts = cat_result.get('detected_amounts', {}) or {}
+                                    category_debug = f"line-item classification: {len(items)} items, total={cat_result.get('detected_total', 0)}"
+                                else:
+                                    lowtxt = (text or "").lower()
+
+                                    def _blank_split(total: float, main: str) -> Dict[str, float]:
+                                        total = float(total or 0.0)
+                                        out = {'Groceries': 0.0, 'Household': 0.0, 'Shopping': 0.0, 'Health': 0.0}
+                                        if main in out:
+                                            out[main] = round(total, 2)
+                                        else:
+                                            # For 'Uncategorized' or unexpected categories, add them
+                                            out[main] = round(total, 2)
+                                        return out
+
+                                    # Strong overrides first
+                                    if any(k in lowtxt for k in ['pharmacy', 'pharm', ' rx', 'rx ', 'prescription', 'drug', 'dispens', 'otc ', ' otc', 'wellness', 'health care']):
+                                        category_amounts = _blank_split(detected_total, 'Health')
+                                        category_debug = "(fallback) receipt-level signal: Health (pharmacy/rx)"
+                                    elif any(k in lowtxt for k in ['petro canada', 'petro-canada', 'shell', 'costco gas', 'co-op', 'esso', 'gas station']):
+                                        category_amounts = _blank_split(detected_total, 'Auto & Transport')
+                                        category_debug = "(fallback) receipt-level signal: Auto & Transport (gas merchant)"
+                                    elif any(k in lowtxt for k in ["gill's supermarket", "bombay spices", "dino's", "superstore", "no frills", "freshco", "loblaws"]):
+                                        category_amounts = _blank_split(detected_total, 'Groceries')
+                                        category_debug = "(fallback) receipt-level signal: Groceries (grocery merchant)"
+                                    elif any(k in lowtxt for k in ['dollarama', 'dollar tree', 'canadian tire', 'ikea', 'winners', 'marshall', 'value village']):
+                                        category_amounts = _blank_split(detected_total, 'Shopping')
+                                        category_debug = "(fallback) receipt-level signal: Shopping (store keyword)"
+                                    else:
+                                        # Lightweight scoring
+                                        scores = {'Groceries': 0.0, 'Household': 0.0, 'Shopping': 0.0, 'Health': 0.0}
+
+                                        shop_kw = ['shirt', 'jeans', 'pant', 'pants', 'sock', 'socks', 'shoe', 'shoes', 'apparel', 'clothing', 'jacket', 'coat']
+                                        house_kw = ['table', 'tables', 'chair', 'chairs', 'desk', 'furniture', 'rug', 'lamp', 'detergent', 'bleach', 'soap', 'paper', 'towel', 'towels', 'toilet', 'tissue', 'dish', 'clean', 'cleaner', 'garbage', 'trash', 'broom', 'mop', 'shampoo', 'household', 'hhold', 'lysol', 'clorox', 'windex', 'swiffer', 'tide', 'downy', 'bounce', 'glad', 'hefty', 'charmin', 'bounty', 'sponge']
+                                        health_kw = ['vitamin', 'medicine', 'medical', 'clinic', 'doctor', 'pharmacy', 'pharm', 'rx', 'otc', 'drug', 'prescription', 'tylenol', 'advil', 'supplement', 'health', 'wellness']
+                                        # groceries as a base if we detect typical produce/food words
+                                        grocery_kw = ['banana', 'bananas', 'apple', 'apples', 'milk', 'bread', 'tofu', 'spinach', 'cauliflower', 'watermelon', 'pear', 'avocado', 'yogurt']
+
+                                        for w in shop_kw:
+                                            if w in lowtxt:
+                                                scores['Shopping'] += 1.0
+                                        for w in house_kw:
+                                            if w in lowtxt:
+                                                scores['Household'] += 1.0
+                                        for w in health_kw:
+                                            if w in lowtxt:
+                                                scores['Health'] += 1.5
+                                        for w in grocery_kw:
+                                            if w in lowtxt:
+                                                scores['Groceries'] += 1.0
+
+                                        # Walmart is multi-category  do NOT bias toward Groceries
+
+                                        best = max(scores, key=lambda k: scores[k])
+                                        if scores[best] <= 0.0:
+                                            best = 'Uncategorized'
+                                        category_amounts = _blank_split(detected_total, best)
+                                        category_debug = f"(fallback) receipt-level signal: {best} | scores={scores}"
+                                # Persist line-items and category split for the Split dialog
+                                parsed['line_items'] = items
+                                parsed['category_amounts'] = category_amounts
+                                parsed['category_split_debug'] = category_debug
+                                parsed['classified_items'] = cat_result.get('items', []) if items else []
+                            except Exception as _cls_err:
+                                import traceback
+                                _tb = traceback.format_exc()
+                                print(f"[FinTrackr] classify_receipt_items error: {_cls_err}\n{_tb}")
+                                # Ensure parsed still has empty defaults so the rest of the flow works
+                                parsed.setdefault('category_amounts', {})
+                                parsed.setdefault('classified_items', [])
+
+                            merch = str(parsed.get('merchant') or '').strip()
+                            last4 = str(parsed.get('card_last4') or '').strip()
+                            rdate = parsed.get('date')
+                            amt = parsed.get('amount')
+                            conf = float(parsed.get('amount_confidence') or 0.0)
+                            src = str(parsed.get('amount_source') or '')
+
+                            # Update preview UI
+                            pv_merchant.value = merch
+                            pv_date.value = (rdate.isoformat() if rdate else '')
+                            pv_amount.value = (f"{float(amt):.2f}" if amt is not None else '')
+                            pv_last4.value = last4
+                            pv_conf.text = f"Amount confidence: {conf:.1f}/10 (source: {src})" + ("  please double-check" if conf < 3.0 else "")
+                            parsed_card.style('display:block')
+                            apply_btn.enable()
+
+                            if conf < 3.0:
+                                ui.notify('Low confidence TOTAL detected  verify amount before applying.', type='warning', timeout=2.0)
+                            else:
+                                ui.notify('Scan complete. Review and tap Apply.', type='positive', timeout=1.2)
+
+                        def _apply_to_form() -> None:
+                            parsed = parsed_state.get('parsed') or {}
+                            if not parsed:
+                                ui.notify('Nothing to apply yet.', type='warning')
                                 return
-                            # Nudge rounding diff into the largest category bucket
-                            diff = round(total_amt - s, 2)
-                            if abs(diff) <= 0.05 and abs(diff) > 0.001:
-                                largest_cat = max(plan, key=lambda k: plan.get(k, 0.0)) if plan else 'Groceries'
-                                plan[largest_cat] = round(plan.get(largest_cat, 0.0) + diff, 2)
-                            # Filter zero/negative
-                            plan = {k: round(v, 2) for k, v in plan.items() if v and v > 0.009}
-                            if not plan:
-                                ui.notify('Split plan is empty.', type='warning')
-                                return
-    
-                            group_id = sha16(f"SPLIT|{owner}|{dd.isoformat()}|{account}|{method}|{total_amt}|{notes}|{dt.datetime.now().isoformat()}")
-                            idx = 1
-                            n = len(plan)
-                            for cat, amt in plan.items():
-                                append_tx(
-                                    tx_id=sha16(group_id + f"|{idx}"),
-                                    date_=dd,
-                                    owner=owner,
-                                    type_=entry_type,
-                                    amount=float(amt),
-                                    method=method,
-                                    account=account,
-                                    category=str(cat),
-                                    notes=(notes + f" | split:{group_id} {idx}/{n}").strip(),
-                                    recurring_id="",
-                                )
-                                idx += 1
-    
-                            invalidate('transactions')
-                            invalidate('recurring')
-                            cats_str = ', '.join(plan.keys())
-                            ui.notify(f" Saved {n} separate transactions: {cats_str}", type="positive", timeout=5.0)
-                            dlg.close()
-                            return
-                        except Exception as e:
-                            ui.notify(f"Split save failed: {e}", type="negative")
-                            return
-    
-                    try:
-    
-                        # Build tx id (unique)
-    
-                        tx_id = sha16(f"{owner}|{dd.isoformat()}|{entry_type}|{amt}|{method}|{account}|{category}|{notes}|{dt.datetime.now().isoformat()}")
-    
-    
-                        rec_id = ""
-    
-                        if d_rec.value:
-    
-                            rec_id = create_or_update_recurring_template(
-    
-                                owner=owner,
-    
-                                type_=entry_type,
-    
-                                amount=amt,
-    
-                                method=method,
-    
-                                account=account,
-    
-                                category=category,
-    
-                                notes=notes,
-    
-                                day_of_month=dd.day,
-    
-                                start_date=dd,
-    
-                                active=True,
-    
-                            )
-    
-    
-                        append_tx(
-    
-                            tx_id=tx_id,
-    
-                            date_=dd,
-    
-                            owner=owner,
-    
-                            type_=entry_type,
-    
-                            amount=amt,
-    
-                            method=method,
-    
-                            account=account,
-    
-                            category=category,
-    
-                            notes=notes,
-    
-                            recurring_id=rec_id,
-    
+
+                            merch = str(parsed.get('merchant') or '').strip()
+                            last4 = str(parsed.get('card_last4') or '').strip()
+                            rdate = parsed.get('date')
+                            amt = parsed.get('amount')
+                            conf = float(parsed.get('amount_confidence') or 0.0)
+
+                            if rdate:
+                                d_date.value = rdate.isoformat()
+                            if amt is not None:
+                                # Even when low confidence, pre-fill but warn. User can edit before saving.
+                                try:
+                                    d_amount.value = float(amt)
+                                except Exception:
+                                    pass
+
+                            # Notes hint
+                            if merch or last4:
+                                prefix = []
+                                if merch:
+                                    prefix.append(merch)
+                                if last4:
+                                    prefix.append(f"****{last4}")
+                                hint = ' '.join(prefix)
+                                if not str(d_notes.value or '').strip():
+                                    d_notes.value = hint
+                                else:
+                                    d_notes.value = f"{hint} | {d_notes.value}"
+
+                            # Try auto-pick account from detected last-4 (optional).
+                            # If no mapping exists / no match, we keep the remembered default selection.
+                            if last4:
+                                try:
+                                    cards_df = cached_df('cards', force=True)
+                                    acct = pick_account_from_last4(cards_df, last4)
+                                    if acct and (acct in accounts):
+                                        d_account.value = acct
+                                        # Most receipts are card-based; set method if available.
+                                        if 'Card' in methods:
+                                            d_method.value = 'Card'
+                                except Exception:
+                                    pass
+
+                            # Phase 6.5+: Build detected category amounts from OCR line-item classification
+                            try:
+                                split_plan['merchant'] = merch
+                                split_plan['enabled'] = False
+                                split_plan['amounts'] = {}
+                                det = {}
+                                try:
+                                    cat_amounts = (parsed or {}).get('category_amounts') or {}
+                                    if isinstance(cat_amounts, dict):
+                                        for k in ['Groceries', 'Household', 'Shopping', 'Health']:
+                                            v = float(cat_amounts.get(k, 0.0) or 0.0)
+                                            if v > 0.0001:
+                                                det[k] = round(v, 2)
+                                except Exception:
+                                    det = {}
+                                split_plan['detected_amounts'] = det
+
+                                # Count how many distinct categories OCR detected
+                                _detected_cats = [k for k, v in det.items() if v > 0.01]
+                                _n_cats = len(_detected_cats)
+
+                                if entry_type.lower() == 'debit' and _n_cats >= 2:
+                                    # Multi-category receipt: open split dialog (any store, not just Walmart)
+                                    # Set category to the largest bucket so single-save still works if user skips split
+                                    _dominant = max(det, key=det.get) if det else 'Groceries'
+                                    _set_category_safely(_dominant)
+                                    _open_split_dialog()
+                                elif _n_cats == 1:
+                                    # Single-category receipt: use the OCR-detected category directly
+                                    # (overrides the Notes-based rule inference which may default to Groceries)
+                                    _set_category_safely(_detected_cats[0])
+                                else:
+                                    # No OCR categories detected: fall back to Notes-based suggestion
+                                    _refresh_suggestion_now()
+                            except Exception:
+                                # Fallback: use Notes-based suggestion
+                                _refresh_suggestion_now()
+                            if conf < 3.0:
+                                ui.notify('Applied, but amount confidence was low  please verify before saving.', type='warning')
+                            else:
+                                ui.notify('Applied scan results. Please review and save.', type='positive')
+                            _reset_scan_ui()
+                            scan_dlg.close()
+
+                    # Sticky footer so buttons don't get pushed below the upload card on mobile
+                    with ui.row().classes('w-full items-center gap-2').style('position: sticky; bottom: 0; background: rgba(11,14,20,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); z-index: 20; padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08);'):
+                        run_btn = ui.button('Scan', icon='document_scanner', on_click=_run_ocr).props('unelevated').classes('flex-1').style(
+                            'background: linear-gradient(135deg, #6366f1, #3b82f6) !important; color: #fff !important; border-radius: 10px; font-weight: 600;'
                         )
-    
-    
-                        # refresh in-memory cache so the new entry shows up immediately
+                        apply_btn = ui.button('Apply', icon='check', on_click=_apply_to_form).props('unelevated')
+                        apply_btn.classes('flex-1').style('border-radius: 10px; font-weight: 600;')
+                        apply_btn.disable()
+                        ui.button('', icon='close', on_click=scan_dlg.close).props('flat round dense').style('border: 1px solid var(--mf-border); border-radius: 10px;')
+
+                def _open_scan_dialog():
+                    """Open the receipt scanner dialog (and reset it so user can scan again)."""
+                    _reset_scan_ui()
+                    try:
+                        ui.run_javascript("""try{const el=document.querySelector('.q-uploader__input'); if(el) el.value='';}catch(e){}""")
+                    except Exception:
+                        pass
+                    scan_dlg.open()
+
+                with ui.element('div').style('padding: 12px 24px 0 24px;'):
+                    btn_scan_receipt = ui.button('Scan receipt', icon='document_scanner', on_click=_open_scan_dialog).props('outline').classes('w-full').style(
+                        'border-radius: 12px; border-color: var(--mf-border); color: var(--mf-text); font-weight: 600;'
+                    )
+
+                # Auto-open scan dialog if requested (from "Scan Now" hero button)
+                if auto_scan:
+                    _open_scan_dialog()
+
+
+                # Phase 6.5: Multi-category split UI  shown only after OCR Apply for Walmart/Costco/Superstore
+                with ui.element('div').style('padding: 0 24px;'):
+                    split_banner = ui.element('div').style(
+                        'display:none; background: linear-gradient(135deg, rgba(34,197,94,0.10), rgba(251,191,36,0.08));'
+                        'border: 1px solid rgba(34,197,94,0.25); border-radius: 14px; padding: 14px 16px;'
+                        'margin: 4px 0;'
+                    )
+                with split_banner:
+                    with ui.row().classes('items-center gap-2 mb-2'):
+                        ui.icon('call_split').style('font-size: 18px; color: #22c55e;')
+                        ui.label('Split Active').classes('text-sm font-bold').style('color: #22c55e;')
+                    split_hint = ui.label("").classes("text-xs").style("color: var(--mf-text); line-height: 1.5;")
+                    split_item_list = ui.column().classes('gap-1 mt-1')
+
+                split_dlg = ui.dialog()
+                with split_dlg, ui.card().classes("my-card mf-split-card p-4 w-[600px] max-w-[95vw]").style("max-height: 78vh; overflow-y:auto;"):
+                    ui.label("Split this receipt").classes("text-lg font-bold")
+                    ui.label("We detected line items. Adjust amounts if needed, then Apply.").classes("text-xs").style("color: var(--mf-muted)")
+
+                    # Four fixed buckets (your preferred setup)
+                    split_cats = ["Groceries", "Household", "Shopping", "Health"]
+                    amt_inputs: Dict[str, Any] = {}
+                    pct_labels: Dict[str, Any] = {}
+                    warn_lbl = ui.label("").classes("text-xs q-mt-sm").style("color: var(--mf-muted)")
+
+                    def _round2(x: float) -> float:
+                        try:
+                            return round(float(x), 2)
+                        except Exception:
+                            return 0.0
+
+                    def _sum_amounts() -> float:
+                        total = 0.0
+                        for c in split_cats:
+                            total += float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0))
+                        return _round2(total)
+
+                    def _refresh_pcts(_: Any = None) -> None:
+                        total_amt = _round2(float(to_float(d_amount.value)))
+                        cur_sum = _sum_amounts()
+                        # percent labels
+                        for c in split_cats:
+                            v = _round2(float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0)))
+                            pct = 0
+                            if total_amt > 0.0001:
+                                pct = int(round(100.0 * (v / total_amt)))
+                            try:
+                                pct_labels[c].text = f"{pct}%"
+                            except Exception:
+                                pass
+                        # warning / remainder
+                        diff = _round2(total_amt - cur_sum)
+                        if abs(diff) <= 0.02:
+                            warn_lbl.text = f"Total: ${total_amt:,.2f}  Split: ${cur_sum:,.2f}"
+                        else:
+                            # show remainder direction
+                            if diff > 0:
+                                warn_lbl.text = f"Total: ${total_amt:,.2f}  Split: ${cur_sum:,.2f}  Remaining: ${diff:,.2f}"
+                            else:
+                                warn_lbl.text = f"Total: ${total_amt:,.2f}  Split: ${cur_sum:,.2f}  Over by: ${abs(diff):,.2f}"
+
+                    # Grid-like rows
+                    for c in split_cats:
+                        with ui.row().classes("w-full items-center justify-between gap-2 q-mt-sm"):
+                            ui.label(c).classes("text-sm font-medium")
+                            pct_labels[c] = ui.label("0%").classes("text-xs").style("color: var(--mf-muted)")
+                            amt_inputs[c] = ui.number(value=0, step=0.01).props('dense outlined prefix=$').classes('w-40')
+                            amt_inputs[c].on('update:model-value', _refresh_pcts)
+
+                    def _largest_bucket() -> str:
+                        """Return the category with the largest current amount (for remainder allocation)."""
+                        best_cat, best_val = 'Groceries', 0.0
+                        for c in split_cats:
+                            try:
+                                v = float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0))
+                            except Exception:
+                                v = 0.0
+                            if v > best_val:
+                                best_val = v
+                                best_cat = c
+                        return best_cat
+
+                    def _reset_to_detected() -> None:
+                        det = split_plan.get('detected_amounts') or {}
+                        total_amt = _round2(float(to_float(d_amount.value)))
+                        # start with detected
+                        for c in split_cats:
+                            try:
+                                amt_inputs[c].value = _round2(float(det.get(c, 0.0)))
+                            except Exception:
+                                amt_inputs[c].value = 0.0
+                        # ensure it sums to total by allocating remainder to the largest bucket
+                        cur_sum = _sum_amounts()
+                        diff = _round2(total_amt - cur_sum)
+                        if abs(diff) > 0.02:
+                            target = _largest_bucket()
+                            try:
+                                amt_inputs[target].value = _round2(float(to_float(amt_inputs[target].value)) + diff)
+                            except Exception:
+                                pass
+                        _refresh_pcts()
+
+                    def _all_to_groceries() -> None:
+                        total_amt = _round2(float(to_float(d_amount.value)))
+                        for c in split_cats:
+                            amt_inputs[c].value = 0.0
+                        amt_inputs['Groceries'].value = total_amt
+                        _refresh_pcts()
+
+                    with ui.row().classes('w-full justify-between items-center q-mt-md'):
+                        ui.button('Reset to detected', on_click=_reset_to_detected).props('flat')
+                        ui.button('All to Groceries', on_click=_all_to_groceries).props('flat')
+
+                    def _apply_multi_split() -> None:
+                        total_amt = _round2(float(to_float(d_amount.value)))
+                        cur_sum = _sum_amounts()
+                        diff = _round2(total_amt - cur_sum)
+                        # If slightly off, auto-fix by nudging the largest bucket
+                        if abs(diff) <= 0.05:
+                            target = _largest_bucket()
+                            try:
+                                amt_inputs[target].value = _round2(float(to_float(amt_inputs[target].value)) + diff)
+                            except Exception:
+                                pass
+                            cur_sum = _sum_amounts()
+                            diff = _round2(total_amt - cur_sum)
+                        if abs(diff) > 0.05:
+                            ui.notify('Split must match the receipt total (adjust amounts).', type='warning')
+                            return
+
+                        plan: Dict[str, float] = {}
+                        for c in split_cats:
+                            v = _round2(float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0)))
+                            if v > 0.009:
+                                plan[c] = v
+
+                        # Store plan; actual save happens on Save click
+                        split_plan['enabled'] = True
+                        split_plan['amounts'] = plan
+                        n_cats = len(plan)
+
+                        # Show prominent split banner in main dialog
+                        try:
+                            split_banner.style('display: block;')
+                            parts = [f"{k}: ${v:.2f}" for k, v in plan.items()]
+                            split_hint.text = f"Will save as {n_cats} separate transactions:"
+                            split_item_list.clear()
+                            with split_item_list:
+                                for k, v in plan.items():
+                                    pct = int(round(100 * (v / total_amt))) if total_amt > 0 else 0
+                                    with ui.row().classes('items-center gap-2'):
+                                        ui.element('div').style(f'width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink: 0;')
+                                        ui.label(f"{k}  ${v:.2f} ({pct}%)").classes('text-xs font-medium')
+                            # Disable category selector (split overrides it)
+                            d_category.props('disable')
+                            d_category.value = f'Split ({n_cats} categories)'
+                        except Exception:
+                            pass
+
+                        split_dlg.close()
+                        ui.notify(f'Split applied: {n_cats} categories will be saved separately.', type='positive')
+
+                    with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
+                        ui.button("Cancel", on_click=split_dlg.close).props("flat")
+                        ui.button("Apply", on_click=_apply_multi_split).props("unelevated")
+
+                def _open_split_dialog() -> None:
+                    # Initialize from detected amounts (or fallback)
+                    _reset_to_detected()
+                    split_dlg.open()
+
+            # --- Live category suggestion (Phase 6.2+): auto-categorize as you type Notes (debounced),
+            #     show a small chip "Auto: <Category>", and never override a manual category choice ---
+            category_touched = {"v": False}         # user manually changed category
+            _setting_category = {"v": False}        # internal guard so programmatic changes don't mark touched
+            _debounce_task = {"t": None}
+
+            # Small chip-style feedback (shown only when auto is active and suggestion is meaningful)
+            with ui.element('div').style('padding: 0 24px;'):
+                suggest_chip = ui.chip("").classes("q-mt-xs").style(
+                    "background: rgba(120,160,255,0.14); border: 1px solid var(--mf-border); color: var(--mf-text);"
+                )
+            try:
+                suggest_chip.set_visibility(False)
+            except Exception:
+                suggest_chip.visible = False
+
+            # Use the rules loaded at dialog open; fall back to a non-forced load once if empty.
+            _active_rules = rules or []
+            if not _active_rules:
+                try:
+                    _active_rules = load_rules(force=False) or []
+                except Exception:
+                    _active_rules = []
+
+            def _set_category_safely(val: str) -> None:
+                try:
+                    _setting_category["v"] = True
+                    d_category.value = val
+                finally:
+                    _setting_category["v"] = False
+
+            def _update_chip(text: str, show: bool) -> None:
+                try:
+                    suggest_chip.set_text(text)
+                except Exception:
+                    suggest_chip.text = text
+                try:
+                    suggest_chip.set_visibility(show)
+                except Exception:
+                    suggest_chip.visible = bool(show)
+
+            def _refresh_suggestion_now() -> None:
+                if category_touched["v"]:
+                    _update_chip("", False)
+                    return
+
+                active_rules = _active_rules
+                note_txt = str(d_notes.value or "").strip()
+                if not active_rules:
+                    _set_category_safely("Uncategorized")
+                    _update_chip("", False)
+                    return
+
+                suggestion = infer_category(note_txt, active_rules) or "Uncategorized"
+                _set_category_safely(suggestion)
+                show = bool(note_txt) and suggestion != "Uncategorized"
+                _update_chip(f"Auto: {suggestion}", show)
+
+            async def _debounced_refresh() -> None:
+                try:
+                    await asyncio.sleep(0.35)
+                    _refresh_suggestion_now()
+                except Exception:
+                    pass
+
+            def _schedule_refresh(_: Any = None) -> None:
+                t = _debounce_task.get("t")
+                try:
+                    if t and not t.done():
+                        t.cancel()
+                except Exception:
+                    pass
+                try:
+                    _debounce_task["t"] = asyncio.create_task(_debounced_refresh())
+                except Exception:
+                    _refresh_suggestion_now()
+
+            def _on_category_change(e: Any) -> None:
+                if _setting_category["v"]:
+                    return
+                category_touched["v"] = True
+                _update_chip("", False)
+
+            d_category.on('update:model-value', _on_category_change)
+            d_notes.on('update:model-value', _schedule_refresh)
+            _refresh_suggestion_now()
+
+            def autofill():
+                category_touched["v"] = True
+                _update_chip("", False)
+                fresh_rules = load_rules(force=True)
+                if not fresh_rules:
+                    ui.notify('No rules loaded (check Rules sheet columns). Keeping Uncategorized.', type='warning')
+                    d_category.value = 'Uncategorized'
+                    return
+                d_category.value = infer_category(d_notes.value or "", fresh_rules) or "Uncategorized"
+                ui.notify("Category updated", type="positive")
+
+            with ui.element('div').style('padding: 0 24px;'):
+                ui.button("Auto-category", on_click=autofill).props("flat")
+
+            def save():
+
+                dd = parse_date(d_date.value) or today()
+
+                amt = float(to_float(d_amount.value))
+
+                owner = "Family"
+
+                method = str(((d_method.value if d_method is not None else method_default) or "Bank")).strip()
+
+                account = str(d_account.value or "").strip()
+
+                # Remember last-used card/account for Expenses (Debit) so next time it's preselected.
+                try:
+                    if entry_type.lower() == 'debit':
+                        if method:
+                            app.storage.user['last_debit_method'] = method
+                        if account:
+                            app.storage.user['last_debit_account'] = account
+                except Exception:
+                    pass
+
+                category = str(d_category.value or "Uncategorized").strip()
+
+                notes = str(d_notes.value or "").strip()
+
+                # Phase 6.5+: If a multi-split plan is enabled, save as multiple linked transactions
+                if entry_type.lower() == 'debit' and bool(split_plan.get("enabled")) and isinstance(split_plan.get("amounts"), dict):
+                    try:
+                        total_amt = float(to_float(d_amount.value))
+                        plan: Dict[str, float] = {k: float(v) for k, v in (split_plan.get('amounts') or {}).items()}
+                        # Validate plan sums to total (tolerate rounding)
+                        s = round(sum(plan.values()), 2)
+                        if abs(round(total_amt - s, 2)) > 0.05:
+                            ui.notify('Split total does not match receipt total. Please adjust and try again.', type='warning')
+                            return
+                        # Nudge rounding diff into the largest category bucket
+                        diff = round(total_amt - s, 2)
+                        if abs(diff) <= 0.05 and abs(diff) > 0.001:
+                            largest_cat = max(plan, key=lambda k: plan.get(k, 0.0)) if plan else 'Groceries'
+                            plan[largest_cat] = round(plan.get(largest_cat, 0.0) + diff, 2)
+                        # Filter zero/negative
+                        plan = {k: round(v, 2) for k, v in plan.items() if v and v > 0.009}
+                        if not plan:
+                            ui.notify('Split plan is empty.', type='warning')
+                            return
+
+                        group_id = sha16(f"SPLIT|{owner}|{dd.isoformat()}|{account}|{method}|{total_amt}|{notes}|{dt.datetime.now().isoformat()}")
+                        idx = 1
+                        n = len(plan)
+                        for cat, amt in plan.items():
+                            append_tx(
+                                tx_id=sha16(group_id + f"|{idx}"),
+                                date_=dd,
+                                owner=owner,
+                                type_=entry_type,
+                                amount=float(amt),
+                                method=method,
+                                account=account,
+                                category=str(cat),
+                                notes=(notes + f" | split:{group_id} {idx}/{n}").strip(),
+                                recurring_id="",
+                            )
+                            idx += 1
+
                         invalidate('transactions')
                         invalidate('recurring')
-    
-                        ui.notify("Saved", type="positive")
-    
+                        cats_str = ', '.join(plan.keys())
+                        ui.notify(f" Saved {n} separate transactions: {cats_str}", type="positive", timeout=5.0)
                         dlg.close()
-    
-    
+                        return
                     except Exception as e:
-    
-                        ui.notify(f"Save failed: {e}", type="negative")
-    
-    
-                # Sticky footer so Save/Cancel never get pushed off-screen on mobile
-                with ui.row().classes("w-full justify-end gap-3 sticky bottom-0 z-50").style(
-                    "padding: 16px 24px 20px 24px;"
-                    "background: linear-gradient(to top, var(--mf-surface-2) 60%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);"
-                    "border-top: 1px solid rgba(255,255,255,0.05);"
-                    "border-radius: 0 0 32px 32px;"
-                ):
-                    ui.button("Cancel", on_click=dlg.close).props("flat").style("border-radius: 12px; font-weight: 600; color: var(--mf-text); opacity: 0.8;")
-                    ui.button("Save", on_click=save, icon="check").props("unelevated").style(
-                        f"background: linear-gradient(135deg, {_accent}, {_accent}dd) !important; color: #fff !important;"
-                        "font-weight: 800; border-radius: 14px; padding: 10px 36px; font-size: 15px;"
-                        f"box-shadow: 0 8px 24px {_accent}40; border: 1px solid rgba(255,255,255,0.1);"
-                    )
-    
-            ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
-            dlg.open()
-    
-        # 
-        # 8.4: Line of Credit  full dialog with date, amount, type selector
-        # 
-        def open_loc_dialog():
-            loc_dlg = ui.dialog()
-            with loc_dlg, ui.card().classes("my-card mf-add-dialog").style(
-                "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
-            ):
-                ui.element('div').style('height: 4px; background: linear-gradient(90deg, #60a5fa, #60a5fa66); border-radius: 24px 24px 0 0;')
-                with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
-                    with ui.row().classes('items-center gap-3').style('width: 100%;'):
-                        with ui.element('div').style(
-                            'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
-                            'background: rgba(96,165,250,0.18); border: 1px solid rgba(96,165,250,0.22);'
-                        ):
-                            ui.icon('account_balance').style('font-size: 18px; color: #60a5fa;')
-                        with ui.column().classes('gap-0'):
-                            ui.label('Line of Credit').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
-                            ui.label('Record LOC withdrawal or repayment').classes('text-xs').style('color: var(--mf-muted);')
-                        ui.element('div').style('flex: 1;')
-                        ui.button('', icon='close', on_click=loc_dlg.close).props('flat round dense').style('opacity: 0.7;')
-    
-                # Date & Amount
-                with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
-                    with ui.row().classes('w-full gap-3'):
-                        loc_date = ui.input(value=today().isoformat()).props("type=date outlined dense").classes("flex-1 mf-no-label")
-                        loc_amount = ui.number(value=0).props("outlined dense").classes("flex-1 mf-no-label")
-    
-                # Transaction type
-                ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
-                with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
-                    with ui.row().classes('items-center gap-2 mt-3 mb-2'):
-                        ui.icon('swap_horiz').style('font-size: 15px; color: #60a5fa; opacity: 0.7;')
-                        ui.label('Transaction Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
-                    loc_type = _chip_select(
-                        ['Withdrawal', 'Repayment'], value='Withdrawal', label='Transaction Type',
-                    )
-                    loc_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
-    
-                # Actions
-                with ui.row().classes("w-full justify-end gap-3").style("padding: 14px 24px 12px 24px;"):
-                    ui.button("Cancel", on_click=loc_dlg.close).props("flat").style("border-radius: 10px;")
-                    def _save_loc():
-                        dd = parse_date(loc_date.value) or today()
-                        amt_val = float(to_float(loc_amount.value))
-                        if amt_val <= 0:
-                            ui.notify("Enter a valid amount", type="warning")
-                            return
-                        is_withdraw = loc_type.value == 'Withdrawal'
-                        _type = 'LOC Draw' if is_withdraw else 'LOC Repay'
-                        _method = 'Card' if is_withdraw else 'Bank'
-                        _category = 'LOC Utilization' if is_withdraw else 'Repayment'
-                        _notes_str = str(loc_notes.value or "").strip()
-                        tx_id = sha16(f"Family|{dd.isoformat()}|{_type}|{amt_val}|{_method}|RBC Line of Credit|{_category}|{_notes_str}|{dt.datetime.now().isoformat()}")
-                        append_tx(
-                            tx_id=tx_id, date_=dd, owner="Family",
-                            type_=_type, amount=amt_val,
-                            method=_method, account="RBC Line of Credit",
-                            category=_category,
-                            notes=_notes_str,
-                            recurring_id=""
+                        ui.notify(f"Split save failed: {e}", type="negative")
+                        return
+
+                try:
+
+                    # Build tx id (unique)
+
+                    tx_id = sha16(f"{owner}|{dd.isoformat()}|{entry_type}|{amt}|{method}|{account}|{category}|{notes}|{dt.datetime.now().isoformat()}")
+
+
+                    rec_id = ""
+
+                    if d_rec.value:
+
+                        rec_id = create_or_update_recurring_template(
+
+                            owner=owner,
+
+                            type_=entry_type,
+
+                            amount=amt,
+
+                            method=method,
+
+                            account=account,
+
+                            category=category,
+
+                            notes=notes,
+
+                            day_of_month=dd.day,
+
+                            start_date=dd,
+
+                            active=True,
+
                         )
-                        invalidate('transactions')
-                        _action = "withdrawal" if is_withdraw else "repayment"
-                        ui.notify(f"LOC {_action} of {currency(amt_val)} saved", type="positive")
-                        loc_dlg.close()
-                    ui.button("Save", on_click=_save_loc, icon="check").props("unelevated").style(
-                        "background: linear-gradient(135deg, #60a5fa, #60a5facc) !important; color: #fff !important;"
-                        "font-weight: 700; border-radius: 12px; padding: 8px 32px;"
+
+
+                    append_tx(
+
+                        tx_id=tx_id,
+
+                        date_=dd,
+
+                        owner=owner,
+
+                        type_=entry_type,
+
+                        amount=amt,
+
+                        method=method,
+
+                        account=account,
+
+                        category=category,
+
+                        notes=notes,
+
+                        recurring_id=rec_id,
+
                     )
-            ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
-            loc_dlg.open()
-    
-        # 
-        # 8.5: CC Repay  rebuilt from scratch, standalone dialog
-        # 
-        def open_cc_repay_dialog():
-            # Only the 4 credit cards (NOT Line of Credit  that's handled by LOC dialog)
-            CC_CARDS = [
-                'CT Mastercard - Black',
-                'CT Mastercard - Grey',
-                'RBC VISA',
-                'RBC Mastercard',
-            ]
-    
-            cc_dlg = ui.dialog()
-            with cc_dlg, ui.card().classes("my-card mf-add-dialog").style(
-                "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
+
+
+                    # refresh in-memory cache so the new entry shows up immediately
+                    invalidate('transactions')
+                    invalidate('recurring')
+
+                    ui.notify("Saved", type="positive")
+
+                    dlg.close()
+
+
+                except Exception as e:
+
+                    ui.notify(f"Save failed: {e}", type="negative")
+
+
+            # Sticky footer so Save/Cancel never get pushed off-screen on mobile
+            with ui.row().classes("w-full justify-end gap-3 sticky bottom-0 z-50").style(
+                "padding: 16px 24px 20px 24px;"
+                "background: linear-gradient(to top, var(--mf-surface-2) 60%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);"
+                "border-top: 1px solid rgba(255,255,255,0.05);"
+                "border-radius: 0 0 32px 32px;"
             ):
-                ui.element('div').style('height: 4px; background: linear-gradient(90deg, #eab308, #eab30866); border-radius: 24px 24px 0 0;')
-                with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
-                    with ui.row().classes('items-center gap-3').style('width: 100%;'):
-                        with ui.element('div').style(
-                            'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
-                            'background: rgba(251,191,36,0.18); border: 1px solid rgba(251,191,36,0.22);'
-                        ):
-                            ui.icon('credit_card').style('font-size: 18px; color: #eab308;')
-                        with ui.column().classes('gap-0'):
-                            ui.label('CC Repayment').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
-                            ui.label('Record a credit card payment').classes('text-xs').style('color: var(--mf-muted);')
-                        ui.element('div').style('flex: 1;')
-                        ui.button('', icon='close', on_click=cc_dlg.close).props('flat round dense').style('opacity: 0.7;')
-    
-                # Date & Amount
-                with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
-                    with ui.row().classes('w-full gap-3'):
-                        cc_date = ui.input(value=today().isoformat()).props("type=date outlined dense").classes("flex-1 mf-no-label")
-                        cc_amount = ui.number(value=0).props("outlined dense").classes("flex-1 mf-no-label")
-    
-                # Card selection
-                ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
-                with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
-                    with ui.row().classes('items-center gap-2 mt-3 mb-2'):
-                        ui.icon('credit_card').style('font-size: 15px; color: #eab308; opacity: 0.7;')
-                        ui.label('Card').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
-                    cc_card = _chip_select(
-                        CC_CARDS, value=CC_CARDS[0],
-                        hint="Select which card you paid",
-                    )
-                    cc_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
-    
-                # Actions
-                with ui.row().classes("w-full justify-end gap-3").style("padding: 14px 24px 12px 24px;"):
-                    ui.button("Cancel", on_click=cc_dlg.close).props("flat").style("border-radius: 10px;")
-                    def _save_cc_repay():
-                        dd = parse_date(cc_date.value) or today()
-                        amt_val = float(to_float(cc_amount.value))
-                        if amt_val <= 0:
-                            ui.notify("Enter a valid amount", type="warning")
-                            return
-                        _card = str(cc_card.value).strip()
-                        _notes_str = str(cc_notes.value or "").strip()
-                        tx_id = sha16(f"Family|{dd.isoformat()}|CC Repay|{amt_val}|Card|{_card}|CC Repay|{_notes_str}|{dt.datetime.now().isoformat()}")
-                        append_tx(
-                            tx_id=tx_id, date_=dd, owner="Family",
-                            type_="CC Repay", amount=amt_val,
-                            method="Card", account=_card,
-                            category="CC Repay",
-                            notes=_notes_str,
-                            recurring_id=""
-                        )
-                        invalidate('transactions')
-                        ui.notify(f"CC payment of {currency(amt_val)} to {_card} saved", type="positive")
-                        cc_dlg.close()
-                    ui.button("Save", on_click=_save_cc_repay, icon="check").props("unelevated").style(
-                        "background: linear-gradient(135deg, #eab308, #eab308cc) !important; color: #fff !important;"
-                        "font-weight: 700; border-radius: 12px; padding: 8px 32px;"
-                    )
-            ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
-            cc_dlg.open()
-    
-        # 
-        # 8.2.2: Invest  custom dialog with investment account picker
-        # 
-        def open_invest_dialog():
-            INVEST_ACCOUNTS = ['FHSA', 'TFSA', 'RRSP', 'Indhu-TFSA']
-    
-            inv_dlg = ui.dialog()
-            with inv_dlg, ui.card().classes("my-card mf-add-dialog").style(
-                "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
-            ):
-                ui.element('div').style('height: 4px; background: linear-gradient(90deg, #a855f7, #a855f766); border-radius: 24px 24px 0 0;')
-                with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
-                    with ui.row().classes('items-center gap-3').style('width: 100%;'):
-                        with ui.element('div').style(
-                            'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
-                            'background: rgba(168,85,247,0.18); border: 1px solid rgba(168,85,247,0.22);'
-                        ):
-                            ui.icon('show_chart').style('font-size: 18px; color: #a855f7;')
-                        with ui.column().classes('gap-0'):
-                            ui.label('Add Investment').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
-                            ui.label('Choose investment account & amount').classes('text-xs').style('color: var(--mf-muted);')
-                        ui.element('div').style('flex: 1;')
-                        ui.button('', icon='close', on_click=inv_dlg.close).props('flat round dense').style('opacity: 0.7;')
-    
-                # Date & Amount
-                with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
-                    with ui.row().classes('w-full gap-3'):
-                        inv_date = ui.input(value=today().isoformat()).props("type=date outlined dense").classes("flex-1 mf-no-label")
-                        inv_amount = ui.number(value=0).props("outlined dense").classes("flex-1 mf-no-label")
-    
-                # Investment account & Source
-                ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
-                with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
-                    with ui.row().classes('items-center gap-2 mt-3 mb-2'):
-                        ui.icon('savings').style('font-size: 15px; color: #a855f7; opacity: 0.7;')
-                        ui.label('Investment Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
-                    inv_account = _chip_select(
-                        INVEST_ACCOUNTS, value='TFSA', label='Investment Account',
-                        hint="Where to invest (FHSA, TFSA, RRSP...)",
-                    )
-                    inv_source = _chip_select(
-                        ['Bank'], value='Bank', label='Source Account', disabled=True,
-                    )
-                    inv_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
-    
-                # Actions
-                with ui.row().classes("w-full justify-end gap-3").style("padding: 14px 24px 12px 24px;"):
-                    ui.button("Cancel", on_click=inv_dlg.close).props("flat").style("border-radius: 10px;")
-                    def _save_invest():
-                        dd = parse_date(inv_date.value) or today()
-                        amt_val = float(to_float(inv_amount.value))
-                        if amt_val <= 0:
-                            ui.notify("Enter a valid amount", type="warning")
-                            return
-                        _notes_str = str(inv_notes.value or "").strip()
-                        if inv_source.value:
-                            _notes_str = ((_notes_str + " " if _notes_str else "") + f"[from {inv_source.value}]")
-                        tx_id = sha16(f"Family|{dd.isoformat()}|Investment|{amt_val}|Bank|{inv_account.value}|Investment|{_notes_str}|{dt.datetime.now().isoformat()}")
-                        append_tx(
-                            tx_id=tx_id, date_=dd, owner="Family",
-                            type_="Investment", amount=amt_val,
-                            method="Bank", account=str(inv_account.value),
-                            category="Investment",
-                            notes=_notes_str,
-                            recurring_id=""
-                        )
-                        invalidate('transactions')
-                        ui.notify(f"Investment of {currency(amt_val)} to {inv_account.value} saved", type="positive")
-                        inv_dlg.close()
-                    ui.button("Save", on_click=_save_invest, icon="check").props("unelevated").style(
-                        "background: linear-gradient(135deg, #a855f7, #a855f7cc) !important; color: #fff !important;"
-                        "font-weight: 700; border-radius: 12px; padding: 8px 32px;"
-                    )
-            ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
-            inv_dlg.open()
-    
-        # 
-        # 8.2.2: International Transfer  custom dialog (CAD only)
-        # 
-        def open_intl_dialog():
-            INTL_SOURCES = ['Bank', 'CT Mastercard - Grey']
-    
-            intl_dlg = ui.dialog()
-            with intl_dlg, ui.card().classes("my-card mf-add-dialog").style(
-                "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
-            ):
-                ui.element('div').style('height: 4px; background: linear-gradient(90deg, #f472b6, #f472b666); border-radius: 24px 24px 0 0;')
-                with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
-                    with ui.row().classes('items-center gap-3').style('width: 100%;'):
-                        with ui.element('div').style(
-                            'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
-                            'background: rgba(244,114,182,0.18); border: 1px solid rgba(244,114,182,0.22);'
-                        ):
-                            ui.icon('public').style('font-size: 18px; color: #f472b6;')
-                        with ui.column().classes('gap-0'):
-                            ui.label('International Transfer').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
-                            ui.label('Record international transfer (CAD)').classes('text-xs').style('color: var(--mf-muted);')
-                        ui.element('div').style('flex: 1;')
-                        ui.button('', icon='close', on_click=intl_dlg.close).props('flat round dense').style('opacity: 0.7;')
-    
-                # Date & Amount
-                with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
-                    with ui.row().classes('w-full gap-3'):
-                        intl_date = ui.input(value=today().isoformat()).props("type=date outlined dense").classes("flex-1 mf-no-label")
-                        intl_amount = ui.number(value=0).props("outlined dense").classes("flex-1 mf-no-label")
-                    ui.label('Amount in CAD').classes('text-xs').style('color: var(--mf-muted); margin-top: -4px;')
-    
-                # Withdrawal source
-                ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
-                with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
-                    with ui.row().classes('items-center gap-2 mt-3 mb-2'):
-                        ui.icon('public').style('font-size: 15px; color: #f472b6; opacity: 0.7;')
-                        ui.label('Transfer Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
-                    intl_source = _chip_select(
-                        INTL_SOURCES, value='Bank', label='Withdrawal Source',
-                        hint="Bank or CT - grey card only",
-                    )
-                    intl_notes = ui.textarea("Notes / Recipient", value="").props("outlined dense rows=2").classes("w-full")
-    
-                # Actions
-                with ui.row().classes("w-full justify-end gap-3").style("padding: 14px 24px 12px 24px;"):
-                    ui.button("Cancel", on_click=intl_dlg.close).props("flat").style("border-radius: 10px;")
-                    def _save_intl():
-                        dd = parse_date(intl_date.value) or today()
-                        amt_val = float(to_float(intl_amount.value))
-                        if amt_val <= 0:
-                            ui.notify("Enter a valid amount", type="warning")
-                            return
-                        _notes_str = str(intl_notes.value or "").strip()
-                        tx_id = sha16(f"Family|{dd.isoformat()}|International|{amt_val}|{intl_source.value}|{intl_source.value}|International Transfer|{_notes_str}|{dt.datetime.now().isoformat()}")
-                        append_tx(
-                            tx_id=tx_id, date_=dd, owner="Family",
-                            type_="International", amount=amt_val,
-                            method=str(intl_source.value),
-                            account=str(intl_source.value),
-                            category="International Transfer",
-                            notes=_notes_str,
-                            recurring_id=""
-                        )
-                        invalidate('transactions')
-                        ui.notify(f"International transfer of {currency(amt_val)} saved", type="positive")
-                        intl_dlg.close()
-                    ui.button("Save", on_click=_save_intl, icon="check").props("unelevated").style(
-                        "background: linear-gradient(135deg, #f472b6, #f472b6cc) !important; color: #fff !important;"
-                        "font-weight: 700; border-radius: 12px; padding: 8px 32px;"
-                    )
-            ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
-            intl_dlg.open()
-    
-        def content():
-            # --- Hero: Scan Receipt (premium gradient card) ---
-            with ui.card().classes("my-card p-0").style(
-                "background: linear-gradient(135deg, rgba(99,102,241,0.16) 0%, rgba(59,130,246,0.08) 50%, rgba(16,185,129,0.06) 100%) !important;"
-                "border: 1px solid rgba(99,102,241,0.20);"
-            ):
-                ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #3b82f6, #10b981); border-radius: 0;')
-                with ui.row().classes("w-full items-center p-6 gap-5"):
-                    with ui.column().classes("flex-1 gap-2"):
-                        ui.label("Scan a Receipt").classes("text-2xl font-extrabold").style("letter-spacing: -0.02em;")
-                        ui.label("Snap a photo or upload  AI reads total, date & splits items by category.").classes("text-sm").style("color: var(--mf-muted); line-height: 1.6;")
-                        ui.button("Scan Now", icon="document_scanner", on_click=lambda: open_add_dialog("Debit", auto_scan=True)).props("unelevated").classes("mt-1").style(
-                            "background: linear-gradient(135deg, #6366f1, #3b82f6) !important; color: #fff !important;"
-                            "font-weight: 700; letter-spacing: 0.01em; padding: 10px 32px; border-radius: 12px;"
-                            "box-shadow: 0 4px 14px rgba(99,102,241,0.30);"
-                        )
-                    with ui.element("div").style(
-                        "width: 64px; height: 64px; border-radius: 18px; display: flex; align-items: center; justify-content: center;"
-                        "background: rgba(99,102,241,0.12); flex-shrink: 0;"
+                ui.button("Cancel", on_click=dlg.close).props("flat").style("border-radius: 12px; font-weight: 600; color: var(--mf-text); opacity: 0.8;")
+                ui.button("Save", on_click=save, icon="check").props("unelevated").style(
+                    f"background: linear-gradient(135deg, {_accent}, {_accent}dd) !important; color: #fff !important;"
+                    "font-weight: 800; border-radius: 14px; padding: 10px 36px; font-size: 15px;"
+                    f"box-shadow: 0 8px 24px {_accent}40; border: 1px solid rgba(255,255,255,0.1);"
+                )
+
+        ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
+        dlg.open()
+
+    # 
+    # 8.4: Line of Credit  full dialog with date, amount, type selector
+    # 
+    def open_loc_dialog():
+        loc_dlg = ui.dialog()
+        with loc_dlg, ui.card().classes("my-card mf-add-dialog").style(
+            "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
+        ):
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #60a5fa, #60a5fa66); border-radius: 24px 24px 0 0;')
+            with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-3').style('width: 100%;'):
+                    with ui.element('div').style(
+                        'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
+                        'background: rgba(96,165,250,0.18); border: 1px solid rgba(96,165,250,0.22);'
                     ):
-                        ui.icon("document_scanner").style("font-size: 32px; color: rgba(99,102,241,0.65);")
-    
-            # --- Quick Add Grid (Premium) ---
-            with ui.card().classes("my-card p-5"):
-                ui.label("Quick Add").classes("mf-section-title")
-    
-                # 8.2.2: Reorganized tile grid  merged LOC, renamed Invest, added Intl Transfer
-                tiles = [
-                    ("Expense",        "shopping_cart",   "Debit",      {},  "rgba(239,68,68,0.10)",  "#ef4444"),
-                    ("Income",         "trending_up",     "Credit",     {},  "rgba(34,197,94,0.10)",  "#22c55e"),
-                    ("Invest",         "show_chart",      "__INVEST__", {},  "rgba(168,85,247,0.10)", "#a855f7"),
-                    ("CC Repay",       "credit_card",     "__CC_REPAY__", {},  "rgba(251,191,36,0.10)", "#eab308"),
-                    ("Line of Credit", "account_balance", "__LOC__",    {},  "rgba(96,165,250,0.10)", "#60a5fa"),
-                    ("Intl Transfer",  "public",          "__INTL__",   {},  "rgba(244,114,182,0.10)","#f472b6"),
-                ]
-    
-                def _tile_click(et, k):
-                    if et == '__LOC__':
-                        open_loc_dialog()
-                    elif et == '__INVEST__':
-                        open_invest_dialog()
-                    elif et == '__INTL__':
-                        open_intl_dialog()
-                    elif et == '__CC_REPAY__':
-                        open_cc_repay_dialog()
-                    else:
-                        open_add_dialog(et, **k)
-    
-                with ui.element("div").classes("w-full").style(
-                    "display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px;"
+                        ui.icon('account_balance').style('font-size: 18px; color: #60a5fa;')
+                    with ui.column().classes('gap-0'):
+                        ui.label('Line of Credit').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                        ui.label('Record LOC withdrawal or repayment').classes('text-xs').style('color: var(--mf-muted);')
+                    ui.element('div').style('flex: 1;')
+                    ui.button('', icon='close', on_click=loc_dlg.close).props('flat round dense').style('opacity: 0.7;')
+
+            # Date & Amount
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('w-full gap-3'):
+                    loc_date = ui.input(value=today().isoformat()).props("type=date outlined dense").classes("flex-1 mf-no-label")
+                    loc_amount = ui.number(value=0).props("outlined dense").classes("flex-1 mf-no-label")
+
+            # Transaction type
+            ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-2 mt-3 mb-2'):
+                    ui.icon('swap_horiz').style('font-size: 15px; color: #60a5fa; opacity: 0.7;')
+                    ui.label('Transaction Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
+                loc_type = _chip_select(
+                    ['Withdrawal', 'Repayment'], value='Withdrawal', label='Transaction Type',
+                )
+                loc_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
+
+            # Actions
+            with ui.row().classes("w-full justify-end gap-3").style("padding: 14px 24px 12px 24px;"):
+                ui.button("Cancel", on_click=loc_dlg.close).props("flat").style("border-radius: 10px;")
+                def _save_loc():
+                    dd = parse_date(loc_date.value) or today()
+                    amt_val = float(to_float(loc_amount.value))
+                    if amt_val <= 0:
+                        ui.notify("Enter a valid amount", type="warning")
+                        return
+                    is_withdraw = loc_type.value == 'Withdrawal'
+                    _type = 'LOC Draw' if is_withdraw else 'LOC Repay'
+                    _method = 'Card' if is_withdraw else 'Bank'
+                    _category = 'LOC Utilization' if is_withdraw else 'Repayment'
+                    _notes_str = str(loc_notes.value or "").strip()
+                    tx_id = sha16(f"Family|{dd.isoformat()}|{_type}|{amt_val}|{_method}|RBC Line of Credit|{_category}|{_notes_str}|{dt.datetime.now().isoformat()}")
+                    append_tx(
+                        tx_id=tx_id, date_=dd, owner="Family",
+                        type_=_type, amount=amt_val,
+                        method=_method, account="RBC Line of Credit",
+                        category=_category,
+                        notes=_notes_str,
+                        recurring_id=""
+                    )
+                    invalidate('transactions')
+                    _action = "withdrawal" if is_withdraw else "repayment"
+                    ui.notify(f"LOC {_action} of {currency(amt_val)} saved", type="positive")
+                    loc_dlg.close()
+                ui.button("Save", on_click=_save_loc, icon="check").props("unelevated").style(
+                    "background: linear-gradient(135deg, #60a5fa, #60a5facc) !important; color: #fff !important;"
+                    "font-weight: 700; border-radius: 12px; padding: 8px 32px;"
+                )
+        ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
+        loc_dlg.open()
+
+    # 
+    # 8.5: CC Repay  rebuilt from scratch, standalone dialog
+    # 
+    def open_cc_repay_dialog():
+        # Only the 4 credit cards (NOT Line of Credit  that's handled by LOC dialog)
+        CC_CARDS = [
+            'CT Mastercard - Black',
+            'CT Mastercard - Grey',
+            'RBC VISA',
+            'RBC Mastercard',
+        ]
+
+        cc_dlg = ui.dialog()
+        with cc_dlg, ui.card().classes("my-card mf-add-dialog").style(
+            "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
+        ):
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #eab308, #eab30866); border-radius: 24px 24px 0 0;')
+            with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-3').style('width: 100%;'):
+                    with ui.element('div').style(
+                        'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
+                        'background: rgba(251,191,36,0.18); border: 1px solid rgba(251,191,36,0.22);'
+                    ):
+                        ui.icon('credit_card').style('font-size: 18px; color: #eab308;')
+                    with ui.column().classes('gap-0'):
+                        ui.label('CC Repayment').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                        ui.label('Record a credit card payment').classes('text-xs').style('color: var(--mf-muted);')
+                    ui.element('div').style('flex: 1;')
+                    ui.button('', icon='close', on_click=cc_dlg.close).props('flat round dense').style('opacity: 0.7;')
+
+            # Date & Amount
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('w-full gap-3'):
+                    cc_date = ui.input(value=today().isoformat()).props("type=date outlined dense").classes("flex-1 mf-no-label")
+                    cc_amount = ui.number(value=0).props("outlined dense").classes("flex-1 mf-no-label")
+
+            # Card selection
+            ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-2 mt-3 mb-2'):
+                    ui.icon('credit_card').style('font-size: 15px; color: #eab308; opacity: 0.7;')
+                    ui.label('Card').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
+                cc_card = _chip_select(
+                    CC_CARDS, value=CC_CARDS[0],
+                    hint="Select which card you paid",
+                )
+                cc_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
+
+            # Actions
+            with ui.row().classes("w-full justify-end gap-3").style("padding: 14px 24px 12px 24px;"):
+                ui.button("Cancel", on_click=cc_dlg.close).props("flat").style("border-radius: 10px;")
+                def _save_cc_repay():
+                    dd = parse_date(cc_date.value) or today()
+                    amt_val = float(to_float(cc_amount.value))
+                    if amt_val <= 0:
+                        ui.notify("Enter a valid amount", type="warning")
+                        return
+                    _card = str(cc_card.value).strip()
+                    _notes_str = str(cc_notes.value or "").strip()
+                    tx_id = sha16(f"Family|{dd.isoformat()}|CC Repay|{amt_val}|Card|{_card}|CC Repay|{_notes_str}|{dt.datetime.now().isoformat()}")
+                    append_tx(
+                        tx_id=tx_id, date_=dd, owner="Family",
+                        type_="CC Repay", amount=amt_val,
+                        method="Card", account=_card,
+                        category="CC Repay",
+                        notes=_notes_str,
+                        recurring_id=""
+                    )
+                    invalidate('transactions')
+                    ui.notify(f"CC payment of {currency(amt_val)} to {_card} saved", type="positive")
+                    cc_dlg.close()
+                ui.button("Save", on_click=_save_cc_repay, icon="check").props("unelevated").style(
+                    "background: linear-gradient(135deg, #eab308, #eab308cc) !important; color: #fff !important;"
+                    "font-weight: 700; border-radius: 12px; padding: 8px 32px;"
+                )
+        ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
+        cc_dlg.open()
+
+    # 
+    # 8.2.2: Invest  custom dialog with investment account picker
+    # 
+    def open_invest_dialog():
+        INVEST_ACCOUNTS = ['FHSA', 'TFSA', 'RRSP', 'Indhu-TFSA']
+
+        inv_dlg = ui.dialog()
+        with inv_dlg, ui.card().classes("my-card mf-add-dialog").style(
+            "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
+        ):
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #a855f7, #a855f766); border-radius: 24px 24px 0 0;')
+            with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-3').style('width: 100%;'):
+                    with ui.element('div').style(
+                        'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
+                        'background: rgba(168,85,247,0.18); border: 1px solid rgba(168,85,247,0.22);'
+                    ):
+                        ui.icon('show_chart').style('font-size: 18px; color: #a855f7;')
+                    with ui.column().classes('gap-0'):
+                        ui.label('Add Investment').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                        ui.label('Choose investment account & amount').classes('text-xs').style('color: var(--mf-muted);')
+                    ui.element('div').style('flex: 1;')
+                    ui.button('', icon='close', on_click=inv_dlg.close).props('flat round dense').style('opacity: 0.7;')
+
+            # Date & Amount
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('w-full gap-3'):
+                    inv_date = ui.input(value=today().isoformat()).props("type=date outlined dense").classes("flex-1 mf-no-label")
+                    inv_amount = ui.number(value=0).props("outlined dense").classes("flex-1 mf-no-label")
+
+            # Investment account & Source
+            ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-2 mt-3 mb-2'):
+                    ui.icon('savings').style('font-size: 15px; color: #a855f7; opacity: 0.7;')
+                    ui.label('Investment Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
+                inv_account = _chip_select(
+                    INVEST_ACCOUNTS, value='TFSA', label='Investment Account',
+                    hint="Where to invest (FHSA, TFSA, RRSP...)",
+                )
+                inv_source = _chip_select(
+                    ['Bank'], value='Bank', label='Source Account', disabled=True,
+                )
+                inv_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
+
+            # Actions
+            with ui.row().classes("w-full justify-end gap-3").style("padding: 14px 24px 12px 24px;"):
+                ui.button("Cancel", on_click=inv_dlg.close).props("flat").style("border-radius: 10px;")
+                def _save_invest():
+                    dd = parse_date(inv_date.value) or today()
+                    amt_val = float(to_float(inv_amount.value))
+                    if amt_val <= 0:
+                        ui.notify("Enter a valid amount", type="warning")
+                        return
+                    _notes_str = str(inv_notes.value or "").strip()
+                    if inv_source.value:
+                        _notes_str = ((_notes_str + " " if _notes_str else "") + f"[from {inv_source.value}]")
+                    tx_id = sha16(f"Family|{dd.isoformat()}|Investment|{amt_val}|Bank|{inv_account.value}|Investment|{_notes_str}|{dt.datetime.now().isoformat()}")
+                    append_tx(
+                        tx_id=tx_id, date_=dd, owner="Family",
+                        type_="Investment", amount=amt_val,
+                        method="Bank", account=str(inv_account.value),
+                        category="Investment",
+                        notes=_notes_str,
+                        recurring_id=""
+                    )
+                    invalidate('transactions')
+                    ui.notify(f"Investment of {currency(amt_val)} to {inv_account.value} saved", type="positive")
+                    inv_dlg.close()
+                ui.button("Save", on_click=_save_invest, icon="check").props("unelevated").style(
+                    "background: linear-gradient(135deg, #a855f7, #a855f7cc) !important; color: #fff !important;"
+                    "font-weight: 700; border-radius: 12px; padding: 8px 32px;"
+                )
+        ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
+        inv_dlg.open()
+
+    # 
+    # 8.2.2: International Transfer  custom dialog (CAD only)
+    # 
+    def open_intl_dialog():
+        INTL_SOURCES = ['Bank', 'CT Mastercard - Grey']
+
+        intl_dlg = ui.dialog()
+        with intl_dlg, ui.card().classes("my-card mf-add-dialog").style(
+            "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
+        ):
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #f472b6, #f472b666); border-radius: 24px 24px 0 0;')
+            with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-3').style('width: 100%;'):
+                    with ui.element('div').style(
+                        'width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;'
+                        'background: rgba(244,114,182,0.18); border: 1px solid rgba(244,114,182,0.22);'
+                    ):
+                        ui.icon('public').style('font-size: 18px; color: #f472b6;')
+                    with ui.column().classes('gap-0'):
+                        ui.label('International Transfer').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+                        ui.label('Record international transfer (CAD)').classes('text-xs').style('color: var(--mf-muted);')
+                    ui.element('div').style('flex: 1;')
+                    ui.button('', icon='close', on_click=intl_dlg.close).props('flat round dense').style('opacity: 0.7;')
+
+            # Date & Amount
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('w-full gap-3'):
+                    intl_date = ui.input(value=today().isoformat()).props("type=date outlined dense").classes("flex-1 mf-no-label")
+                    intl_amount = ui.number(value=0).props("outlined dense").classes("flex-1 mf-no-label")
+                ui.label('Amount in CAD').classes('text-xs').style('color: var(--mf-muted); margin-top: -4px;')
+
+            # Withdrawal source
+            ui.element('div').style('height: 1px; background: var(--mf-border); opacity: 0.4; margin: 12px 24px 0 24px;')
+            with ui.element('div').style('padding: 0 24px; display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box;'):
+                with ui.row().classes('items-center gap-2 mt-3 mb-2'):
+                    ui.icon('public').style('font-size: 15px; color: #f472b6; opacity: 0.7;')
+                    ui.label('Transfer Details').classes('text-xs font-bold').style('text-transform: uppercase; letter-spacing: 0.08em; color: var(--mf-muted);')
+                intl_source = _chip_select(
+                    INTL_SOURCES, value='Bank', label='Withdrawal Source',
+                    hint="Bank or CT - grey card only",
+                )
+                intl_notes = ui.textarea("Notes / Recipient", value="").props("outlined dense rows=2").classes("w-full")
+
+            # Actions
+            with ui.row().classes("w-full justify-end gap-3").style("padding: 14px 24px 12px 24px;"):
+                ui.button("Cancel", on_click=intl_dlg.close).props("flat").style("border-radius: 10px;")
+                def _save_intl():
+                    dd = parse_date(intl_date.value) or today()
+                    amt_val = float(to_float(intl_amount.value))
+                    if amt_val <= 0:
+                        ui.notify("Enter a valid amount", type="warning")
+                        return
+                    _notes_str = str(intl_notes.value or "").strip()
+                    tx_id = sha16(f"Family|{dd.isoformat()}|International|{amt_val}|{intl_source.value}|{intl_source.value}|International Transfer|{_notes_str}|{dt.datetime.now().isoformat()}")
+                    append_tx(
+                        tx_id=tx_id, date_=dd, owner="Family",
+                        type_="International", amount=amt_val,
+                        method=str(intl_source.value),
+                        account=str(intl_source.value),
+                        category="International Transfer",
+                        notes=_notes_str,
+                        recurring_id=""
+                    )
+                    invalidate('transactions')
+                    ui.notify(f"International transfer of {currency(amt_val)} saved", type="positive")
+                    intl_dlg.close()
+                ui.button("Save", on_click=_save_intl, icon="check").props("unelevated").style(
+                    "background: linear-gradient(135deg, #f472b6, #f472b6cc) !important; color: #fff !important;"
+                    "font-weight: 700; border-radius: 12px; padding: 8px 32px;"
+                )
+        ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
+        intl_dlg.open()
+
+    def content():
+        # --- Hero: Scan Receipt (premium gradient card) ---
+        with ui.card().classes("my-card p-0").style(
+            "background: linear-gradient(135deg, rgba(99,102,241,0.16) 0%, rgba(59,130,246,0.08) 50%, rgba(16,185,129,0.06) 100%) !important;"
+            "border: 1px solid rgba(99,102,241,0.20);"
+        ):
+            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #3b82f6, #10b981); border-radius: 0;')
+            with ui.row().classes("w-full items-center p-6 gap-5"):
+                with ui.column().classes("flex-1 gap-2"):
+                    ui.label("Scan a Receipt").classes("text-2xl font-extrabold").style("letter-spacing: -0.02em;")
+                    ui.label("Snap a photo or upload  AI reads total, date & splits items by category.").classes("text-sm").style("color: var(--mf-muted); line-height: 1.6;")
+                    ui.button("Scan Now", icon="document_scanner", on_click=lambda: open_add_dialog("Debit", auto_scan=True)).props("unelevated").classes("mt-1").style(
+                        "background: linear-gradient(135deg, #6366f1, #3b82f6) !important; color: #fff !important;"
+                        "font-weight: 700; letter-spacing: 0.01em; padding: 10px 32px; border-radius: 12px;"
+                        "box-shadow: 0 4px 14px rgba(99,102,241,0.30);"
+                    )
+                with ui.element("div").style(
+                    "width: 64px; height: 64px; border-radius: 18px; display: flex; align-items: center; justify-content: center;"
+                    "background: rgba(99,102,241,0.12); flex-shrink: 0;"
                 ):
-                    for label, icon, etype, kw, bg, accent in tiles:
-                        with ui.card().classes("my-card tile p-0").style(
-                            f"cursor: pointer; border: 1px solid rgba(255,255,255,0.06);"
-                        ).on("click", lambda _evt=None, et=etype, k=kw: _tile_click(et, k)):
-                            with ui.column().classes("items-center justify-center p-4 gap-3").style("min-height: 105px;"):
-                                with ui.element("div").classes("mf-icon-box").style(f"background: {bg};"):
-                                    ui.icon(icon).style(f"font-size: 22px; color: {accent};")
-                                ui.label(label).classes("text-xs font-semibold text-center").style(f"line-height: 1.2; color: var(--mf-text);")
-    
-            # --- Recurring ---
-            with ui.card().classes("my-card p-5"):
-                with ui.row().classes("w-full items-center justify-between"):
-                    with ui.row().classes("items-center gap-2"):
-                        with ui.element("div").classes("mf-icon-box").style("background: rgba(34,197,94,0.10);"):
-                            ui.icon("autorenew").style("font-size: 18px; color: #22c55e;")
-                        with ui.column().classes("gap-0"):
-                            ui.label("Recurring Entries").classes("text-sm font-bold")
-                            ui.label("Auto-generated on due date").classes("text-xs").style("color: var(--mf-muted)")
-                    ui.button("Run Now", icon="autorenew", on_click=lambda: ui.notify(f"Created {generate_recurring_for_date(today())} entries", type="positive")).props("outline").style("white-space: nowrap; border-radius: 10px;")
-    
+                    ui.icon("document_scanner").style("font-size: 32px; color: rgba(99,102,241,0.65);")
 
-        def _deferred_render():
-            spinner_row.delete()
-            with container:
-                _render_actual_content()
+        # --- Quick Add Grid (Premium) ---
+        with ui.card().classes("my-card p-5"):
+            ui.label("Quick Add").classes("mf-section-title")
 
-        ui.timer(0.05, _deferred_render, once=True)
+            # 8.2.2: Reorganized tile grid  merged LOC, renamed Invest, added Intl Transfer
+            tiles = [
+                ("Expense",        "shopping_cart",   "Debit",      {},  "rgba(239,68,68,0.10)",  "#ef4444"),
+                ("Income",         "trending_up",     "Credit",     {},  "rgba(34,197,94,0.10)",  "#22c55e"),
+                ("Invest",         "show_chart",      "__INVEST__", {},  "rgba(168,85,247,0.10)", "#a855f7"),
+                ("CC Repay",       "credit_card",     "__CC_REPAY__", {},  "rgba(251,191,36,0.10)", "#eab308"),
+                ("Line of Credit", "account_balance", "__LOC__",    {},  "rgba(96,165,250,0.10)", "#60a5fa"),
+                ("Intl Transfer",  "public",          "__INTL__",   {},  "rgba(244,114,182,0.10)","#f472b6"),
+            ]
+
+            def _tile_click(et, k):
+                if et == '__LOC__':
+                    open_loc_dialog()
+                elif et == '__INVEST__':
+                    open_invest_dialog()
+                elif et == '__INTL__':
+                    open_intl_dialog()
+                elif et == '__CC_REPAY__':
+                    open_cc_repay_dialog()
+                else:
+                    open_add_dialog(et, **k)
+
+            with ui.element("div").classes("w-full").style(
+                "display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px;"
+            ):
+                for label, icon, etype, kw, bg, accent in tiles:
+                    with ui.card().classes("my-card tile p-0").style(
+                        f"cursor: pointer; border: 1px solid rgba(255,255,255,0.06);"
+                    ).on("click", lambda _evt=None, et=etype, k=kw: _tile_click(et, k)):
+                        with ui.column().classes("items-center justify-center p-4 gap-3").style("min-height: 105px;"):
+                            with ui.element("div").classes("mf-icon-box").style(f"background: {bg};"):
+                                ui.icon(icon).style(f"font-size: 22px; color: {accent};")
+                            ui.label(label).classes("text-xs font-semibold text-center").style(f"line-height: 1.2; color: var(--mf-text);")
+
+        # --- Recurring ---
+        with ui.card().classes("my-card p-5"):
+            with ui.row().classes("w-full items-center justify-between"):
+                with ui.row().classes("items-center gap-2"):
+                    with ui.element("div").classes("mf-icon-box").style("background: rgba(34,197,94,0.10);"):
+                        ui.icon("autorenew").style("font-size: 18px; color: #22c55e;")
+                    with ui.column().classes("gap-0"):
+                        ui.label("Recurring Entries").classes("text-sm font-bold")
+                        ui.label("Auto-generated on due date").classes("text-xs").style("color: var(--mf-muted)")
+                ui.button("Run Now", icon="autorenew", on_click=lambda: ui.notify(f"Created {generate_recurring_for_date(today())} entries", type="positive")).props("outline").style("white-space: nowrap; border-radius: 10px;")
 
     # 8.8: Auto-open dialog when arriving from Home page quick-add buttons
     _auto_mode = str(app.storage.user.pop('add_auto_open', '') or '').strip().lower()
@@ -8673,9 +8597,9 @@ def cards_page() -> None:
                     text_color = '#ffffff'
                     accent = '#ef4444'
             elif _is_rbc(c):
-                grad = 'linear-gradient(135deg, #1e3a8a, #3b82f6)' # Darker Royal Blue
-                text_color = '#ffffff' # White text
-                accent = '#fcd34d' # Yellow accent for contrast
+                grad = 'linear-gradient(135deg, #e0f2fe, #bae6fd)' # Light Sky Blue
+                text_color = '#000000' # Black text
+                accent = '#ca8a04' # Darker gold/yellow for contrast against light blue
             elif _is_loc(c):
                 grad = 'linear-gradient(135deg, #1e3a8a, #1e40af)' # Navy blue
                 text_color = '#ffffff'
@@ -8738,10 +8662,10 @@ def cards_page() -> None:
                         with ui.row().classes('w-full justify-between items-end'):
                             with ui.column().classes('gap-0'):
                                 ui.label('Balance').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
-                                ui.label(currency(c.get('balance', 0.0))).classes('text-2xl font-black').style('letter-spacing: -0.02em; font-feature-settings: "tnum";')
+                                ui.label(currency(c.get('balance', 0.0))).classes('text-2xl font-black').style('letter-spacing: -0.02em; font-feature-settings: "tnum"; text-shadow: 0 2px 8px rgba(0,0,0,0.3);')
                             with ui.column().classes('gap-0 items-end'):
                                 ui.label('Available').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
-                                ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '---').classes('text-base font-bold').style('color: #34d399; font-feature-settings: "tnum";')
+                                ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '---').classes('text-base font-bold').style('color: #34d399; font-feature-settings: "tnum"; text-shadow: 0 1px 4px rgba(0,0,0,0.4);')
 
                         # Custom Utilization Bar (integrated into the card)
                         with ui.column().classes('w-full gap-1'):
@@ -8870,7 +8794,7 @@ def recurring_page():
                 {"name": "category", "label": "Category", "field": "category"},
                 {"name": "active", "label": "Active", "field": "active"},
                 {"name": "last_generated_month", "label": "Last Gen", "field": "last_generated_month"},
-            ], rows=rdf2.to_dict(orient="records"), row_key="recurring_id", selection="single").classes("w-full")
+            ], rows=rdf2.to_dict(orient="records"), row_key="recurring_id").classes("w-full")
 
             def toggle_active():
                 if not table.selected:
@@ -9792,28 +9716,28 @@ def about_page() -> None:
         return
 
     def content() -> None:
-      with ui.element('div').classes('mf-about-wrap w-full max-w-[1400px] mx-auto px-4 py-8 md:px-8 gap-6').style('display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); align-items: start;'):
-        #  App Info Card (Spans more space if needed)
-        with ui.card().classes('my-card p-0 h-full').style('overflow: hidden; border-radius: 24px; box-shadow: 0 12px 32px rgba(0,0,0,0.25);'):
-            ui.element('div').style('height: 6px; background: linear-gradient(90deg, #22C55E, #FBBF24); border-radius: 0;')
-            with ui.column().classes('p-8 gap-4 items-center flex-1 h-full'):
+      with ui.element('div').classes('mf-about-wrap w-full max-w-4xl mx-auto px-4 py-6 md:px-8'):
+        #  App Info Card 
+        with ui.card().classes('my-card p-0').style('overflow: hidden;'):
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #22C55E, #FBBF24); border-radius: 0;')
+            with ui.column().classes('p-6 gap-4 items-center'):
                 with ui.element('div').style(
                     'width: 80px; height: 80px; border-radius: 22px; display: flex; align-items: center; justify-content: center;'
                     'background: linear-gradient(135deg, #0F1923, #22C55E);'
                     'box-shadow: 0 8px 32px rgba(34,197,94,0.25);'
                 ):
                     ui.icon('insights').style('font-size: 40px; color: #FBBF24;')
-                ui.label('FinTrackr').style('font-size: 36px; font-weight: 800; letter-spacing: -0.04em; color: var(--mf-text);')
-                ui.label(f'Version {APP_VERSION}').classes('text-sm font-semibold').style('color: var(--mf-muted); margin-top: -10px;')
-                ui.separator().classes('w-full opacity-20 my-2')
+                ui.label('FinTrackr').style('font-size: 32px; font-weight: 800; letter-spacing: -0.04em; color: var(--mf-text);')
+                ui.label(f'Version {APP_VERSION}').classes('text-sm').style('color: var(--mf-muted); margin-top: -8px;')
+                ui.separator().classes('w-full opacity-20')
                 ui.label(
                     'FinTrackr is a premium personal finance dashboard built to help you take control '
                     'of your money. Track every expense, scan receipts with AI-powered OCR, monitor '
                     'credit card utilization, set budgets, and visualize your spending patterns  all '
                     'from a single elegant interface.'
-                ).classes('text-sm text-center mb-4').style('color: var(--mf-muted); line-height: 1.8; max-width: 500px;')
+                ).classes('text-sm text-center').style('color: var(--mf-muted); line-height: 1.7; max-width: 720px;')
 
-                # Feature highlights in a subtle grid inside the card
+                # Feature highlights
                 _features = [
                     ('document_scanner', 'AI Receipt Scanning', 'Snap a photo and let OCR extract amounts, merchants & categories automatically.'),
                     ('palette', '8 Premium Themes', 'From dark Midnight Blue to light Sand Gold  pick the look that suits you.'),
@@ -9822,104 +9746,105 @@ def about_page() -> None:
                     ('call_split', 'Receipt Splitting', 'Multi-category split for Walmart, Costco & Superstore receipts.'),
                     ('autorenew', 'Recurring Templates', 'Set it and forget it  automatic transaction creation on due dates.'),
                 ]
-                with ui.element('div').classes('w-full gap-3').style('display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));'):
+                with ui.element('div').classes('mf-about-features'):
                     for f_icon, f_title, f_desc in _features:
                         with ui.element('div').style(
-                            'display: flex; align-items: flex-start; gap: 14px; padding: 16px;'
-                            'border-radius: 16px; border: 1px solid rgba(255,255,255,0.05);'
-                            'background: var(--mf-surface-1); box-shadow: inset 0 2px 4px rgba(255,255,255,0.02);'
+                            'display: flex; align-items: flex-start; gap: 12px; padding: 12px;'
+                            'border-radius: 12px; border: 1px solid var(--mf-border);'
+                            'background: var(--mf-surface);'
                         ):
-                            ui.icon(f_icon).style('font-size: 24px; color: var(--mf-accent); margin-top: -2px; flex-shrink: 0;')
-                            with ui.column().classes('gap-1'):
-                                ui.label(f_title).classes('text-sm font-bold').style('color: var(--mf-text); letter-spacing: -0.01em;')
-                                ui.label(f_desc).classes('text-xs').style('color: var(--mf-muted); line-height: 1.6;')
-
-        # Right Column Wrapper for Author & Tech Stack
-        with ui.column().classes('gap-6 h-full w-full'):
-            #  Author Card 
-            with ui.card().classes('my-card p-0 w-full').style('overflow: hidden; border-radius: 24px; box-shadow: 0 12px 32px rgba(0,0,0,0.25);'):
-                ui.element('div').style('height: 6px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
-                with ui.column().classes('p-8 gap-4'):
-                    with ui.row().classes('items-center gap-3 mb-2'):
-                        with ui.element('div').classes('mf-icon-box').style('background: rgba(99,102,241,0.12); border-radius: 12px; width: 40px; height: 40px;'):
-                            ui.icon('person').style('font-size: 22px; color: #6366f1;')
-                        ui.label('Engineered By').classes('text-xl font-extrabold').style('letter-spacing: -0.02em;')
-
-                    with ui.row().classes('mf-about-author w-full items-start gap-6'):
-                        # Avatar placeholder
-                        with ui.element('div').style(
-                            'width: 96px; height: 96px; border-radius: 30%; flex-shrink: 0;'
-                            'background: linear-gradient(135deg, #6366f1, #a855f7);'
-                            'display: flex; align-items: center; justify-content: center;'
-                            'box-shadow: 0 12px 24px rgba(99,102,241,0.3); border: 2px solid rgba(255,255,255,0.1);'
-                        ):
-                            ui.label('NR').style('font-size: 36px; font-weight: 800; color: #fff; letter-spacing: -0.04em;')
-
-                        with ui.column().classes('gap-1 flex-1'):
-                            ui.label('Nishanth R').style('font-size: 26px; font-weight: 900; letter-spacing: -0.03em; color: var(--mf-text);')
-                            ui.label('Oracle DBA').classes('text-sm font-bold uppercase tracking-wider mb-2').style('color: #a855f7;')
-                            ui.label(
-                                'An experienced Oracle Database Administrator with a passion for building '
-                                'elegant, data-driven applications. FinTrackr was born from a personal need '
-                                'to track finances with the precision of an enterprise database  clean architecture, '
-                                'robust data integrity, and a beautiful interface.'
-                            ).classes('text-sm').style('color: var(--mf-muted); line-height: 1.7;')
-
-                    ui.separator().classes('w-full opacity-20 my-1')
-
-                    # Contact links
-                    with ui.row().classes('w-full items-center gap-3 grid grid-cols-1 sm:grid-cols-2'):
-                        # Email
-                        with ui.element('a').style(
-                            'display: flex; align-items: center; gap: 10px; text-decoration: none;'
-                            'padding: 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.06);'
-                            'background: var(--mf-surface-1); color: var(--mf-text); cursor: pointer;'
-                            'transition: all 0.2s ease;'
-                        ).props('href="mailto:nishanth91.dba@gmail.com"'):
-                            ui.icon('email').style('font-size: 18px; color: #ef4444;')
-                            ui.label('nishanth91.dba@gmail.com').classes('text-[13px] font-bold')
-
-                        # LinkedIn
-                        with ui.element('a').style(
-                            'display: flex; align-items: center; gap: 10px; text-decoration: none;'
-                            'padding: 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.06);'
-                            'background: var(--mf-surface-1); color: var(--mf-text); cursor: pointer;'
-                            'transition: all 0.2s ease;'
-                        ).props('href="https://www.linkedin.com/in/nishanth-r-ajay/" target="_blank"'):
-                            ui.icon('work').style('font-size: 18px; color: #0A66C2;')
-                            ui.label('LinkedIn Profile').classes('text-[13px] font-bold')
-
-                        # Instagram
-                        with ui.element('a').style(
-                            'display: flex; align-items: center; gap: 10px; text-decoration: none;'
-                            'padding: 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.06);'
-                            'background: var(--mf-surface-1); color: var(--mf-text); cursor: pointer;'
-                            'transition: all 0.2s ease;'
-                        ).props('href="https://www.instagram.com/n_1_5_h_/" target="_blank"').classes('sm:col-span-2 mx-auto sm:mx-0 sm:w-auto w-full'):
-                            ui.icon('photo_camera').style('font-size: 18px; color: #E1306C;')
-                            ui.label('@n_1_5_h_').classes('text-[13px] font-bold')
-
-            #  Tech Stack Card 
-            with ui.card().classes('my-card p-0 w-full flex-1').style('overflow: hidden; border-radius: 24px; box-shadow: 0 12px 32px rgba(0,0,0,0.25);'):
-                ui.element('div').style('height: 6px; background: linear-gradient(90deg, #22c55e, #3b82f6); border-radius: 0;')
-                with ui.column().classes('p-8 gap-2'):
-                    with ui.row().classes('items-center gap-3 mb-2'):
-                        with ui.element('div').classes('mf-icon-box').style('background: rgba(34,197,94,0.12); border-radius: 12px; width: 40px; height: 40px;'):
-                            ui.icon('code').style('font-size: 22px; color: #22c55e;')
-                        ui.label('Technology Stack').classes('text-xl font-extrabold').style('letter-spacing: -0.02em;')
-
-                    _stack = [
-                        ('Python + NiceGUI', 'Full-stack web framework with modern reactive frontend'),
-                        ('Google Sheets API', 'Zero-cost portable cloud database via gspread'),
-                        ('Tesseract.js + Vision', 'Client & server OCR logic for smart data entry'),
-                        ('Plotly + Pandas', 'Data structures and elegant interactive charts'),
-                    ]
-                    for tech, desc in _stack:
-                        with ui.row().classes('items-center gap-4 w-full').style('padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.04);'):
-                            ui.element('div').style('width: 8px; height: 8px; border-radius: 50%; background: var(--mf-accent); flex-shrink: 0; box-shadow: 0 0 10px var(--mf-accent);')
+                            ui.icon(f_icon).style('font-size: 20px; color: var(--mf-accent); margin-top: 2px; flex-shrink: 0;')
                             with ui.column().classes('gap-0'):
-                                ui.label(tech).classes('text-[14px] font-bold').style('color: var(--mf-text);')
-                                ui.label(desc).classes('text-[13px]').style('color: var(--mf-muted);')
+                                ui.label(f_title).classes('text-sm font-bold').style('color: var(--mf-text);')
+                                ui.label(f_desc).classes('text-xs').style('color: var(--mf-muted); line-height: 1.5;')
+
+        #  Author Card 
+        with ui.card().classes('my-card p-0 mt-3').style('overflow: hidden;'):
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
+            with ui.column().classes('p-6 gap-4'):
+                with ui.row().classes('items-center gap-2 mb-1'):
+                    with ui.element('div').classes('mf-icon-box').style('background: rgba(99,102,241,0.12);'):
+                        ui.icon('person').style('font-size: 20px; color: #6366f1;')
+                    ui.label('About the Author').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+
+                with ui.element('div').classes('mf-about-author'):
+                    # Avatar placeholder
+                    with ui.element('div').style(
+                        'width: 90px; height: 90px; border-radius: 50%; flex-shrink: 0;'
+                        'background: linear-gradient(135deg, #6366f1, #a855f7);'
+                        'display: flex; align-items: center; justify-content: center;'
+                        'box-shadow: 0 6px 20px rgba(99,102,241,0.25);'
+                    ):
+                        ui.label('NR').style('font-size: 32px; font-weight: 800; color: #fff; letter-spacing: -0.03em;')
+
+                    with ui.column().classes('gap-2 flex-1').style('min-width: 200px;'):
+                        ui.label('Nishanth R').style('font-size: 22px; font-weight: 800; letter-spacing: -0.03em; color: var(--mf-text);')
+                        ui.label('Oracle DBA').classes('text-sm font-medium').style('color: var(--mf-accent);')
+                        ui.label(
+                            'An experienced Oracle Database Administrator with a passion for building '
+                            'elegant, data-driven applications. FinTrackr was born from a personal need '
+                            'to track finances with the same precision and reliability that goes into '
+                            'managing enterprise databases  clean architecture, robust error handling, '
+                            'and a beautiful interface that makes financial management effortless.'
+                        ).classes('text-sm').style('color: var(--mf-muted); line-height: 1.7;')
+
+                ui.separator().classes('w-full opacity-20')
+
+                # Contact links
+                with ui.row().classes('items-center gap-4 flex-wrap'):
+                    # Email
+                    with ui.element('a').style(
+                        'display: flex; align-items: center; gap: 8px; text-decoration: none;'
+                        'padding: 8px 16px; border-radius: 10px; border: 1px solid var(--mf-border);'
+                        'background: var(--mf-surface); color: var(--mf-text); cursor: pointer;'
+                        'transition: background 0.2s ease;'
+                    ).props('href="mailto:nishanth91.dba@gmail.com"'):
+                        ui.icon('email').style('font-size: 18px; color: #ef4444;')
+                        ui.label('nishanth91.dba@gmail.com').classes('text-sm font-medium')
+
+                    # LinkedIn
+                    with ui.element('a').style(
+                        'display: flex; align-items: center; gap: 8px; text-decoration: none;'
+                        'padding: 8px 16px; border-radius: 10px; border: 1px solid var(--mf-border);'
+                        'background: var(--mf-surface); color: var(--mf-text); cursor: pointer;'
+                        'transition: background 0.2s ease;'
+                    ).props('href="https://www.linkedin.com/in/nishanth-r-ajay/" target="_blank"'):
+                        ui.icon('work').style('font-size: 18px; color: #0A66C2;')
+                        ui.label('LinkedIn').classes('text-sm font-medium')
+
+                    # Instagram
+                    with ui.element('a').style(
+                        'display: flex; align-items: center; gap: 8px; text-decoration: none;'
+                        'padding: 8px 16px; border-radius: 10px; border: 1px solid var(--mf-border);'
+                        'background: var(--mf-surface); color: var(--mf-text); cursor: pointer;'
+                        'transition: background 0.2s ease;'
+                    ).props('href="https://www.instagram.com/n_1_5_h_/" target="_blank"'):
+                        ui.icon('photo_camera').style('font-size: 18px; color: #E1306C;')
+                        ui.label('@n_1_5_h_').classes('text-sm font-medium')
+
+        #  Tech Stack Card 
+        with ui.card().classes('my-card p-0 mt-3').style('overflow: hidden;'):
+            ui.element('div').style('height: 4px; background: linear-gradient(90deg, #22c55e, #3b82f6); border-radius: 0;')
+            with ui.column().classes('p-6 gap-3'):
+                with ui.row().classes('items-center gap-2 mb-1'):
+                    with ui.element('div').classes('mf-icon-box').style('background: rgba(34,197,94,0.12);'):
+                        ui.icon('code').style('font-size: 20px; color: #22c55e;')
+                    ui.label('Tech Stack').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
+
+                _stack = [
+                    ('Python + NiceGUI', 'Full-stack web framework with Quasar/Vue.js frontend'),
+                    ('Google Sheets API', 'Zero-cost cloud database via gspread'),
+                    ('Tesseract.js + Google Vision', 'Client-side & server-side OCR for receipt scanning'),
+                    ('Plotly', 'Interactive charts for spending analytics'),
+                    ('WebAuthn', 'Passwordless biometric authentication'),
+                    ('Render', 'Cloud hosting with automatic deployments'),
+                ]
+                for tech, desc in _stack:
+                    with ui.row().classes('items-center gap-3').style('padding: 8px 0; border-bottom: 1px solid rgba(128,128,128,0.06);'):
+                        ui.element('div').style('width: 6px; height: 6px; border-radius: 50%; background: var(--mf-accent); flex-shrink: 0;')
+                        with ui.column().classes('gap-0'):
+                            ui.label(tech).classes('text-sm font-bold').style('color: var(--mf-text);')
+                            ui.label(desc).classes('text-xs').style('color: var(--mf-muted);')
 
     shell(content)
 
