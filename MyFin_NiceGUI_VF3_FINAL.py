@@ -5617,7 +5617,7 @@ def dashboard_page():
                     _mks = []
                     _lbls = []
                     for i in range(5, -1, -1):
-                        _d = _today_d.replace(day=1) - datetime.timedelta(days=28*i)
+                        _d = _today_d.replace(day=1) - dt.timedelta(days=28*i)
                         _m = _d.replace(day=1)
                         _mks.append(month_key(_m))
                         _lbls.append(_m.strftime('%b'))
