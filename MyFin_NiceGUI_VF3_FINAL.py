@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.3'
+APP_VERSION = '9.4'
 
 
 def log(message: str) -> None:
@@ -1473,8 +1473,7 @@ def _build_rules_index(rules: List[Tuple[str, str]]) -> Dict[str, List[str]]:
     so classify_receipt_items can look up keywords per category efficiently.
     """
     idx: Dict[str, List[str]] = {}
-    rules = [r for r in (rules or []) if isinstance(r, (list, tuple)) and len(r) >= 2]
-                for kw, cat in (rules or []):
+    for kw, cat in (rules or []):
         key = (cat or '').strip().lower()
         if not key:
             continue
@@ -2944,7 +2943,7 @@ body, .q-layout, .q-page {
     inset 0 1px 0 rgba(255,255,255,0.08);
   overflow: hidden;
   position: relative;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 .my-card::before{
   content:"";
@@ -3677,11 +3676,13 @@ a.mf-more-item.is-active:visited {
   font-size: 24px !important;
 }
 .mf-canvas{
-  max-width: 1180px;
+  max-width: 1440px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  padding-left: 24px;
+  padding-right: 24px;
 }
 
 /* Premium Layout Helpers */
@@ -4078,13 +4079,14 @@ html.mf-light .mf-tag { background: rgba(17,24,39,0.04); }
   background: rgba(var(--mf-accent-rgb, 91,140,255), 0.14) !important;
 }
 
-/* Smooth page transitions */
+/* Smooth page transitions — optimized for speed */
 .mf-canvas {
-  animation: mf-fadein 0.25s ease-out;
+  animation: mf-fadein 0.12s ease-out;
+  will-change: opacity;
 }
 @keyframes mf-fadein {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* Premium empty states */
@@ -4814,7 +4816,7 @@ def topbar():
         with ui.row().classes("items-center gap-3"):
             with ui.element('div').style(
                 'width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;'
-                'background: linear-gradient(135deg, #1E293B, #0EA5E9);'
+                'background: linear-gradient(135deg, #0F1923, #22C55E);'
                 'box-shadow: 0 2px 8px rgba(34,197,94,0.25);'
             ):
                 ui.icon('insights').style('font-size: 20px; color: #FBBF24;')
@@ -4986,7 +4988,7 @@ def shell(content_fn, *, active_path: str = ""):
         ui.button("").props("flat").style("display:none;").props('id=mf-logout-trigger').on("click", do_logout)
 
         # Main content area
-        with ui.element("main").classes("mf-main w-full max-w-7xl mx-auto px-2 md:px-8"):
+        with ui.element("main").classes("mf-main"):
             with ui.element("div").classes("mf-header"):
                 # 8.2.2: Clean two-row header  title on top, actions below
                 with ui.column().classes("w-full gap-1"):
@@ -4997,14 +4999,14 @@ def shell(content_fn, *, active_path: str = ""):
                                 with ui.row().classes('items-center gap-2'):
                                     with ui.element('div').style(
                                         'width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center;'
-                                        'background: linear-gradient(135deg, #1E293B, #0EA5E9);'
+                                        'background: linear-gradient(135deg, #0F1923, #22C55E);'
                                     ):
                                         ui.icon('insights').style('font-size: 17px; color: #FBBF24;')
                                     ui.link("FinTrackr", "/").classes("t1 text-xl md:text-2xl font-extrabold").style("color: inherit; text-decoration: none; letter-spacing: -0.03em;")
 
                         # Desktop theme select (hidden on mobile)
                         def _open_theme_dialog():
-                            with ui.dialog() as td, ui.card().classes("my-card p-0 w-full max-w-lg").style("overflow: hidden; border-radius: 24px;"):
+                            with ui.dialog() as td, ui.card().classes("my-card p-0 w-full max-w-sm").style("overflow: hidden; border-radius: 24px;"):
                                 ui.element('div').classes('mf-accent-strip')
                                 with ui.column().classes("p-5 gap-3"):
                                     with ui.row().classes("items-center gap-2"):
@@ -5166,41 +5168,55 @@ def methods_list() -> List[str]:
 @ui.page("/login")
 def login_page():
     ui.dark_mode(True)
-    # Radically changed Lock Screen UI (Centered glass card on animated gradient style)
-    with ui.element('div').classes('w-full min-h-screen flex items-center justify-center').style('background: radial-gradient(circle at center, #1E1B4B 0%, #020617 100%);'):
-        with ui.element('div').classes('flex flex-col items-center justify-center').style(
-            'width: 100%; max-w-[420px]; padding: 48px 40px; border-radius: 32px; '
-            'background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); '
-            'border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 40px 100px -12px rgba(0,0,0,0.8);'
-        ):
-            with ui.element('div').style(
-                'width: 80px; height: 80px; border-radius: 20px; display: flex; align-items: center; justify-content: center;'
-                'background: linear-gradient(135deg, #4F46E5, #EC4899); box-shadow: 0 10px 30px rgba(236,72,153,0.4); margin-bottom: 24px;'
-            ):
-                ui.icon('shield').style('font-size: 40px; color: white;')
-            
-            ui.label('FinTrackr Premium').classes('text-3xl font-black mb-2').style('color: white; letter-spacing: -0.04em;')
-            ui.label('Secure Financial Dashboard').classes('text-sm mb-8 font-medium').style('color: #94A3B8;')
+    # 9.4: Modern centered glassmorphism login
+    ui.add_head_html('''<style>
+    @keyframes mf-login-bg { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
+    .mf-login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+      background:linear-gradient(-45deg,#0a0f1a,#0d1f2d,#0a1628,#0f172a);background-size:400% 400%;
+      animation:mf-login-bg 15s ease infinite;}
+    .mf-login-card{width:100%;max-width:400px;background:rgba(255,255,255,0.06);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);
+      border:1px solid rgba(255,255,255,0.12);border-radius:28px;padding:48px 36px 40px;
+      box-shadow:0 32px 64px rgba(0,0,0,0.4);}
+    @media(max-width:480px){.mf-login-card{padding:36px 24px 32px;border-radius:20px;}}
+    </style>''')
+    with ui.element('div').classes('mf-login-wrap'):
+        with ui.element('div').classes('mf-login-card'):
+            with ui.column().classes('items-center gap-1 mb-8'):
+                with ui.element('div').style(
+                    'width: 64px; height: 64px; border-radius: 18px; display: flex; align-items: center; justify-content: center;'
+                    'background: linear-gradient(135deg, #0F1923, #22C55E);'
+                    'box-shadow: 0 12px 32px rgba(34,197,94,0.3);'
+                ):
+                    ui.icon('insights').style('font-size: 32px; color: #FBBF24;')
+                ui.label('FinTrackr').style(
+                    'font-size: 28px; font-weight: 800; letter-spacing: -0.04em; margin-top: 12px;'
+                    'background: linear-gradient(135deg, #fff, rgba(255,255,255,0.7)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
+                )
+                ui.label('Sign in to continue').classes('text-sm').style('color: rgba(255,255,255,0.5); margin-top: 2px;')
 
-            u_in = ui.input("Username").classes("w-full mb-4").props("outlined rounded dense dark bg-color='black'")
-            u_in.style('border-radius: 12px;')
-            p_in = ui.input("Password", password=True, password_toggle_button=True).classes("w-full mb-8").props("outlined rounded dense dark bg-color='black'")
-            p_in.style('border-radius: 12px;')
+            u_in = ui.input('Username').classes('w-full').props('outlined dense')
+            u_in.style('margin-bottom: 12px;')
+            p_in = ui.input('Password', password=True, password_toggle_button=True).classes('w-full').props('outlined dense')
 
             def attempt():
-                if check_login(u_in.value or "", p_in.value or ""):
-                    app.storage.user["logged_in"] = True
-                    nav_to("/")
+                if check_login(u_in.value or '', p_in.value or ''):
+                    app.storage.user['logged_in'] = True
+                    ui.notify('Welcome', type='positive')
+                    nav_to('/')
                 else:
-                    ui.notify("Invalid credentials", type="negative")
+                    ui.notify('Invalid credentials', type='negative')
 
-            ui.button("Unlock Dashboard", on_click=attempt).classes("w-full shadow-lg").props("unelevated").style(
-                "background: linear-gradient(135deg, #4F46E5, #EC4899); color: white; border-radius: 14px; font-weight: 800; font-size: 16px; padding: 14px; text-transform: none; letter-spacing: 0.02em;"
+            ui.button('Sign in', on_click=attempt).classes('w-full mt-6').props('unelevated').style(
+                'background: linear-gradient(135deg, var(--mf-accent), var(--mf-accent2)) !important;'
+                'color: #fff !important; font-weight: 700; border-radius: 14px; padding: 14px 0;'
+                'box-shadow: 0 8px 24px rgba(91,140,255,0.25); font-size: 15px; letter-spacing: 0.01em;'
             )
-            with ui.row().classes('w-full justify-center mt-6 gap-2 opacity-60'):
-                ui.icon('lock').style('font-size: 14px; color: white;')
-                ui.label(f'256-bit encrypted • v{APP_VERSION}').classes('text-xs font-semibold').style('color: white;')
 
+            with ui.row().classes('w-full justify-center mt-6 gap-2'):
+                ui.icon('lock').style('font-size: 13px; color: rgba(255,255,255,0.3);')
+                ui.label('256-bit encrypted').classes('text-xs').style('color: rgba(255,255,255,0.3);')
+
+            ui.label(f'v{APP_VERSION}').classes('text-xs mt-3').style('color: rgba(255,255,255,0.2); text-align: center; width: 100%;')
 
 
 @ui.page("/")
@@ -5209,13 +5225,7 @@ def dashboard_page():
         nav_to("/login")
         return
 
-    async def content() -> None:
-        import asyncio
-        await asyncio.sleep(0.01)
-        try:
-            ui.run_javascript('window.scrollTo(0, 0);')
-        except:
-            pass
+    def content():
         # Safe: run recurring generation for today once per page load
         # FIX: Defer heavy synchronous work so the page renders instantly.
         def _deferred_recurring():
@@ -5554,42 +5564,52 @@ def dashboard_page():
                     ui.label(currency(_daily_avg)).classes('text-base font-extrabold').style('color: var(--mf-text); letter-spacing: -0.02em; font-feature-settings: "tnum";')
 
 
-        # Cashflow Breakdown Widget Replacing Upcoming Bills
+        # 9.4: Spending Insights widget (replaces Upcoming Bills)
         try:
-            if not spend.empty and "category" in spend.columns:
-                with ui.element('div').classes('mx-2 mt-6').style('border-radius: 28px; background: linear-gradient(145deg, var(--mf-card-top), rgba(0,0,0,0.2)); padding: 24px; box-shadow: 0 10px 40px rgba(0,0,0,0.08); border: 1px solid rgba(255,255,255,0.05);'):
-                    with ui.row().classes('items-center justify-between w-full mb-6'):
-                        with ui.row().classes('items-center gap-3'):
-                            with ui.element('div').style('width: 32px; height: 32px; border-radius: 10px; background: rgba(14, 165, 233, 0.15); display: flex; align-items: center; justify-content: center;'):
-                                ui.icon('pie_chart').style('font-size: 18px; color: #0EA5E9;')
-                            ui.label('Top Areas of Spending').classes('text-xl font-black').style('color: var(--mf-text); letter-spacing: -0.02em;')
-                        
-                    _top_cats = spend.groupby('category', as_index=False)['amount_num'].sum().sort_values('amount_num', ascending=False).head(4)
-                    _sum_all = _top_cats['amount_num'].sum()
-                    
-                    if _top_cats.empty or _sum_all == 0:
-                        ui.label('No spending patterns detected yet.').classes('text-sm font-medium').style('color: var(--mf-muted);')
-                    else:
-                        with ui.column().classes('gap-4 w-full'):
-                            colors = ['#3B82F6', '#8B5CF6', '#F43F5E', '#F59E0B']
-                            for idx, (_, row) in enumerate(_top_cats.iterrows()):
-                                cat_name = row['category']
-                                cat_amt = row['amount_num']
-                                cat_pct = (cat_amt / _sum_all) * 100 if _sum_all > 0 else 0
-                                c_color = colors[idx % len(colors)]
-                                
-                                with ui.row().classes('w-full items-center justify-between'):
-                                    with ui.row().classes('items-center gap-2'):
-                                        ui.icon('circle').style(f'font-size: 10px; color: {c_color};')
-                                        ui.label(cat_name).classes('text-sm font-semibold').style('color: var(--mf-text); block; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
-                                    
-                                    with ui.row().classes('items-center gap-3 flex-1 justify-end'):
-                                        ui.label(currency(cat_amt)).classes('text-sm font-bold').style('color: var(--mf-text); font-feature-settings: "tnum";')
-                                        with ui.element('div').style('width: 60px; height: 6px; border-radius: 3px; background: var(--mf-border); overflow: hidden;'):
-                                            ui.element('div').style(f'height: 100%; width: {cat_pct}%; background: {c_color}; border-radius: 3px;')
+            if not tx.empty and 'amount_num' in tx.columns:
+                _ins_spend = tx[tx['type_l'].isin(['debit', 'expense'])].copy()
+                if not _ins_spend.empty and 'category' in _ins_spend.columns:
+                    _ins_by_cat = _ins_spend.groupby('category')['amount_num'].sum().sort_values(ascending=False)
+                    _ins_top_cat = str(_ins_by_cat.index[0]) if len(_ins_by_cat) > 0 else 'N/A'
+                    _ins_top_amt = float(_ins_by_cat.iloc[0]) if len(_ins_by_cat) > 0 else 0.0
+                    _ins_tx_count = len(_ins_spend)
+                    _ins_avg = round(float(_ins_spend['amount_num'].mean()), 2) if len(_ins_spend) > 0 else 0.0
+                    _ins_max_row = _ins_spend.loc[_ins_spend['amount_num'].idxmax()] if len(_ins_spend) > 0 else None
+                    _ins_max_amt = float(_ins_max_row['amount_num']) if _ins_max_row is not None else 0.0
+                    _ins_max_note = str(_ins_max_row.get('notes', '') or _ins_max_row.get('category', ''))[:25] if _ins_max_row is not None else ''
 
+                    with ui.card().classes('my-card p-5 mt-4'):
+                        with ui.row().classes('items-center gap-2 mb-4'):
+                            with ui.element('div').style('width: 28px; height: 28px; border-radius: 8px; background: rgba(59,130,246,0.12); display: flex; align-items: center; justify-content: center;'):
+                                ui.icon('insights').style('font-size: 16px; color: #3b82f6;')
+                            ui.label('Spending Insights').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
+
+                        with ui.element('div').style('display: grid; grid-template-columns: 1fr 1fr; gap: 12px;'):
+                            # Top Category
+                            with ui.element('div').style('background: var(--mf-surface); border-radius: 14px; padding: 16px; border: 1px solid var(--mf-border);'):
+                                ui.label('Top Category').classes('text-[10px] font-semibold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;')
+                                ui.label(_ins_top_cat).classes('text-sm font-bold mt-1').style('color: var(--mf-text);')
+                                ui.label(currency(_ins_top_amt)).classes('text-lg font-extrabold').style('color: #ef4444; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
+
+                            # Transactions Count
+                            with ui.element('div').style('background: var(--mf-surface); border-radius: 14px; padding: 16px; border: 1px solid var(--mf-border);'):
+                                ui.label('Transactions').classes('text-[10px] font-semibold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;')
+                                ui.label(str(_ins_tx_count)).classes('text-lg font-extrabold mt-1').style('color: var(--mf-text); font-feature-settings: "tnum";')
+                                ui.label('this month').classes('text-xs').style('color: var(--mf-muted);')
+
+                            # Average Transaction
+                            with ui.element('div').style('background: var(--mf-surface); border-radius: 14px; padding: 16px; border: 1px solid var(--mf-border);'):
+                                ui.label('Avg Transaction').classes('text-[10px] font-semibold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;')
+                                ui.label(currency(_ins_avg)).classes('text-lg font-extrabold mt-1').style('color: #f59e0b; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
+
+                            # Biggest Expense
+                            with ui.element('div').style('background: var(--mf-surface); border-radius: 14px; padding: 16px; border: 1px solid var(--mf-border);'):
+                                ui.label('Biggest Expense').classes('text-[10px] font-semibold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;')
+                                ui.label(currency(_ins_max_amt)).classes('text-lg font-extrabold mt-1').style('color: #a855f7; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
+                                if _ins_max_note:
+                                    ui.label(_ins_max_note).classes('text-xs').style('color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;')
         except Exception:
-            pass  # Health score is optional
+            pass
 
         # Pay period breakdown removed in v9.0
 
@@ -5701,26 +5721,31 @@ def dashboard_page():
                         _overall_pct = min(1.0, _total_spent / _total_budgeted) if _total_budgeted > 0 else 0.0
                         _remaining = max(0, _total_budgeted - _total_spent)
 
-                        ui.label("Budgets").classes("text-lg font-extrabold mt-8 px-2").style("letter-spacing: -0.02em;")
-                        # Replaced Blocks with a clean vertical list of slim lines
-                        with ui.column().classes('w-full mt-4 bg-transparent border border-gray-500/10 rounded-3xl p-4 gap-4').style('box-shadow: 0 4px 12px rgba(0,0,0,0.02);'):
-                            for cat, spent_amt, bud_amt in rows:
-                                pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
-                                _c_color = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else '#6366f1')
-                                with ui.column().classes('w-full gap-1'):
-                                    with ui.row().classes('justify-between w-full items-end'):
-                                        with ui.row().classes('items-center gap-2'):
-                                            with ui.element('div').style(f'width: 24px; height: 24px; border-radius: 6px; background: {_c_color}1a; display: flex; align-items: center; justify-content: center;'):
-                                                ui.icon('square').style(f'font-size: 10px; color: {_c_color};')
-                                            ui.label(cat).classes('text-sm font-bold').style('color: var(--mf-text); letter-spacing: -0.01em;')
-                                        
-                                        with ui.row().classes('items-baseline gap-1'):
-                                            ui.label(currency(spent_amt)).classes('text-sm font-black').style(f'color: {_c_color}; font-feature-settings: "tnum";')
-                                            ui.label(f'/ {currency(bud_amt)}').classes('text-xs font-semibold').style('color: var(--mf-muted);')
-                                            ui.label(f'({int(round(pct*100))}%)').classes('text-[10px] font-bold ml-1').style(f'color: {_c_color}; background: {_c_color}10; padding: 1px 4px; border-radius: 4px;')
+                        # 9.4: Consolidated budgets — single card with progress rows
+                        with ui.card().classes('my-card p-5 mt-6'):
+                            with ui.row().classes('items-center justify-between w-full mb-4'):
+                                with ui.row().classes('items-center gap-2'):
+                                    with ui.element('div').style('width: 28px; height: 28px; border-radius: 8px; background: rgba(139,92,246,0.12); display: flex; align-items: center; justify-content: center;'):
+                                        ui.icon('account_balance_wallet').style('font-size: 16px; color: #8B5CF6;')
+                                    ui.label('Budgets').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
+                                # Overall summary pill
+                                _ov_pct = int(round(_overall_pct * 100))
+                                _ov_color = '#ef4444' if _overall_pct >= 1.0 else ('#f59e0b' if _overall_pct >= 0.8 else '#22c55e')
+                                ui.label(f'{_ov_pct}% used').classes('text-xs font-bold').style(f'color: {_ov_color}; background: {_ov_color}15; padding: 3px 10px; border-radius: 20px;')
 
-                                    with ui.element('div').style('width: 100%; height: 6px; border-radius: 3px; background: var(--mf-border); overflow: hidden;'):
-                                        ui.element('div').style(f'height: 100%; width: {pct*100}%; background: {_c_color}; border-radius: 3px; transition: width 0.5s ease-out;')
+                            with ui.column().classes('w-full gap-3'):
+                                for cat, spent_amt, bud_amt in rows[:6]:
+                                    pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
+                                    _c = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else '#8B5CF6')
+                                    with ui.element('div').style('display: flex; flex-direction: column; gap: 6px;'):
+                                        with ui.row().classes('items-center justify-between w-full'):
+                                            ui.label(cat).classes('text-sm font-semibold').style('color: var(--mf-text); letter-spacing: -0.01em;')
+                                            with ui.row().classes('items-center gap-2'):
+                                                ui.label(f'{currency(spent_amt)}').classes('text-sm font-bold').style(f'color: {_c}; font-feature-settings: "tnum";')
+                                                ui.label(f'/ {currency(bud_amt)}').classes('text-xs').style('color: var(--mf-muted);')
+                                        # Progress bar
+                                        with ui.element('div').style('width: 100%; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden;'):
+                                            ui.element('div').style(f'height: 100%; width: {pct*100}%; background: {_c}; border-radius: 3px; transition: width 0.3s ease;')
 
         # Upcoming salary section removed in v9.0 (payday info now in hero card)
 
@@ -6359,7 +6384,7 @@ def add_page():
                         def _mount_upload():
                             nonlocal upload_receipt
                             upload_holder.clear()
-                            upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt')                                .props("accept='image/jpeg, image/png, application/pdf'")                                .classes('w-full')                                .on_upload(_on_upload)
+                            upload_receipt = ui.upload(auto_upload=True, label='Capture / Upload receipt')                                .props("accept='image/*'")                                .classes('w-full')                                .on_upload(_on_upload)
 
                         def _sync_run_btn():
                             """Enable/disable the Run scan button based on whether we have an image."""
@@ -6395,8 +6420,9 @@ def add_page():
                             raw_out.value = ''
                             _sync_apply_btn()
                             _sync_run_btn()
-                            if hasattr(upload_receipt, 'reset'):
-                                upload_receipt.reset()
+                            _mount_upload()
+
+                        _mount_upload()
 
                         async def _run_ocr() -> None:
                             if not scan_state.get('data_url') and not scan_state.get('img_bytes'):
@@ -7486,13 +7512,7 @@ def add_page():
         ui.run_javascript('window.mfSetTheme(localStorage.getItem(\\"mf_theme\\")||\\"Midnight Blue\\");')
         intl_dlg.open()
 
-    async def content() -> None:
-        import asyncio
-        await asyncio.sleep(0.01)
-        try:
-            ui.run_javascript('window.scrollTo(0, 0);')
-        except:
-            pass
+    def content():
         # --- Hero: Scan Receipt (premium gradient card) ---
         with ui.card().classes("my-card p-0").style(
             "background: linear-gradient(135deg, rgba(99,102,241,0.16) 0%, rgba(59,130,246,0.08) 50%, rgba(16,185,129,0.06) 100%) !important;"
@@ -7514,54 +7534,59 @@ def add_page():
                 ):
                     ui.icon("document_scanner").style("font-size: 32px; color: rgba(99,102,241,0.65);")
 
-        # --- Quick Add Grid (Premium) ---
-        with ui.card().classes("my-card p-5"):
-            ui.label("Quick Add").classes("mf-section-title")
+        # --- Quick Add Grid (9.4 Premium) ---
+        # 8.2.2: Reorganized tile grid  merged LOC, renamed Invest, added Intl Transfer
+        tiles = [
+            ("Expense",        "shopping_cart",   "Debit",      {},  "rgba(239,68,68,0.10)",  "#ef4444"),
+            ("Income",         "trending_up",     "Credit",     {},  "rgba(34,197,94,0.10)",  "#22c55e"),
+            ("Invest",         "show_chart",      "__INVEST__", {},  "rgba(168,85,247,0.10)", "#a855f7"),
+            ("CC Repay",       "credit_card",     "__CC_REPAY__", {},  "rgba(251,191,36,0.10)", "#eab308"),
+            ("Line of Credit", "account_balance", "__LOC__",    {},  "rgba(96,165,250,0.10)", "#60a5fa"),
+            ("Intl Transfer",  "public",          "__INTL__",   {},  "rgba(244,114,182,0.10)","#f472b6"),
+        ]
 
-            # 8.2.2: Reorganized tile grid  merged LOC, renamed Invest, added Intl Transfer
-            tiles = [
-                ("Expense",        "shopping_cart",   "Debit",      {},  "rgba(239,68,68,0.10)",  "#ef4444"),
-                ("Income",         "trending_up",     "Credit",     {},  "rgba(34,197,94,0.10)",  "#22c55e"),
-                ("Invest",         "show_chart",      "__INVEST__", {},  "rgba(168,85,247,0.10)", "#a855f7"),
-                ("CC Repay",       "credit_card",     "__CC_REPAY__", {},  "rgba(251,191,36,0.10)", "#eab308"),
-                ("Line of Credit", "account_balance", "__LOC__",    {},  "rgba(96,165,250,0.10)", "#60a5fa"),
-                ("Intl Transfer",  "public",          "__INTL__",   {},  "rgba(244,114,182,0.10)","#f472b6"),
-            ]
+        def _tile_click(et, k):
+            if et == '__LOC__':
+                open_loc_dialog()
+            elif et == '__INVEST__':
+                open_invest_dialog()
+            elif et == '__INTL__':
+                open_intl_dialog()
+            elif et == '__CC_REPAY__':
+                open_cc_repay_dialog()
+            else:
+                open_add_dialog(et, **k)
 
-            def _tile_click(et, k):
-                if et == '__LOC__':
-                    open_loc_dialog()
-                elif et == '__INVEST__':
-                    open_invest_dialog()
-                elif et == '__INTL__':
-                    open_intl_dialog()
-                elif et == '__CC_REPAY__':
-                    open_cc_repay_dialog()
-                else:
-                    open_add_dialog(et, **k)
-
-            with ui.element("div").classes("w-full").style(
-                "display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px;"
-            ):
-                for label, icon, etype, kw, bg, accent in tiles:
-                    with ui.card().classes("my-card tile p-0").style(
-                        f"cursor: pointer; border: 1px solid rgba(255,255,255,0.06);"
-                    ).on("click", lambda _evt=None, et=etype, k=kw: _tile_click(et, k)):
-                        with ui.column().classes("items-center justify-center p-4 gap-3").style("min-height: 105px;"):
-                            with ui.element("div").classes("mf-icon-box").style(f"background: {bg};"):
-                                ui.icon(icon).style(f"font-size: 22px; color: {accent};")
-                            ui.label(label).classes("text-xs font-semibold text-center").style(f"line-height: 1.2; color: var(--mf-text);")
-
-        # --- Recurring ---
-        with ui.card().classes("my-card p-5"):
-            with ui.row().classes("w-full items-center justify-between"):
-                with ui.row().classes("items-center gap-2"):
-                    with ui.element("div").classes("mf-icon-box").style("background: rgba(34,197,94,0.10);"):
-                        ui.icon("autorenew").style("font-size: 18px; color: #22c55e;")
-                    with ui.column().classes("gap-0"):
-                        ui.label("Recurring Entries").classes("text-sm font-bold")
-                        ui.label("Auto-generated on due date").classes("text-xs").style("color: var(--mf-muted)")
-                ui.button("Run Now", icon="autorenew", on_click=lambda: ui.notify(f"Created {generate_recurring_for_date(today())} entries", type="positive")).props("outline").style("white-space: nowrap; border-radius: 10px;")
+        ui.label('Quick Add').classes('text-lg font-extrabold mt-2 mb-3 px-1').style('letter-spacing: -0.02em;')
+        with ui.element("div").classes("w-full").style(
+            "display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;"
+        ):
+            for label, icon, etype, kw, bg, accent in tiles:
+                with ui.element('div').style(
+                    f'background: var(--mf-card-top); border: 1px solid var(--mf-card-border); border-radius: 18px;'
+                    f'padding: 24px 16px; display: flex; flex-direction: column; align-items: center; gap: 12px;'
+                    f'cursor: pointer; transition: transform 0.12s ease, box-shadow 0.12s ease; position: relative; overflow: hidden;'
+                ).on("click", lambda _evt=None, et=etype, k=kw: _tile_click(et, k)):
+                    # Subtle glow behind icon
+                    ui.element('div').style(f'position:absolute;top:-10px;width:60px;height:60px;border-radius:50%;background:{accent};filter:blur(35px);opacity:0.15;pointer-events:none;')
+                    with ui.element("div").style(
+                        f"width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center;"
+                        f"background: {bg}; position: relative;"
+                    ):
+                        ui.icon(icon).style(f"font-size: 24px; color: {accent};")
+                    ui.label(label).classes("text-sm font-bold text-center").style("color: var(--mf-text); letter-spacing: -0.01em;")
+        # --- Recurring (9.4 compact) ---
+        with ui.element('div').style(
+            'display: flex; align-items: center; justify-content: space-between; padding: 16px 20px;'
+            'background: var(--mf-card-top); border: 1px solid var(--mf-card-border); border-radius: 16px; margin-top: 8px;'
+        ):
+            with ui.row().classes('items-center gap-3'):
+                with ui.element('div').style('width: 36px; height: 36px; border-radius: 10px; background: rgba(34,197,94,0.10); display: flex; align-items: center; justify-content: center;'):
+                    ui.icon('autorenew').style('font-size: 18px; color: #22c55e;')
+                with ui.column().classes('gap-0'):
+                    ui.label('Recurring Entries').classes('text-sm font-bold').style('color: var(--mf-text);')
+                    ui.label('Auto-generated on due date').classes('text-xs').style('color: var(--mf-muted);')
+            ui.button('Run Now', icon='autorenew', on_click=lambda: ui.notify(f"Created {generate_recurring_for_date(today())} entries", type="positive")).props('outline dense').style('border-radius: 10px; font-size: 12px;')
 
     # 8.8: Auto-open dialog when arriving from Home page quick-add buttons
     _auto_mode = str(app.storage.user.pop('add_auto_open', '') or '').strip().lower()
@@ -7584,13 +7609,7 @@ def admin_page() -> None:
         nav_to("/login")
         return
 
-    async def content() -> None:
-        import asyncio
-        await asyncio.sleep(0.01)
-        try:
-            ui.run_javascript('window.scrollTo(0, 0);')
-        except:
-            pass
+    def content() -> None:
         with ui.card().classes("my-card p-0 mb-4").style("overflow: visible; background: linear-gradient(135deg, rgba(99,102,241,0.05), transparent); border: 1px solid rgba(99,102,241,0.1);"):
             # Glowing orb background
             ui.html('<div style="position:absolute;top:-50px;right:-20px;width:150px;height:150px;background:radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%);border-radius:50%;pointer-events:none;"></div>')
@@ -7644,13 +7663,7 @@ def transactions_page():
         nav_to("/login")
         return
 
-    async def content() -> None:
-        import asyncio
-        await asyncio.sleep(0.01)
-        try:
-            ui.run_javascript('window.scrollTo(0, 0);')
-        except:
-            pass
+    def content():
         # Data source / debug panel (helps verify we are reading the correct spreadsheet and tabs)
         try:
             ss = get_spreadsheet()
@@ -8202,7 +8215,7 @@ def transactions_page():
             def open_delete(row: Dict[str, Any]):
                 tid = str(row.get("id", "")).strip()
                 rec_id = str(row.get("recurring_id", "")).strip()
-                with ui.dialog() as confirm_dlg, ui.card().classes("my-card p-5 max-w-lg"):
+                with ui.dialog() as confirm_dlg, ui.card().classes("my-card p-5 max-w-sm"):
                     ui.label("Delete Transaction?").classes("text-lg font-bold")
                     if rec_id:
                         with ui.row().classes("items-center gap-2 mt-2"):
@@ -8247,13 +8260,7 @@ def security_page() -> None:
         nav_to("/login")
         return
 
-    async def content() -> None:
-        import asyncio
-        await asyncio.sleep(0.01)
-        try:
-            ui.run_javascript('window.scrollTo(0, 0);')
-        except:
-            pass
+    def content() -> None:
         # Premium security header
         with ui.element("div").style("margin-bottom: -8px;"):
             with ui.card().classes("my-card p-0").style("overflow: hidden;"):
@@ -8364,13 +8371,7 @@ def cards_page() -> None:
         nav_to('/login')
         return
 
-    async def content() -> None:
-        import asyncio
-        await asyncio.sleep(0.01)
-        try:
-            ui.run_javascript('window.scrollTo(0, 0);')
-        except:
-            pass
+    def content() -> None:
         # Premium cards header
         with ui.card().classes('my-card p-0 mb-4').style('overflow: hidden;'):
             ui.element('div').style('height: 3px; background: linear-gradient(90deg, #3b82f6, #6366f1, #a855f7); border-radius: 0;')
@@ -8682,13 +8683,7 @@ def recurring_page():
         nav_to("/login")
         return
 
-    async def content() -> None:
-        import asyncio
-        await asyncio.sleep(0.01)
-        try:
-            ui.run_javascript('window.scrollTo(0, 0);')
-        except:
-            pass
+    def content():
         rdf = cached_df("recurring")
         # Premium header
         with ui.card().classes("my-card p-0").style("overflow: hidden; margin-bottom: 12px;"):
@@ -8771,7 +8766,7 @@ def recurring_page():
                 {"name": "category", "label": "Category", "field": "category"},
                 {"name": "active", "label": "Active", "field": "active"},
                 {"name": "last_generated_month", "label": "Last Gen", "field": "last_generated_month"},
-            ], rows=rdf2.to_dict(orient="records"), row_key="recurring_id").classes("w-full")
+            ], rows=rdf2.to_dict(orient="records"), row_key="recurring_id", selection='single').classes("w-full")
 
             def toggle_active():
                 if not table.selected:
@@ -8810,13 +8805,7 @@ def rules_page():
         nav_to("/login")
         return
 
-    async def content() -> None:
-        import asyncio
-        await asyncio.sleep(0.01)
-        try:
-            ui.run_javascript('window.scrollTo(0, 0);')
-        except:
-            pass
+    def content():
         rdf = cached_df("rules")
         if rdf is None or rdf.empty:
             rdf = (rdf if rdf is not None else pd.DataFrame(columns=["keyword", "category"])).copy()
@@ -8931,7 +8920,7 @@ def rules_page():
 
                 ui.separator().classes("opacity-30 my-3")
 
-                cat_input = ui.input('Category', placeholder="e.g. Groceries").props('outlined rounded').classes('w-full').style('box-shadow: 0 4px 12px rgba(0,0,0,0.02); border-radius: 12px;')
+                cat_input = ui.input('Category', placeholder="e.g. Groceries").props('outlined').classes("w-full")
 
                 ui.separator().classes("opacity-30 my-3")
 
@@ -9229,13 +9218,7 @@ def budgets_page() -> None:
         nav_to('/login')
         return
 
-    async def content() -> None:
-        import asyncio
-        await asyncio.sleep(0.01)
-        try:
-            ui.run_javascript('window.scrollTo(0, 0);')
-        except:
-            pass
+    def content() -> None:
         # Premium budgets header
         with ui.card().classes('my-card p-0 mb-4').style('overflow: hidden;'):
             ui.element('div').style('height: 3px; background: linear-gradient(90deg, #8b5cf6, #a855f7); border-radius: 0;')
@@ -9385,13 +9368,7 @@ def data_tools_page() -> None:
         nav_to('/login')
         return
 
-    async def content() -> None:
-        import asyncio
-        await asyncio.sleep(0.01)
-        try:
-            ui.run_javascript('window.scrollTo(0, 0);')
-        except:
-            pass
+    def content() -> None:
         # Premium data tools header
         with ui.card().classes('my-card p-0 mb-4').style('overflow: hidden;'):
             ui.element('div').style('height: 3px; background: linear-gradient(90deg, #06b6d4, #0ea5e9); border-radius: 0;')
@@ -9590,13 +9567,7 @@ def reports_page() -> None:
         nav_to('/login')
         return
 
-    async def content() -> None:
-        import asyncio
-        await asyncio.sleep(0.01)
-        try:
-            ui.run_javascript('window.scrollTo(0, 0);')
-        except:
-            pass
+    def content() -> None:
         # Premium header
         with ui.card().classes('my-card p-0 mb-4').style('overflow: hidden;'):
             ui.element('div').style('height: 3px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
@@ -9716,143 +9687,102 @@ def about_page() -> None:
         nav_to('/login')
         return
 
-    async def content() -> None:
-        import asyncio
-        await asyncio.sleep(0.01)
-        try:
-            ui.run_javascript('window.scrollTo(0, 0);')
-        except:
-            pass
-        with ui.element('div').classes('mf-about-wrap w-full max-w-6xl mx-auto px-4 py-8 md:px-8'):
-            #  App Info Card 
-            with ui.card().classes('my-card p-0').style('overflow: hidden;'):
-                ui.element('div').style('height: 4px; background: linear-gradient(90deg, #22C55E, #FBBF24); border-radius: 0;')
-                with ui.column().classes('p-6 gap-4 items-center w-full'):
+    def content() -> None:
+      with ui.element('div').classes('w-full').style('max-width: 900px; margin: 0 auto; padding: 8px;'):
+        with ui.element('div').style(
+            'background: linear-gradient(135deg, #0F1923 0%, #1a3a2a 50%, #0d2847 100%);'
+            'border-radius: 24px; padding: 48px 32px; text-align: center; position: relative; overflow: hidden;'
+            'border: 1px solid rgba(255,255,255,0.08); margin-bottom: 20px;'
+        ):
+            ui.element('div').style('position:absolute;top:-40px;right:-40px;width:160px;height:160px;border-radius:50%;background:rgba(34,197,94,0.15);filter:blur(60px);pointer-events:none;')
+            ui.element('div').style('position:absolute;bottom:-30px;left:-30px;width:120px;height:120px;border-radius:50%;background:rgba(91,140,255,0.12);filter:blur(50px);pointer-events:none;')
+            with ui.column().classes('items-center gap-3').style('position:relative;z-index:1;'):
+                with ui.element('div').style(
+                    'width: 72px; height: 72px; border-radius: 20px; display: flex; align-items: center; justify-content: center;'
+                    'background: linear-gradient(135deg, rgba(34,197,94,0.2), rgba(251,191,36,0.15));'
+                    'border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 8px 32px rgba(0,0,0,0.3);'
+                ):
+                    ui.icon('insights').style('font-size: 36px; color: #FBBF24;')
+                ui.label('FinTrackr').style('font-size: 36px; font-weight: 800; letter-spacing: -0.04em; color: #fff;')
+                ui.label(f'Version {APP_VERSION}').style('color: rgba(255,255,255,0.5); font-size: 13px; font-weight: 600; letter-spacing: 0.05em;')
+                ui.label('Your premium personal finance dashboard').style('color: rgba(255,255,255,0.65); font-size: 14px; max-width: 400px; line-height: 1.6; margin-top: 4px;')
+
+        _features = [
+            ('document_scanner', 'AI Receipt Scanning', 'Snap a photo and OCR extracts amounts, merchants & categories.', '#6366f1', 'rgba(99,102,241,0.12)'),
+            ('palette', '8 Premium Themes', 'From dark Midnight Blue to light Sand Gold.', '#f59e0b', 'rgba(245,158,11,0.12)'),
+            ('show_chart', 'Smart Analytics', 'Cashflow charts, category breakdowns, budget alerts.', '#22c55e', 'rgba(34,197,94,0.12)'),
+            ('security', 'Passkey Auth', 'Biometric login with WebAuthn passkeys.', '#ef4444', 'rgba(239,68,68,0.12)'),
+            ('call_split', 'Receipt Splitting', 'Multi-category split for Walmart, Costco receipts.', '#3b82f6', 'rgba(59,130,246,0.12)'),
+            ('autorenew', 'Auto Recurring', 'Automatic transaction creation on due dates.', '#a855f7', 'rgba(168,85,247,0.12)'),
+        ]
+        with ui.element('div').style('display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px;'):
+            for f_icon, f_title, f_desc, f_color, f_bg in _features:
+                with ui.element('div').style(
+                    f'background: var(--mf-card-top); border: 1px solid var(--mf-card-border); border-radius: 16px;'
+                    f'padding: 20px; display: flex; flex-direction: column; gap: 10px;'
+                    f'transition: transform 0.15s ease; cursor: default;'
+                ):
+                    with ui.element('div').style(f'width: 36px; height: 36px; border-radius: 10px; background: {f_bg}; display: flex; align-items: center; justify-content: center;'):
+                        ui.icon(f_icon).style(f'font-size: 18px; color: {f_color};')
+                    ui.label(f_title).classes('text-sm font-bold').style('color: var(--mf-text);')
+                    ui.label(f_desc).classes('text-xs').style('color: var(--mf-muted); line-height: 1.5;')
+
+        with ui.element('div').style('display: grid; grid-template-columns: 1fr 1fr; gap: 12px;'):
+            with ui.element('div').style(
+                'background: var(--mf-card-top); border: 1px solid var(--mf-card-border); border-radius: 20px;'
+                'padding: 28px; display: flex; flex-direction: column; gap: 16px;'
+            ):
+                with ui.row().classes('items-center gap-3'):
                     with ui.element('div').style(
-                        'width: 80px; height: 80px; border-radius: 22px; display: flex; align-items: center; justify-content: center;'
-                        'background: linear-gradient(135deg, #1E293B, #0EA5E9);'
-                        'box-shadow: 0 8px 32px rgba(99,102,241,0.30);'
+                        'width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0;'
+                        'background: linear-gradient(135deg, #6366f1, #a855f7);'
+                        'display: flex; align-items: center; justify-content: center;'
+                        'box-shadow: 0 6px 20px rgba(99,102,241,0.25);'
                     ):
-                        ui.icon('insights').style('font-size: 40px; color: #FBBF24;')
-                    ui.label('FinTrackr').style('font-size: 32px; font-weight: 800; letter-spacing: -0.04em; color: var(--mf-text);')
-                    ui.label(f'Version {APP_VERSION}').classes('text-sm').style('color: var(--mf-muted); margin-top: -8px;')
-                    ui.separator().classes('w-full opacity-20')
-                    ui.label(
-                        'FinTrackr is a premium personal finance dashboard built to help you take control '
-                        'of your money. Track every expense, scan receipts with AI-powered OCR, monitor '
-                        'credit card utilization, set budgets, and visualize your spending patterns  all '
-                        'from a single elegant interface.'
-                    ).classes('text-sm text-center').style('color: var(--mf-muted); line-height: 1.7; max-width: 720px;')
-
-                    # Feature highlights
-                    _features = [
-                        ('document_scanner', 'AI Receipt Scanning', 'Snap a photo and let OCR extract amounts, merchants & categories automatically.'),
-                        ('palette', '8 Premium Themes', 'From dark Midnight Blue to light Sand Gold  pick the look that suits you.'),
-                        ('show_chart', 'Smart Analytics', 'Weekly cashflow charts, category breakdowns, budget alerts and monthly insights.'),
-                        ('security', 'Passkey Auth', 'Biometric login with WebAuthn passkeys for secure, passwordless access.'),
-                        ('call_split', 'Receipt Splitting', 'Multi-category split for Walmart, Costco & Superstore receipts.'),
-                        ('autorenew', 'Recurring Templates', 'Set it and forget it  automatic transaction creation on due dates.'),
-                    ]
-                    with ui.element('div').classes('mf-about-features w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6').style('gap: 16px;'):
-                        for f_icon, f_title, f_desc in _features:
-                            with ui.element('div').style(
-                                'display: flex; align-items: flex-start; gap: 16px; padding: 20px;'
-                                'border-radius: 16px; border: 1px solid rgba(255,255,255,0.05);'
-                                'background: linear-gradient(145deg, var(--mf-surface), rgba(0,0,0,0.2));'
-                                'box-shadow: 0 10px 30px rgba(0,0,0,0.15); transition: transform 0.2s;'
-                            ):
-                                ui.icon(f_icon).style('font-size: 20px; color: var(--mf-accent); margin-top: 2px; flex-shrink: 0;')
-                                with ui.column().classes('gap-0'):
-                                    ui.label(f_title).classes('text-sm font-bold').style('color: var(--mf-text);')
-                                    ui.label(f_desc).classes('text-xs').style('color: var(--mf-muted); line-height: 1.5;')
-
-            #  Author Card 
-            with ui.card().classes('my-card p-0 mt-3').style('overflow: hidden;'):
-                ui.element('div').style('height: 4px; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 0;')
-                with ui.column().classes('p-6 gap-4'):
-                    with ui.row().classes('items-center gap-2 mb-1'):
-                        with ui.element('div').classes('mf-icon-box').style('background: rgba(99,102,241,0.12);'):
-                            ui.icon('person').style('font-size: 20px; color: #6366f1;')
-                        ui.label('About the Author').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
-
-                    with ui.element('div').classes('mf-about-author flex flex-row items-center gap-4'):
-                        # Avatar placeholder
-                        with ui.element('div').style(
-                            'width: 90px; height: 90px; border-radius: 50%; flex-shrink: 0;'
-                            'background: linear-gradient(135deg, #6366f1, #a855f7);'
-                            'display: flex; align-items: center; justify-content: center;'
-                            'box-shadow: 0 6px 20px rgba(99,102,241,0.25);'
-                        ):
-                            ui.label('NR').style('font-size: 32px; font-weight: 800; color: #fff; letter-spacing: -0.03em;')
-
-                        with ui.column().classes('gap-2 flex-1').style('min-width: 200px;'):
-                            ui.label('Nishanth R').style('font-size: 22px; font-weight: 800; letter-spacing: -0.03em; color: var(--mf-text);')
-                            ui.label('Oracle DBA').classes('text-sm font-medium').style('color: var(--mf-accent);')
-                            ui.label(
-                                'An experienced Oracle Database Administrator with a passion for building '
-                                'elegant, data-driven applications. FinTrackr was born from a personal need '
-                                'to track finances with the same precision and reliability that goes into '
-                                'managing enterprise databases  clean architecture, robust error handling, '
-                                'and a beautiful interface that makes financial management effortless.'
-                            ).classes('text-sm').style('color: var(--mf-muted); line-height: 1.7;')
-
-                    ui.separator().classes('w-full opacity-20')
-
-                    # Contact links
-                    with ui.row().classes('items-center gap-4 flex-wrap'):
-                        # Email
+                        ui.label('NR').style('font-size: 20px; font-weight: 800; color: #fff;')
+                    with ui.column().classes('gap-0'):
+                        ui.label('Nishanth R').style('font-size: 18px; font-weight: 800; letter-spacing: -0.02em; color: var(--mf-text);')
+                        ui.label('Oracle DBA').classes('text-xs font-semibold').style('color: var(--mf-accent);')
+                ui.label(
+                    'An Oracle Database Administrator who built FinTrackr to manage personal finances '
+                    'with enterprise-grade precision and a beautiful interface.'
+                ).classes('text-xs').style('color: var(--mf-muted); line-height: 1.7;')
+                ui.separator().classes('opacity-10')
+                with ui.row().classes('gap-2 flex-wrap'):
+                    for _lnk_icon, _lnk_label, _lnk_href, _lnk_color in [
+                        ('email', 'Email', 'mailto:nishanth91.dba@gmail.com', '#ef4444'),
+                        ('work', 'LinkedIn', 'https://www.linkedin.com/in/nishanth-r-ajay/', '#0A66C2'),
+                        ('photo_camera', 'Instagram', 'https://www.instagram.com/n_1_5_h_/', '#E1306C'),
+                    ]:
                         with ui.element('a').style(
-                            'display: flex; align-items: center; gap: 8px; text-decoration: none;'
-                            'padding: 8px 16px; border-radius: 10px; border: 1px solid var(--mf-border);'
-                            'background: var(--mf-surface); color: var(--mf-text); cursor: pointer;'
-                            'transition: background 0.2s ease;'
-                        ).props('href="mailto:nishanth91.dba@gmail.com"'):
-                            ui.icon('email').style('font-size: 18px; color: #ef4444;')
-                            ui.label('nishanth91.dba@gmail.com').classes('text-sm font-medium')
+                            f'display: flex; align-items: center; gap: 6px; text-decoration: none;'
+                            f'padding: 6px 12px; border-radius: 8px; border: 1px solid var(--mf-border);'
+                            f'background: var(--mf-surface); color: var(--mf-text); cursor: pointer; font-size: 12px; font-weight: 600;'
+                        ).props(f'href="{_lnk_href}" target="_blank"'):
+                            ui.icon(_lnk_icon).style(f'font-size: 14px; color: {_lnk_color};')
+                            ui.label(_lnk_label)
 
-                        # LinkedIn
-                        with ui.element('a').style(
-                            'display: flex; align-items: center; gap: 8px; text-decoration: none;'
-                            'padding: 8px 16px; border-radius: 10px; border: 1px solid var(--mf-border);'
-                            'background: var(--mf-surface); color: var(--mf-text); cursor: pointer;'
-                            'transition: background 0.2s ease;'
-                        ).props('href="https://www.linkedin.com/in/nishanth-r-ajay/" target="_blank"'):
-                            ui.icon('work').style('font-size: 18px; color: #0A66C2;')
-                            ui.label('LinkedIn').classes('text-sm font-medium')
-
-                        # Instagram
-                        with ui.element('a').style(
-                            'display: flex; align-items: center; gap: 8px; text-decoration: none;'
-                            'padding: 8px 16px; border-radius: 10px; border: 1px solid var(--mf-border);'
-                            'background: var(--mf-surface); color: var(--mf-text); cursor: pointer;'
-                            'transition: background 0.2s ease;'
-                        ).props('href="https://www.instagram.com/n_1_5_h_/" target="_blank"'):
-                            ui.icon('photo_camera').style('font-size: 18px; color: #E1306C;')
-                            ui.label('@n_1_5_h_').classes('text-sm font-medium')
-
-            #  Tech Stack Card 
-            with ui.card().classes('my-card p-0 mt-3').style('overflow: hidden;'):
-                ui.element('div').style('height: 4px; background: linear-gradient(90deg, #22c55e, #3b82f6); border-radius: 0;')
-                with ui.column().classes('p-6 gap-3'):
-                    with ui.row().classes('items-center gap-2 mb-1'):
-                        with ui.element('div').classes('mf-icon-box').style('background: rgba(34,197,94,0.12);'):
-                            ui.icon('code').style('font-size: 20px; color: #22c55e;')
-                        ui.label('Tech Stack').classes('text-lg font-extrabold').style('letter-spacing: -0.02em;')
-
-                    _stack = [
-                        ('Python + NiceGUI', 'Full-stack web framework with Quasar/Vue.js frontend'),
-                        ('Google Sheets API', 'Zero-cost cloud database via gspread'),
-                        ('Tesseract.js + Google Vision', 'Client-side & server-side OCR for receipt scanning'),
-                        ('Plotly', 'Interactive charts for spending analytics'),
-                        ('WebAuthn', 'Passwordless biometric authentication'),
-                        ('Render', 'Cloud hosting with automatic deployments'),
-                    ]
-                    for tech, desc in _stack:
-                        with ui.row().classes('items-center gap-3').style('padding: 8px 0; border-bottom: 1px solid rgba(128,128,128,0.06);'):
-                            ui.element('div').style('width: 6px; height: 6px; border-radius: 50%; background: var(--mf-accent); flex-shrink: 0;')
-                            with ui.column().classes('gap-0'):
-                                ui.label(tech).classes('text-sm font-bold').style('color: var(--mf-text);')
-                                ui.label(desc).classes('text-xs').style('color: var(--mf-muted);')
+            with ui.element('div').style(
+                'background: var(--mf-card-top); border: 1px solid var(--mf-card-border); border-radius: 20px;'
+                'padding: 28px; display: flex; flex-direction: column; gap: 12px;'
+            ):
+                with ui.row().classes('items-center gap-2 mb-1'):
+                    with ui.element('div').style('width: 28px; height: 28px; border-radius: 8px; background: rgba(34,197,94,0.12); display: flex; align-items: center; justify-content: center;'):
+                        ui.icon('code').style('font-size: 16px; color: #22c55e;')
+                    ui.label('Tech Stack').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
+                for tech, desc, t_color in [
+                    ('Python + NiceGUI', 'Full-stack web framework', '#3b82f6'),
+                    ('Google Sheets API', 'Zero-cost cloud database', '#22c55e'),
+                    ('Tesseract.js + GCV', 'Dual OCR pipeline', '#f59e0b'),
+                    ('Plotly', 'Interactive charts', '#a855f7'),
+                    ('WebAuthn', 'Passwordless biometric auth', '#ef4444'),
+                    ('Render', 'Cloud hosting + CI/CD', '#6366f1'),
+                ]:
+                    with ui.row().classes('items-center gap-3').style('padding: 4px 0;'):
+                        ui.element('div').style(f'width: 5px; height: 5px; border-radius: 50%; background: {t_color}; flex-shrink: 0;')
+                        with ui.column().classes('gap-0'):
+                            ui.label(tech).classes('text-xs font-bold').style('color: var(--mf-text);')
+                            ui.label(desc).classes('text-[10px]').style('color: var(--mf-muted);')
 
     shell(content)
 
@@ -10056,7 +9986,7 @@ ui.run(
     storage_secret=STORAGE_SECRET or "PLEASE_SET_NICEGUI_STORAGE_SECRET",
     title=APP_TITLE,
     favicon=_FAVICON_SVG,
-    reconnect_timeout=30,
+    reconnect_timeout=15,
 )
 
 # Release: FinTrackr Phase 8.7
