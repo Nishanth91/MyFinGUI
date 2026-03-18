@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.7'
+APP_VERSION = '9.8'
 
 
 def log(message: str) -> None:
@@ -1347,6 +1347,16 @@ TABS = {
 # -----------------------------
 
 _PRICE_RE = re.compile(r"(?P<price>\d{1,6}\.\d{2})(?:\s*[A-Z])?\b")
+# 9.8: Quantity pattern "2 @ 3.99" or "2 x 3.99" or "2 AT 3.99 ea" → captures qty and unit price
+_QTY_PRICE_RE = re.compile(r"(?P<qty>\d+)\s*(?:@|x|X|AT|at)\s*\$?\s*(?P<unit>\d{1,6}\.\d{2})")
+
+# 9.8: Walmart/Costco department code prefixes → category hints
+_DEPT_CODE_MAP = {
+    'gr': 'Groceries', 'gro': 'Groceries', 'gry': 'Groceries', 'fd': 'Groceries', 'food': 'Groceries',
+    'hba': 'Health', 'rx': 'Health', 'phm': 'Health', 'phr': 'Health', 'hlth': 'Health',
+    'hh': 'Household', 'hhold': 'Household', 'hm': 'Household', 'clng': 'Household',
+    'gm': 'Shopping', 'ap': 'Shopping', 'el': 'Shopping', 'toy': 'Shopping',
+}
 
 def _is_noise_receipt_line(line: str) -> bool:
     l = (line or '').strip().lower()
@@ -1357,7 +1367,9 @@ def _is_noise_receipt_line(line: str) -> bool:
         'debit', 'credit', 'visa', 'mastercard', 'approval', 'approved', 'auth', 'aid',
         'terminal', 'term', 'tran', 'trans', 'transaction', 'ref', 'trace', 'invoice',
         'cash', 'tender', 'thank you', 'survey', 'items sold', 'reg', 'operator',
-        'st#', 'tr#', 'store #', 'store:', 'pos', 'order', 'barcode'
+        'st#', 'tr#', 'store #', 'store:', 'pos', 'order', 'barcode',
+        'rewards', 'loyalty', 'savings', 'you saved', 'member', 'coupon',
+        'receipt', 'duplicate', 'copy', 'return policy',
     ]
     if any(w in l for w in noise_words):
         return True
@@ -1405,7 +1417,23 @@ def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
         s = re.sub(r"\s+", " ", s).strip()
         # Remove common trailing one-letter tax markers (E/D/H/C etc.)
         s = re.sub(r"\s+[A-Z]\b", "", s).strip()
+        # 9.8: Strip Walmart/Costco dept code prefixes (e.g., "GR BANANAS" → "BANANAS")
+        s_upper = s.strip()
+        for _dc in _DEPT_CODE_MAP:
+            _dc_up = _dc.upper()
+            if s_upper.startswith(_dc_up + ' ') and len(s_upper) > len(_dc_up) + 2:
+                s = s_upper[len(_dc_up):].strip()
+                break
         return s
+
+    def _extract_dept_hint(ln: str) -> str | None:
+        """9.8: Check if line starts with a department code prefix and return category hint."""
+        words = ln.strip().split()
+        if words and len(words) >= 2:
+            code = words[0].lower().rstrip(':.-')
+            if code in _DEPT_CODE_MAP:
+                return _DEPT_CODE_MAP[code]
+        return None
 
     def _looks_like_price_only(ln: str) -> bool:
         ln2 = ln.replace('CAD', '').replace('$', '').strip()
@@ -1426,6 +1454,28 @@ def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
                 if sec_kw in header_clean and len(header_clean) < 30:
                     current_section = sec_cat
                     break
+
+        # 9.8: Check for department code prefix → update section hint for this item
+        _dept_hint = _extract_dept_hint(ln2)
+        _item_section = _dept_hint or current_section
+
+        # 9.8: Handle quantity patterns (e.g., "2 @ 3.99" → total = 7.98)
+        qm = _QTY_PRICE_RE.search(ln2)
+        if qm:
+            try:
+                qty = int(qm.group('qty'))
+                unit_price = float(qm.group('unit'))
+                price = round(qty * unit_price, 2)
+                raw_name_part = ln2[:qm.start()]
+                raw_name = _clean_name(raw_name_part)
+                if (not raw_name) and prev_candidate:
+                    raw_name = _clean_name(prev_candidate)
+                if raw_name and len(raw_name) >= 2 and not _is_noise_receipt_line(raw_name):
+                    items.append({'name': raw_name, 'price': price, 'section_hint': _item_section})
+                    prev_candidate = None
+                    continue
+            except Exception:
+                pass
 
         m = _PRICE_RE.search(ln2.replace('$', ''))
         if m:
@@ -1454,7 +1504,7 @@ def extract_receipt_line_items(text: str) -> List[Dict[str, Any]]:
                     prev_candidate = None
                     continue
 
-                items.append({'name': name, 'price': price, 'section_hint': current_section})
+                items.append({'name': name, 'price': price, 'section_hint': _item_section})
                 prev_candidate = None
                 continue
 
@@ -1627,6 +1677,18 @@ def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, s
         'olive oil', 'vegetable oil', 'canola oil', 'cooking oil',
         'bakery', 'baguette', 'croissant', 'muffin', 'donut', 'bagel',
         'organic', 'produce', 'fresh', 'meat', 'seafood', 'poultry',
+        # 9.8: Walmart/Costco abbreviated item names & common grocery signals
+        'bnls', 'boneless', 'skinless', 'ground', 'lean', 'roast', 'chop', 'fillet', 'filet',
+        'hummus', 'guacamole', 'tortilla', 'wrap', 'pita', 'naan', 'roti', 'paratha',
+        'canned', 'soup', 'broth', 'stock', 'bouillon', 'ramen', 'instant noodle',
+        'nut', 'nuts', 'almond', 'almonds', 'cashew', 'cashews', 'walnut', 'walnuts', 'pecan',
+        'dried fruit', 'raisin', 'raisins', 'trail mix', 'protein bar', 'granola bar',
+        'condensed milk', 'evaporated milk', 'coconut milk', 'oat milk', 'almond milk', 'soy milk',
+        'whip cream', 'sour cream', 'cream cheese', 'cottage cheese', 'cheddar', 'mozzarella',
+        'margarine', 'spread', 'ghee', 'cooking spray', 'vinegar', 'soy sauce',
+        'masala', 'turmeric', 'cumin', 'cinnamon', 'paprika', 'chili powder', 'curry',
+        'baking soda', 'baking powder', 'yeast', 'cornstarch', 'cocoa',
+        'chocolate', 'candy', 'gum', 'mint', 'popcorn',
     ])
 
     # Words that are too short/ambiguous for plain substring matching and need word-boundary checks
@@ -5598,65 +5660,117 @@ def dashboard_page():
                     ui.label(currency(_daily_avg)).classes('text-base font-extrabold').style('color: var(--mf-text); letter-spacing: -0.02em; font-feature-settings: "tnum";')
 
 
-        # 9.7: Spending Insights (pre-computed for dashboard grid)
+        # 9.8: Spending Breakdown data (biggest expense + daily spend sparkline)
         _si_data = None
         try:
             if not tx.empty and 'amount_num' in tx.columns:
                 _ins_spend = tx[tx['type_l'].isin(['debit', 'expense'])].copy()
                 if not _ins_spend.empty and 'category' in _ins_spend.columns:
-                    _ins_by_cat = _ins_spend.groupby('category')['amount_num'].sum().sort_values(ascending=False)
-                    # Top 3 categories for breakdown
-                    _si_top3 = []
-                    _si_total = float(_ins_by_cat.sum())
-                    for _ci in range(min(3, len(_ins_by_cat))):
-                        _si_top3.append((str(_ins_by_cat.index[_ci]), float(_ins_by_cat.iloc[_ci])))
+                    _si_total = float(_ins_spend['amount_num'].sum())
                     # Biggest expense excluding LOC/intl categories
                     _excl_cats = {'loc utilization', 'repayment', 'cc repay', 'international', 'international transfer'}
                     _real_spend = _ins_spend[~_ins_spend['category'].str.strip().str.lower().isin(_excl_cats)]
+                    _si_biggest = 0.0
+                    _si_big_note = ''
+                    _si_big_cat = ''
+                    _si_big_date = ''
                     if not _real_spend.empty:
                         _max_row = _real_spend.loc[_real_spend['amount_num'].idxmax()]
                         _si_biggest = float(_max_row['amount_num'])
-                        _si_big_note = str(_max_row.get('notes', '') or _max_row.get('category', ''))[:30]
-                    else:
-                        _si_biggest = 0.0
-                        _si_big_note = ''
-                    _si_data = {'top3': _si_top3, 'total': _si_total, 'biggest': _si_biggest, 'big_note': _si_big_note}
+                        _si_big_note = str(_max_row.get('notes', '') or '')[:30]
+                        _si_big_cat = str(_max_row.get('category', ''))[:20]
+                        try:
+                            _si_big_date = _max_row['date_parsed'].strftime('%b %d') if hasattr(_max_row.get('date_parsed', None), 'strftime') else ''
+                        except Exception:
+                            _si_big_date = ''
+
+                    # Daily spend for last 7 days (sparkline data)
+                    _daily_amounts = []
+                    _daily_labels = []
+                    try:
+                        import datetime as _dt_mod
+                        _today = _dt_mod.date.today()
+                        _real_with_date = _real_spend[_real_spend['date_parsed'].notna()].copy()
+                        for _di in range(6, -1, -1):
+                            _day = _today - _dt_mod.timedelta(days=_di)
+                            _day_total = 0.0
+                            try:
+                                _day_mask = _real_with_date['date_parsed'].dt.date == _day
+                                _day_total = float(_real_with_date.loc[_day_mask, 'amount_num'].sum())
+                            except Exception:
+                                pass
+                            _daily_amounts.append(_day_total)
+                            _daily_labels.append(_day.strftime('%a'))
+                    except Exception:
+                        _daily_amounts = []
+                        _daily_labels = []
+
+                    _si_data = {
+                        'total': _si_total, 'biggest': _si_biggest,
+                        'big_note': _si_big_note, 'big_cat': _si_big_cat, 'big_date': _si_big_date,
+                        'daily_amounts': _daily_amounts, 'daily_labels': _daily_labels,
+                    }
         except Exception:
             pass
 
         def _render_spending_insights():
-            if not _si_data or not _si_data['top3']:
+            if not _si_data:
                 return
-            _top3_colors = ['#ef4444', '#f59e0b', '#3b82f6']
             with ui.card().classes('my-card p-0').style('overflow: hidden;'):
-                ui.element('div').style('height: 3px; background: linear-gradient(90deg, #ef4444, #f59e0b, #3b82f6); border-radius: 0;')
-                with ui.column().classes('p-5 gap-5'):
+                ui.element('div').style('height: 3px; background: linear-gradient(90deg, #a855f7, #6366f1); border-radius: 0;')
+                with ui.column().classes('p-5 gap-4'):
                     with ui.row().classes('items-center gap-2'):
-                        with ui.element('div').style('width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(135deg, rgba(239,68,68,0.12), rgba(245,158,11,0.12)); display: flex; align-items: center; justify-content: center;'):
-                            ui.icon('donut_small').style('font-size: 18px; color: #f87171;')
+                        with ui.element('div').style('width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(135deg, rgba(168,85,247,0.12), rgba(99,102,241,0.12)); display: flex; align-items: center; justify-content: center;'):
+                            ui.icon('insights').style('font-size: 18px; color: #a855f7;')
                         ui.label('Spending Breakdown').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
 
-                    # Top categories with visual bars
-                    for _ti, (_t_cat, _t_amt) in enumerate(_si_data['top3']):
-                        _t_pct = (_t_amt / _si_data['total'] * 100) if _si_data['total'] > 0 else 0
-                        _t_clr = _top3_colors[_ti % 3]
-                        with ui.element('div').style('display: flex; flex-direction: column; gap: 6px;'):
-                            with ui.row().classes('items-center justify-between w-full'):
-                                with ui.row().classes('items-center gap-2'):
-                                    ui.element('div').style(f'width: 8px; height: 8px; border-radius: 50%; background: {_t_clr}; flex-shrink: 0;')
-                                    ui.label(_t_cat).classes('text-sm font-semibold').style('color: var(--mf-text);')
-                                ui.label(currency(_t_amt)).classes('text-sm font-extrabold').style(f'color: {_t_clr}; font-feature-settings: "tnum";')
-                            with ui.element('div').style('width: 100%; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden;'):
-                                ui.element('div').style(f'height: 100%; width: {_t_pct}%; background: {_t_clr}; border-radius: 3px;')
+                    # 7-day spend sparkline (SVG)
+                    _amounts = _si_data.get('daily_amounts', [])
+                    _labels = _si_data.get('daily_labels', [])
+                    if _amounts and len(_amounts) >= 2:
+                        _max_a = max(_amounts) if max(_amounts) > 0 else 1
+                        _spark_w, _spark_h = 280, 60
+                        _pad_x, _pad_y = 8, 6
+                        _usable_w = _spark_w - 2 * _pad_x
+                        _usable_h = _spark_h - 2 * _pad_y
+                        _pts = []
+                        for _si_i, _a in enumerate(_amounts):
+                            _sx = _pad_x + (_si_i / (len(_amounts) - 1)) * _usable_w
+                            _sy = _pad_y + (1 - (_a / _max_a)) * _usable_h
+                            _pts.append(f'{_sx:.1f},{_sy:.1f}')
+                        _polyline = ' '.join(_pts)
+                        # Fill area under the line
+                        _fill_pts = _polyline + f' {_pad_x + _usable_w:.1f},{_pad_y + _usable_h:.1f} {_pad_x:.1f},{_pad_y + _usable_h:.1f}'
+                        _spark_svg = f'''<svg viewBox="0 0 {_spark_w} {_spark_h}" style="width: 100%; height: 60px;">
+                          <defs><linearGradient id="spkFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#a855f7" stop-opacity="0.18"/><stop offset="100%" stop-color="#a855f7" stop-opacity="0.02"/></linearGradient></defs>
+                          <polygon points="{_fill_pts}" fill="url(#spkFill)"/>
+                          <polyline points="{_polyline}" fill="none" stroke="#a855f7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'''
+                        # Dot on last point
+                        _last_x = _pad_x + _usable_w
+                        _last_y = _pad_y + (1 - (_amounts[-1] / _max_a)) * _usable_h
+                        _spark_svg += f'<circle cx="{_last_x:.1f}" cy="{_last_y:.1f}" r="3.5" fill="#a855f7"/>'
+                        _spark_svg += '</svg>'
+
+                        with ui.element('div').style('display: flex; flex-direction: column; gap: 4px;'):
+                            ui.label('Last 7 Days').classes('text-[10px] font-semibold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;')
+                            ui.html(_spark_svg)
+                            # Day labels below
+                            with ui.element('div').style(f'display: flex; justify-content: space-between; padding: 0 {_pad_x}px;'):
+                                for _dl in _labels:
+                                    ui.label(_dl).classes('text-[9px]').style('color: var(--mf-muted);')
 
                     # Biggest expense highlight
-                    if _si_data['biggest'] > 0:
+                    if _si_data.get('biggest', 0) > 0:
                         ui.element('div').style('height: 1px; background: linear-gradient(90deg, transparent, var(--mf-border), transparent);')
                         with ui.row().classes('items-center justify-between w-full'):
                             with ui.column().classes('gap-0'):
                                 ui.label('Biggest Expense').classes('text-[10px] font-semibold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;')
-                                if _si_data['big_note']:
-                                    ui.label(_si_data['big_note']).classes('text-xs').style('color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;')
+                                _big_desc = _si_data.get('big_note') or _si_data.get('big_cat', '')
+                                if _big_desc:
+                                    _big_sub = _big_desc
+                                    if _si_data.get('big_date'):
+                                        _big_sub += f'  ·  {_si_data["big_date"]}'
+                                    ui.label(_big_sub).classes('text-xs').style('color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;')
                             ui.label(currency(_si_data['biggest'])).classes('text-xl font-extrabold').style('color: #a855f7; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
 
         # Pay period breakdown removed in v9.0
@@ -5763,34 +5877,64 @@ def dashboard_page():
                         pass
 
                     if rows:
-                        # 9.7: Budget tiles — horizontal scrollable, matching hero tile style
-                        _bud_colors = ['#8B5CF6', '#3B82F6', '#F59E0B', '#EF4444', '#10B981', '#EC4899']
+                        # 9.8: Budget health rings — smartwatch-style SVG arcs
+                        _ring_colors = ['#8B5CF6', '#3B82F6', '#F59E0B', '#10B981', '#EC4899', '#EF4444']
                         with ui.element('div').style('margin-top: 20px;'):
                             with ui.row().classes('items-center gap-2 mb-3'):
                                 with ui.element('div').style('width: 28px; height: 28px; border-radius: 8px; background: rgba(139,92,246,0.12); display: flex; align-items: center; justify-content: center;'):
                                     ui.icon('account_balance_wallet').style('font-size: 16px; color: #8B5CF6;')
                                 ui.label('Budgets').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
+
+                            # Build concentric rings SVG
+                            _n_rings = len(rows)
+                            _ring_size = 180  # SVG viewBox size
+                            _cx, _cy = _ring_size / 2, _ring_size / 2
+                            _stroke_w = 10  # ring thickness
+                            _gap = 3  # gap between rings
+                            _outer_r = (_ring_size / 2) - 8  # outermost radius
+                            _ring_data = []
+                            for _ri, (cat, spent_amt, bud_amt) in enumerate(rows):
+                                pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
+                                _rc = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else _ring_colors[_ri % len(_ring_colors)])
+                                _r = _outer_r - _ri * (_stroke_w + _gap)
+                                if _r < 15:
+                                    break
+                                _circ = 2 * 3.14159265 * _r
+                                _dash = pct * _circ
+                                _ring_data.append((cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash))
+
+                            # SVG rings
+                            _svg_parts = [f'<svg viewBox="0 0 {_ring_size} {_ring_size}" style="width: 100%; max-width: 170px; height: auto;">']
+                            for (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in _ring_data:
+                                # Track ring (faint)
+                                _svg_parts.append(f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" stroke="var(--mf-border)" stroke-width="{_stroke_w}" opacity="0.3" />')
+                                # Progress arc
+                                _svg_parts.append(
+                                    f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" '
+                                    f'stroke="{_rc}" stroke-width="{_stroke_w}" '
+                                    f'stroke-dasharray="{_dash} {_circ}" '
+                                    f'stroke-linecap="round" '
+                                    f'transform="rotate(-90 {_cx} {_cy})" '
+                                    f'style="transition: stroke-dasharray 0.6s ease;" />'
+                                )
+                            _svg_parts.append('</svg>')
+                            _svg_html = '\n'.join(_svg_parts)
+
+                            # Layout: rings on left, legend on right
                             with ui.element('div').style(
-                                'display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory;'
-                                '-webkit-overflow-scrolling: touch; scrollbar-width: none;'
-                            ).classes('mf-hide-scrollbar'):
-                                for _bi, (cat, spent_amt, bud_amt) in enumerate(rows):
-                                    pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
-                                    _bc = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else _bud_colors[_bi % len(_bud_colors)])
-                                    with ui.element('div').style(
-                                        f'min-width: 155px; width: 155px; height: 130px; flex-shrink: 0; scroll-snap-align: start;'
-                                        f'border-radius: 22px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;'
-                                        f'background: var(--mf-card-top); border: 1px solid {_bc}30;'
-                                        f'box-shadow: 0 4px 16px {_bc}10;'
-                                    ):
-                                        with ui.row().classes('items-center justify-between w-full'):
-                                            ui.label(cat).classes('text-xs font-bold').style('color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px;')
-                                            ui.label(f'{int(pct*100)}%').classes('text-xs font-extrabold').style(f'color: {_bc};')
-                                        with ui.column().classes('gap-1'):
-                                            ui.label(currency(spent_amt)).classes('text-lg font-extrabold').style(f'color: {_bc}; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
-                                            ui.label(f'of {currency(bud_amt)}').classes('text-[10px]').style('color: var(--mf-muted);')
-                                        with ui.element('div').style('width: 100%; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.06); overflow: hidden;'):
-                                            ui.element('div').style(f'height: 100%; width: {pct*100}%; background: {_bc}; border-radius: 2px;')
+                                'display: flex; align-items: center; gap: 24px; flex-wrap: wrap;'
+                            ):
+                                ui.html(_svg_html).style('flex-shrink: 0;')
+                                # Legend
+                                with ui.column().classes('gap-2').style('flex: 1; min-width: 140px;'):
+                                    for (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in _ring_data:
+                                        with ui.element('div').style('display: flex; align-items: center; gap: 10px;'):
+                                            ui.element('div').style(f'width: 10px; height: 10px; border-radius: 50%; background: {_rc}; flex-shrink: 0;')
+                                            with ui.column().classes('gap-0').style('flex: 1; min-width: 0;'):
+                                                with ui.row().classes('items-center justify-between w-full'):
+                                                    ui.label(cat).classes('text-xs font-semibold').style('color: var(--mf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px;')
+                                                    ui.label(f'{int(pct*100)}%').classes('text-xs font-extrabold').style(f'color: {_rc};')
+                                                ui.label(f'{currency(spent_amt)} of {currency(bud_amt)}').classes('text-[10px]').style('color: var(--mf-muted); font-feature-settings: "tnum";')
 
         # Upcoming salary section removed in v9.0 (payday info now in hero card)
 
@@ -6642,11 +6786,11 @@ def add_page():
                                         # Lightweight scoring
                                         scores = {'Groceries': 0.0, 'Household': 0.0, 'Shopping': 0.0, 'Health': 0.0}
 
-                                        shop_kw = ['shirt', 'jeans', 'pant', 'pants', 'sock', 'socks', 'shoe', 'shoes', 'apparel', 'clothing', 'jacket', 'coat']
-                                        house_kw = ['table', 'tables', 'chair', 'chairs', 'desk', 'furniture', 'rug', 'lamp', 'detergent', 'bleach', 'soap', 'paper', 'towel', 'towels', 'toilet', 'tissue', 'dish', 'clean', 'cleaner', 'garbage', 'trash', 'broom', 'mop', 'shampoo', 'household', 'hhold', 'lysol', 'clorox', 'windex', 'swiffer', 'tide', 'downy', 'bounce', 'glad', 'hefty', 'charmin', 'bounty', 'sponge']
-                                        health_kw = ['vitamin', 'medicine', 'medical', 'clinic', 'doctor', 'pharmacy', 'pharm', 'rx', 'otc', 'drug', 'prescription', 'tylenol', 'advil', 'supplement', 'health', 'wellness']
-                                        # groceries as a base if we detect typical produce/food words
-                                        grocery_kw = ['banana', 'bananas', 'apple', 'apples', 'milk', 'bread', 'tofu', 'spinach', 'cauliflower', 'watermelon', 'pear', 'avocado', 'yogurt']
+                                        shop_kw = ['shirt', 'jeans', 'pant', 'pants', 'sock', 'socks', 'shoe', 'shoes', 'apparel', 'clothing', 'jacket', 'coat', 'toy', 'toys', 'electronics', 'headphone', 'beauty', 'makeup', 'jewelry']
+                                        house_kw = ['table', 'tables', 'chair', 'chairs', 'desk', 'furniture', 'rug', 'lamp', 'detergent', 'bleach', 'soap', 'paper', 'towel', 'towels', 'toilet', 'tissue', 'dish', 'clean', 'cleaner', 'garbage', 'trash', 'broom', 'mop', 'shampoo', 'household', 'hhold', 'lysol', 'clorox', 'windex', 'swiffer', 'tide', 'downy', 'bounce', 'glad', 'hefty', 'charmin', 'bounty', 'sponge', 'laundry', 'disinfect', 'wipes']
+                                        health_kw = ['vitamin', 'medicine', 'medical', 'clinic', 'doctor', 'pharmacy', 'pharm', 'rx', 'otc', 'drug', 'prescription', 'tylenol', 'advil', 'supplement', 'health', 'wellness', 'bandage', 'ointment', 'cough', 'cold medicine', 'first aid']
+                                        # 9.8: expanded grocery keywords for better fallback detection
+                                        grocery_kw = ['banana', 'bananas', 'apple', 'apples', 'milk', 'bread', 'tofu', 'spinach', 'cauliflower', 'watermelon', 'pear', 'avocado', 'yogurt', 'chicken', 'beef', 'salmon', 'rice', 'pasta', 'cheese', 'egg', 'eggs', 'butter', 'cereal', 'juice', 'coffee', 'snack', 'sauce', 'frozen', 'produce', 'meat', 'deli', 'bakery']
 
                                         for w in shop_kw:
                                             if w in lowtxt:
@@ -6805,13 +6949,26 @@ def add_page():
                         ui.button('', icon='close', on_click=scan_dlg.close).props('flat round dense').style('border: 1px solid var(--mf-border); border-radius: 10px;')
 
                 def _open_scan_dialog():
-                    """Open the receipt scanner dialog (and reset it so user can scan again)."""
-                    _reset_scan_ui()
-                    try:
-                        ui.run_javascript("""try{const el=document.querySelector('.q-uploader__input'); if(el) el.value='';}catch(e){}""")
-                    except Exception:
-                        pass
+                    """Open the receipt scanner dialog (and reset it so user can scan again).
+                    9.8: Open dialog first, defer reset to reduce perceived lag."""
                     scan_dlg.open()
+                    # Lightweight state reset (no DOM rebuild)
+                    scan_state['data_url'] = None
+                    scan_state['img_bytes'] = None
+                    scan_state['ocr_text'] = ''
+                    scan_state['parsed'] = None
+                    raw_out.value = ''
+                    _sync_apply_btn()
+                    _sync_run_btn()
+                    # Defer heavy upload widget rebuild to after dialog is rendered
+                    async def _deferred_mount():
+                        await asyncio.sleep(0.08)
+                        _mount_upload()
+                        try:
+                            ui.run_javascript("""try{const el=document.querySelector('.q-uploader__input'); if(el) el.value='';}catch(e){}""")
+                        except Exception:
+                            pass
+                    asyncio.ensure_future(_deferred_mount())
 
                 with ui.element('div').style('padding: 12px 24px 0 24px;'):
                     btn_scan_receipt = ui.button('Scan receipt', icon='document_scanner', on_click=_open_scan_dialog).props('outline').classes('w-full').style(
@@ -6860,6 +7017,46 @@ def add_page():
                             total += float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0))
                         return _round2(total)
 
+                    # 9.8: Track which category the user is actively editing for auto-balance
+                    _split_editing: Dict[str, Any] = {"active_cat": None, "_updating": False}
+
+                    def _auto_balance(changed_cat: str) -> None:
+                        """When user changes one split amount, auto-adjust the largest OTHER bucket to keep total balanced."""
+                        if _split_editing.get('_updating'):
+                            return
+                        _split_editing['_updating'] = True
+                        try:
+                            total_amt = _round2(float(to_float(d_amount.value)))
+                            # Sum of all OTHER categories (not the one being edited)
+                            others_sum = 0.0
+                            for c in split_cats:
+                                if c != changed_cat:
+                                    others_sum += _round2(float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0)))
+                            changed_val = _round2(float(to_float(getattr(amt_inputs[changed_cat], 'value', 0.0) or 0.0)))
+                            remainder = _round2(total_amt - changed_val - others_sum)
+
+                            # Find the largest OTHER category to absorb the remainder
+                            if abs(remainder) > 0.02:
+                                # Pick the primary/largest bucket among others
+                                best_cat = None
+                                best_val = -1.0
+                                for c in split_cats:
+                                    if c != changed_cat:
+                                        v = _round2(float(to_float(getattr(amt_inputs[c], 'value', 0.0) or 0.0)))
+                                        if v > best_val:
+                                            best_val = v
+                                            best_cat = c
+                                if not best_cat:
+                                    best_cat = split_cats[0] if split_cats[0] != changed_cat else split_cats[1]
+                                new_val = _round2(float(to_float(getattr(amt_inputs[best_cat], 'value', 0.0) or 0.0)) + remainder)
+                                if new_val < 0:
+                                    new_val = 0.0
+                                amt_inputs[best_cat].value = new_val
+                        except Exception:
+                            pass
+                        finally:
+                            _split_editing['_updating'] = False
+
                     def _refresh_pcts(_: Any = None) -> None:
                         total_amt = _round2(float(to_float(d_amount.value)))
                         cur_sum = _sum_amounts()
@@ -6878,11 +7075,17 @@ def add_page():
                         if abs(diff) <= 0.02:
                             warn_lbl.text = f"Total: ${total_amt:,.2f}  Split: ${cur_sum:,.2f}"
                         else:
-                            # show remainder direction
                             if diff > 0:
                                 warn_lbl.text = f"Total: ${total_amt:,.2f}  Split: ${cur_sum:,.2f}  Remaining: ${diff:,.2f}"
                             else:
                                 warn_lbl.text = f"Total: ${total_amt:,.2f}  Split: ${cur_sum:,.2f}  Over by: ${abs(diff):,.2f}"
+
+                    def _make_on_change(cat_name: str):
+                        """Create a per-category change handler that auto-balances then refreshes."""
+                        def _handler(_: Any = None):
+                            _auto_balance(cat_name)
+                            _refresh_pcts()
+                        return _handler
 
                     # Grid-like rows
                     for c in split_cats:
@@ -6890,7 +7093,7 @@ def add_page():
                             ui.label(c).classes("text-sm font-medium")
                             pct_labels[c] = ui.label("0%").classes("text-xs").style("color: var(--mf-muted)")
                             amt_inputs[c] = ui.number(value=0, step=0.01).props('dense outlined prefix=$').classes('w-40')
-                            amt_inputs[c].on('update:model-value', _refresh_pcts)
+                            amt_inputs[c].on('update:model-value', _make_on_change(c))
 
                     def _largest_bucket() -> str:
                         """Return the category with the largest current amount (for remainder allocation)."""
