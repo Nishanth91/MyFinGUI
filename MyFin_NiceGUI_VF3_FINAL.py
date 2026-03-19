@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.8.1'
+APP_VERSION = '9.8.2'
 
 
 def log(message: str) -> None:
@@ -5633,44 +5633,50 @@ def dashboard_page():
                     ui.icon('arrow_downward').style('font-size: 16px; color: #FB7185;')
                     ui.label(f"{currency(expense)}").classes('text-sm font-extrabold').style('color: #FB7185; font-feature-settings: "tnum";')
 
-        # === RADICAL PARADIGM SHIFT: Horizontal Scrollable Widgets ===
-        # Replaces the flat 2x2 grid and flat buttons with an Apple native-like horizontal tile row
-        with ui.element('div').classes('mf-h-scroll w-full mt-6 px-1'):
-            
+        # === 9.8.2: Desktop-aware Horizontal Scrollable Widgets ===
+        # On desktop (>900px) tiles expand; on mobile they remain compact scrollable
+        _tile_w = 'min(220px, 30vw)'
+        _tile_h = '120px'
+        _tile_base = f'min-width: 140px; width: {_tile_w}; height: {_tile_h}; border-radius: 24px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; flex-shrink: 0; scroll-snap-align: start;'
+        with ui.element('div').style(
+            'display: flex; gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory;'
+            '-webkit-overflow-scrolling: touch; scrollbar-width: none; width: 100%; margin-top: 24px; padding: 0 2px 8px 2px;'
+        ).classes('mf-hide-scrollbar'):
+
             # Tile 1: Floating Add Action (Gradient Burst)
             def _goto_add(mode):
                 app.storage.user['add_auto_open'] = mode
                 nav_to('/add')
-            with ui.element('div').style('width: 140px; height: 110px; border-radius: 24px; background: linear-gradient(135deg, #3B82F6, #8B5CF6); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 12px 24px rgba(99,102,241,0.3); border: 1px solid rgba(255,255,255,0.2); cursor: pointer; transition: transform 0.2s;').on('click', lambda: _goto_add('expense')):
-                with ui.element('div').style('width: 32px; height: 32px; border-radius: 12px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px);'):
-                    ui.icon('add').style('font-size: 20px; color: #fff; font-weight: 900;')
+            with ui.element('div').style(f'{_tile_base} background: linear-gradient(135deg, #3B82F6, #8B5CF6); box-shadow: 0 12px 24px rgba(99,102,241,0.3); border: 1px solid rgba(255,255,255,0.2); cursor: pointer;').on('click', lambda: _goto_add('expense')):
+                with ui.element('div').style('width: 36px; height: 36px; border-radius: 14px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px);'):
+                    ui.icon('add').style('font-size: 22px; color: #fff; font-weight: 900;')
                 with ui.column().classes('gap-0'):
-                    ui.label('Add').classes('text-sm font-extrabold text-white').style('letter-spacing: -0.02em;')
-                    ui.label('Expense').classes('text-xs text-white opacity-80 font-medium')
-                    
+                    ui.label('Add').classes('text-base font-extrabold text-white').style('letter-spacing: -0.02em;')
+                    ui.label('Expense').classes('text-sm text-white opacity-80 font-medium')
+
             # Tile 2: Next Payday (Glass Tile)
-            with ui.element('div').style('width: 140px; height: 110px; border-radius: 24px; background: var(--mf-card-top); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--mf-border); cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.05);'):
+            with ui.element('div').style(f'{_tile_base} background: var(--mf-card-top); border: 1px solid var(--mf-border); cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.05);'):
                 with ui.row().classes('justify-between items-start w-full'):
-                    with ui.element('div').style('width: 28px; height: 28px; border-radius: 10px; background: rgba(16,185,129,0.15); display: flex; align-items: center; justify-content: center;'):
-                        ui.icon('event').style('font-size: 16px; color: #10B981;')
+                    with ui.element('div').style('width: 32px; height: 32px; border-radius: 12px; background: rgba(16,185,129,0.15); display: flex; align-items: center; justify-content: center;'):
+                        ui.icon('event').style('font-size: 18px; color: #10B981;')
                     if days_to_next is not None:
-                        ui.label(f"{days_to_next}d").classes('text-xs font-bold').style('color: #10B981; margin-top: 4px;')
+                        ui.label(f"{days_to_next}d").classes('text-sm font-bold').style('color: #10B981; margin-top: 4px;')
                 with ui.column().classes('gap-0'):
                     _po_label = f" ({_pay_owner})" if _pay_owner else ""
-                    ui.label(f'Next Payday{_po_label}').classes('text-[11px] font-semibold').style('color: var(--mf-muted); white-space: nowrap;')
+                    ui.label(f'Next Payday{_po_label}').classes('text-xs font-semibold').style('color: var(--mf-muted); white-space: nowrap;')
                     if next_pay:
-                        ui.label(next_pay.strftime('%b %d')).classes('text-base font-extrabold').style('color: var(--mf-text); letter-spacing: -0.02em;')
+                        ui.label(next_pay.strftime('%b %d')).classes('text-lg font-extrabold').style('color: var(--mf-text); letter-spacing: -0.02em;')
                     else:
-                        ui.label('Unknown').classes('text-base font-extrabold').style('color: var(--mf-text);')
+                        ui.label('Unknown').classes('text-lg font-extrabold').style('color: var(--mf-text);')
 
             # Tile 3: Daily Avg (Glass Tile)
-            with ui.element('div').style('width: 140px; height: 110px; border-radius: 24px; background: var(--mf-card-top); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--mf-border); box-shadow: 0 4px 12px rgba(0,0,0,0.05);'):
+            with ui.element('div').style(f'{_tile_base} background: var(--mf-card-top); border: 1px solid var(--mf-border); box-shadow: 0 4px 12px rgba(0,0,0,0.05);'):
                 with ui.row().classes('justify-between items-start w-full'):
-                    with ui.element('div').style('width: 28px; height: 28px; border-radius: 10px; background: rgba(244,63,94,0.15); display: flex; align-items: center; justify-content: center;'):
-                        ui.icon('local_fire_department').style('font-size: 16px; color: #F43F5E;')
+                    with ui.element('div').style('width: 32px; height: 32px; border-radius: 12px; background: rgba(244,63,94,0.15); display: flex; align-items: center; justify-content: center;'):
+                        ui.icon('local_fire_department').style('font-size: 18px; color: #F43F5E;')
                 with ui.column().classes('gap-0'):
                     ui.label('Daily Pacing').classes('text-xs font-semibold').style('color: var(--mf-muted);')
-                    ui.label(currency(_daily_avg)).classes('text-base font-extrabold').style('color: var(--mf-text); letter-spacing: -0.02em; font-feature-settings: "tnum";')
+                    ui.label(currency(_daily_avg)).classes('text-lg font-extrabold').style('color: var(--mf-text); letter-spacing: -0.02em; font-feature-settings: "tnum";')
 
 
         # 9.8: Spending Breakdown data (biggest expense + daily spend sparkline)
@@ -5729,12 +5735,23 @@ def dashboard_page():
         def _render_spending_insights():
             if not _si_data:
                 return
-            with ui.card().classes('my-card p-0').style('overflow: hidden;'):
-                ui.element('div').style('height: 3px; background: linear-gradient(90deg, #a855f7, #6366f1); border-radius: 0;')
+            # 9.8.2: User-configurable accent color for spending breakdown (stored in admin Color Matrix)
+            _sb_color = app.storage.user.get('spending_breakdown_color', '#3B82F6')
+            # Compute a secondary color by shifting hue slightly for gradient
+            def _hex_to_rgb(h):
+                h = h.lstrip('#')
+                return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+            def _rgb_to_hex(r, g, b):
+                return f'#{int(r):02x}{int(g):02x}{int(b):02x}'
+            _sb_r, _sb_g, _sb_b = _hex_to_rgb(_sb_color)
+            _sb_color2 = _rgb_to_hex(max(0, _sb_r - 40), max(0, _sb_g - 20), min(255, _sb_b + 30))
+
+            with ui.card().classes('my-card p-0 mf-home-section').style('overflow: hidden;'):
+                ui.element('div').style(f'height: 3px; background: linear-gradient(90deg, {_sb_color}, {_sb_color2}); border-radius: 0;')
                 with ui.column().classes('p-5 gap-4'):
                     with ui.row().classes('items-center gap-2'):
-                        with ui.element('div').style('width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(135deg, rgba(168,85,247,0.12), rgba(99,102,241,0.12)); display: flex; align-items: center; justify-content: center;'):
-                            ui.icon('insights').style('font-size: 18px; color: #a855f7;')
+                        with ui.element('div').style(f'width: 32px; height: 32px; border-radius: 10px; background: {_sb_color}1A; display: flex; align-items: center; justify-content: center;'):
+                            ui.icon('insights').style(f'font-size: 18px; color: {_sb_color};')
                         ui.label('Spending Breakdown').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
 
                     # 7-day spend sparkline (SVG)
@@ -5755,13 +5772,13 @@ def dashboard_page():
                         # Fill area under the line
                         _fill_pts = _polyline + f' {_pad_x + _usable_w:.1f},{_pad_y + _usable_h:.1f} {_pad_x:.1f},{_pad_y + _usable_h:.1f}'
                         _spark_svg = f'''<svg viewBox="0 0 {_spark_w} {_spark_h}" style="width: 100%; height: 60px;">
-                          <defs><linearGradient id="spkFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#a855f7" stop-opacity="0.18"/><stop offset="100%" stop-color="#a855f7" stop-opacity="0.02"/></linearGradient></defs>
+                          <defs><linearGradient id="spkFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="{_sb_color}" stop-opacity="0.18"/><stop offset="100%" stop-color="{_sb_color}" stop-opacity="0.02"/></linearGradient></defs>
                           <polygon points="{_fill_pts}" fill="url(#spkFill)"/>
-                          <polyline points="{_polyline}" fill="none" stroke="#a855f7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'''
+                          <polyline points="{_polyline}" fill="none" stroke="{_sb_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'''
                         # Dot on last point
                         _last_x = _pad_x + _usable_w
                         _last_y = _pad_y + (1 - (_amounts[-1] / _max_a)) * _usable_h
-                        _spark_svg += f'<circle cx="{_last_x:.1f}" cy="{_last_y:.1f}" r="3.5" fill="#a855f7"/>'
+                        _spark_svg += f'<circle cx="{_last_x:.1f}" cy="{_last_y:.1f}" r="3.5" fill="{_sb_color}"/>'
                         _spark_svg += '</svg>'
 
                         with ui.element('div').style('display: flex; flex-direction: column; gap: 4px;'):
@@ -5784,7 +5801,7 @@ def dashboard_page():
                                     if _si_data.get('big_date'):
                                         _big_sub += f'  ·  {_si_data["big_date"]}'
                                     ui.label(_big_sub).classes('text-xs').style('color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;')
-                            ui.label(currency(_si_data['biggest'])).classes('text-xl font-extrabold').style('color: #a855f7; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
+                            ui.label(currency(_si_data['biggest'])).classes('text-xl font-extrabold').style(f'color: {_sb_color}; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
 
         # Pay period breakdown removed in v9.0
 
@@ -5890,23 +5907,24 @@ def dashboard_page():
                         pass
 
                     if rows:
-                        # 9.8: Budget health rings — smartwatch-style SVG arcs
-                        # 9.8.1: Load user color preferences for rings
+                        # 9.8.2: Budget health rings — larger on desktop, user-colored
                         _user_ring_colors = app.storage.user.get('budget_ring_colors', None)
                         _ring_colors = _user_ring_colors if (isinstance(_user_ring_colors, list) and len(_user_ring_colors) >= 3) else ['#8B5CF6', '#3B82F6', '#F59E0B', '#10B981', '#EC4899', '#EF4444']
-                        with ui.element('div').classes('mf-home-section').style('margin-top: 20px; width: 100%;'):
-                            with ui.row().classes('items-center gap-2 mb-3'):
-                                with ui.element('div').style('width: 28px; height: 28px; border-radius: 8px; background: rgba(139,92,246,0.12); display: flex; align-items: center; justify-content: center;'):
-                                    ui.icon('account_balance_wallet').style('font-size: 16px; color: #8B5CF6;')
-                                ui.label('Budgets').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
+                        with ui.card().classes('my-card p-0 mf-home-section').style('overflow: hidden; margin-top: 20px; width: 100%;'):
+                            ui.element('div').style(f'height: 3px; background: linear-gradient(90deg, {_ring_colors[0]}, {_ring_colors[1] if len(_ring_colors) > 1 else _ring_colors[0]}, {_ring_colors[2] if len(_ring_colors) > 2 else _ring_colors[0]}); border-radius: 0;')
+                            with ui.column().classes('p-5 gap-4'):
+                                with ui.row().classes('items-center gap-2'):
+                                    with ui.element('div').style(f'width: 32px; height: 32px; border-radius: 10px; background: {_ring_colors[0]}1A; display: flex; align-items: center; justify-content: center;'):
+                                        ui.icon('account_balance_wallet').style(f'font-size: 18px; color: {_ring_colors[0]};')
+                                    ui.label('Budgets').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
 
-                            # Build concentric rings SVG
-                            _n_rings = len(rows)
-                            _ring_size = 180  # SVG viewBox size
-                            _cx, _cy = _ring_size / 2, _ring_size / 2
-                            _stroke_w = 10  # ring thickness
-                            _gap = 3  # gap between rings
-                            _outer_r = (_ring_size / 2) - 8  # outermost radius
+                                # Build concentric rings SVG
+                                _n_rings = len(rows)
+                                _ring_size = 220  # 9.8.2: larger viewBox for desktop
+                                _cx, _cy = _ring_size / 2, _ring_size / 2
+                                _stroke_w = 14  # thicker rings
+                                _gap = 4  # gap between rings
+                                _outer_r = (_ring_size / 2) - 10  # outermost radius
                             _ring_data = []
                             for _ri, (cat, spent_amt, bud_amt) in enumerate(rows):
                                 pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
@@ -5918,8 +5936,8 @@ def dashboard_page():
                                 _dash = pct * _circ
                                 _ring_data.append((cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash))
 
-                            # SVG rings
-                            _svg_parts = [f'<svg viewBox="0 0 {_ring_size} {_ring_size}" style="width: 100%; max-width: 170px; height: auto;">']
+                            # SVG rings — 9.8.2: larger max-width for desktop
+                            _svg_parts = [f'<svg viewBox="0 0 {_ring_size} {_ring_size}" style="width: 100%; max-width: 210px; height: auto;">']
                             for (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in _ring_data:
                                 # Track ring (faint)
                                 _svg_parts.append(f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" stroke="var(--mf-border)" stroke-width="{_stroke_w}" opacity="0.3" />')
@@ -5935,21 +5953,21 @@ def dashboard_page():
                             _svg_parts.append('</svg>')
                             _svg_html = '\n'.join(_svg_parts)
 
-                            # Layout: rings on left, legend on right
+                            # Layout: rings on left, legend on right — 9.8.2: bigger gap + wider legend for desktop
                             with ui.element('div').style(
-                                'display: flex; align-items: center; gap: 24px; flex-wrap: wrap;'
+                                'display: flex; align-items: center; gap: 32px; flex-wrap: wrap; justify-content: center;'
                             ):
                                 ui.html(_svg_html).style('flex-shrink: 0;')
                                 # Legend
-                                with ui.column().classes('gap-2').style('flex: 1; min-width: 140px;'):
+                                with ui.column().classes('gap-3').style('flex: 1; min-width: 180px; max-width: 360px;'):
                                     for (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in _ring_data:
-                                        with ui.element('div').style('display: flex; align-items: center; gap: 10px;'):
-                                            ui.element('div').style(f'width: 10px; height: 10px; border-radius: 50%; background: {_rc}; flex-shrink: 0;')
+                                        with ui.element('div').style('display: flex; align-items: center; gap: 12px;'):
+                                            ui.element('div').style(f'width: 12px; height: 12px; border-radius: 50%; background: {_rc}; flex-shrink: 0;')
                                             with ui.column().classes('gap-0').style('flex: 1; min-width: 0;'):
                                                 with ui.row().classes('items-center justify-between w-full'):
-                                                    ui.label(cat).classes('text-xs font-semibold').style('color: var(--mf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px;')
-                                                    ui.label(f'{int(pct*100)}%').classes('text-xs font-extrabold').style(f'color: {_rc};')
-                                                ui.label(f'{currency(spent_amt)} of {currency(bud_amt)}').classes('text-[10px]').style('color: var(--mf-muted); font-feature-settings: "tnum";')
+                                                    ui.label(cat).classes('text-sm font-semibold').style('color: var(--mf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px;')
+                                                    ui.label(f'{int(pct*100)}%').classes('text-sm font-extrabold').style(f'color: {_rc};')
+                                                ui.label(f'{currency(spent_amt)} of {currency(bud_amt)}').classes('text-xs').style('color: var(--mf-muted); font-feature-settings: "tnum";')
 
         # Upcoming salary section removed in v9.0 (payday info now in hero card)
 
@@ -7919,12 +7937,13 @@ def admin_page() -> None:
                         ui.label("Toggle locks directly from the Ledger page.").classes("text-[11px] uppercase tracking-wider").style("color: var(--mf-muted);")
                 ui.button("Go to Ledger", on_click=lambda: nav_to("/tx")).props("outline rounded size=sm").style("color: var(--mf-text); border-color: rgba(255,255,255,0.1);")
 
-        # 9.8.1: Budget Ring Color Palette Picker
+        # 9.8.2: Color Matrix — unified tile for Budget Ring Colors + Spending Breakdown accent
         _default_ring = ['#8B5CF6', '#3B82F6', '#F59E0B', '#10B981', '#EC4899', '#EF4444']
         _saved_ring = app.storage.user.get('budget_ring_colors', None)
         _current_ring = _saved_ring if (isinstance(_saved_ring, list) and len(_saved_ring) >= 3) else list(_default_ring)
+        _current_sb_color = app.storage.user.get('spending_breakdown_color', '#3B82F6')
 
-        # Color template presets
+        # Color template presets for budget rings
         _color_presets = {
             'Vivid (default)': ['#8B5CF6', '#3B82F6', '#F59E0B', '#10B981', '#EC4899', '#EF4444'],
             'Ocean': ['#06b6d4', '#0ea5e9', '#38bdf8', '#22d3ee', '#67e8f9', '#a5f3fc'],
@@ -7934,15 +7953,33 @@ def admin_page() -> None:
             'Royal': ['#7c3aed', '#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd', '#ddd6fe'],
         }
 
+        # Accent color presets for spending breakdown
+        _sb_accent_presets = {
+            'Blue (default)': '#3B82F6',
+            'Emerald': '#10B981',
+            'Rose': '#F43F5E',
+            'Amber': '#F59E0B',
+            'Cyan': '#06B6D4',
+            'Violet': '#8B5CF6',
+            'Orange': '#F97316',
+            'Teal': '#14B8A6',
+        }
+
         with ui.card().classes("my-card p-0 mt-4").style("overflow: hidden;"):
-            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #8B5CF6, #3B82F6, #F59E0B); border-radius: 0;')
-            with ui.column().classes("p-5 gap-4"):
+            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #8B5CF6, #3B82F6, #F59E0B, #10B981); border-radius: 0;')
+            with ui.column().classes("p-5 gap-5"):
                 with ui.row().classes("items-center gap-3"):
-                    with ui.element("div").style("width: 36px; height: 36px; border-radius: 10px; background: rgba(139,92,246,0.12); display: flex; align-items: center; justify-content: center;"):
+                    with ui.element("div").style("width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(59,130,246,0.15)); display: flex; align-items: center; justify-content: center;"):
                         ui.icon("palette").style("font-size: 20px; color: #8B5CF6;")
                     with ui.column().classes("gap-0"):
-                        ui.label("Budget Ring Colors").classes("text-base font-extrabold").style("letter-spacing: -0.02em;")
-                        ui.label("Choose a color palette for your budget health rings on the homepage.").classes("text-xs").style("color: var(--mf-muted);")
+                        ui.label("Color Matrix").classes("text-base font-extrabold").style("letter-spacing: -0.02em;")
+                        ui.label("Customize widget colors for your homepage.").classes("text-xs").style("color: var(--mf-muted);")
+
+                # ── Section 1: Budget Ring Colors ──
+                ui.element('div').style('height: 1px; background: linear-gradient(90deg, transparent, var(--mf-border), transparent); margin: 4px 0;')
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('donut_large').style('font-size: 16px; color: var(--mf-muted);')
+                    ui.label('Budget Ring Colors').classes('text-sm font-bold').style('color: var(--mf-text);')
 
                 # Live preview: small SVG ring with current colors
                 _preview_holder = ui.element('div').style('display: flex; align-items: center; gap: 16px; flex-wrap: wrap;')
@@ -7975,7 +8012,7 @@ def admin_page() -> None:
                 _render_ring_preview(_current_ring)
 
                 # Preset selector
-                ui.label("Presets").classes("text-xs font-semibold").style("color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px;")
+                ui.label("Presets").classes("text-[10px] font-semibold").style("color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;")
                 with ui.element('div').style('display: flex; flex-wrap: wrap; gap: 8px;'):
                     for _pname, _pcolors in _color_presets.items():
                         def _apply_preset(_pc=_pcolors, _pn=_pname):
@@ -7993,7 +8030,7 @@ def admin_page() -> None:
                             ui.label(_pname).classes('text-xs font-semibold').style('color: var(--mf-text);')
 
                 # Custom color inputs (advanced)
-                with ui.expansion('Custom Colors', icon='tune').classes('w-full').style('margin-top: 4px;'):
+                with ui.expansion('Custom Ring Colors', icon='tune').classes('w-full').style('margin-top: 4px;'):
                     _color_inputs = {}
                     for _cci in range(min(6, len(_current_ring))):
                         with ui.row().classes('items-center gap-3'):
@@ -8014,6 +8051,65 @@ def admin_page() -> None:
 
                     ui.button('Save Custom Colors', icon='save', on_click=_save_custom).props('unelevated size=sm').classes('mt-2').style(
                         'background: linear-gradient(135deg, #8B5CF6, #6366f1) !important; color: #fff !important; border-radius: 10px; font-weight: 600;'
+                    )
+
+                # ── Section 2: Spending Breakdown Accent Color ──
+                ui.element('div').style('height: 1px; background: linear-gradient(90deg, transparent, var(--mf-border), transparent); margin: 8px 0 4px 0;')
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('insights').style('font-size: 16px; color: var(--mf-muted);')
+                    ui.label('Spending Breakdown Accent').classes('text-sm font-bold').style('color: var(--mf-text);')
+
+                # Live preview sparkline bar with current accent
+                _sb_preview_holder = ui.element('div').style('display: flex; align-items: center; gap: 16px; flex-wrap: wrap;')
+
+                def _render_sb_preview(color):
+                    _sb_preview_holder.clear()
+                    with _sb_preview_holder:
+                        # Mini sparkline preview
+                        _pv_svg = f'''<svg viewBox="0 0 120 36" style="width: 120px; height: 36px;">
+                            <defs><linearGradient id="sbPv" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="{color}" stop-opacity="0.2"/><stop offset="100%" stop-color="{color}" stop-opacity="0.02"/></linearGradient></defs>
+                            <polygon points="8,28 28,18 48,24 68,12 88,20 108,8 108,28 8,28" fill="url(#sbPv)"/>
+                            <polyline points="8,28 28,18 48,24 68,12 88,20 108,8" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <circle cx="108" cy="8" r="3" fill="{color}"/>
+                        </svg>'''
+                        ui.html(_pv_svg)
+                        with ui.column().classes('gap-0'):
+                            ui.label('Preview').classes('text-[10px] font-semibold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;')
+                            ui.label('$1,234').classes('text-lg font-extrabold').style(f'color: {color}; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
+
+                _render_sb_preview(_current_sb_color)
+
+                # Accent presets as colored pills
+                with ui.element('div').style('display: flex; flex-wrap: wrap; gap: 8px;'):
+                    for _sb_pname, _sb_pcolor in _sb_accent_presets.items():
+                        def _apply_sb_preset(_c=_sb_pcolor, _n=_sb_pname):
+                            app.storage.user['spending_breakdown_color'] = _c
+                            _render_sb_preview(_c)
+                            ui.notify(f'Applied "{_n}" accent. Refresh homepage to see changes.', type='positive')
+                        _is_active = _current_sb_color.lower() == _sb_pcolor.lower()
+                        with ui.element('div').style(
+                            f'cursor: pointer; padding: 6px 14px; border-radius: 12px;'
+                            f'border: {"2px" if _is_active else "1px"} solid {_sb_pcolor if _is_active else "var(--mf-border)"};'
+                            f'background: {_sb_pcolor}{"1A" if _is_active else "0D"}; display: flex; align-items: center; gap: 8px;'
+                            f'transition: all 0.15s ease;'
+                        ).on('click', _apply_sb_preset):
+                            ui.element('div').style(f'width: 14px; height: 14px; border-radius: 50%; background: {_sb_pcolor};')
+                            ui.label(_sb_pname).classes('text-xs font-semibold').style('color: var(--mf-text);')
+
+                # Custom accent color input
+                with ui.expansion('Custom Accent Color', icon='tune').classes('w-full').style('margin-top: 4px;'):
+                    _sb_custom_input = ui.color_input(label='Accent Hex', value=_current_sb_color).props('dense').classes('w-40')
+
+                    def _save_sb_custom():
+                        _v = str(_sb_custom_input.value or '#3B82F6').strip()
+                        if not _v.startswith('#'):
+                            _v = '#' + _v
+                        app.storage.user['spending_breakdown_color'] = _v
+                        _render_sb_preview(_v)
+                        ui.notify('Accent color saved. Refresh homepage to see changes.', type='positive')
+
+                    ui.button('Save Accent Color', icon='save', on_click=_save_sb_custom).props('unelevated size=sm').classes('mt-2').style(
+                        'background: linear-gradient(135deg, #3B82F6, #1d4ed8) !important; color: #fff !important; border-radius: 10px; font-weight: 600;'
                     )
 
     shell(content)
@@ -10491,5 +10587,20 @@ ui.run(
 #  - Full-card Smart Alerts (_render_alerts replaced by slim banners)
 #
 # Carries forward all 8.8 + 8.7 + 8.6 + 8.5 + 8.4 + 8.3 fixes.
-# 
+#
+# ── v9.8.2  ──────────────────────────────────────────────────
+# 1. Desktop orientation fix — hero tiles responsive sizing
+#    (min(220px, 30vw) × 120px, flex scroll, snap alignment)
+# 2. Budget health rings enlarged for desktop:
+#    viewBox 180→220, stroke 10→14, SVG max-width 170→210px,
+#    legend text-sm with wider column (max 360px)
+# 3. Spending Breakdown accent color now user-configurable
+#    (reads app.storage.user['spending_breakdown_color']),
+#    default changed from violet #a855f7 to blue #3B82F6
+# 4. Admin: new "Color Matrix" tile replaces "Budget Ring Colors"
+#    - Section 1: Budget Ring color palette (presets + custom)
+#    - Section 2: Spending Breakdown accent (8 presets + custom)
+#    Each section has live preview
+# 5. Spending Breakdown card gets .mf-home-section for full-width on desktop
+#
 
