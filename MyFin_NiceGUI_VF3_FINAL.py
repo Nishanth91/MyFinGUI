@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.8.4'
+APP_VERSION = '9.9'
 
 
 def log(message: str) -> None:
@@ -4226,13 +4226,13 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 .mf-chip-scroll::-webkit-scrollbar-thumb { background: var(--mf-border); border-radius: 4px; }
 .mf-hide-scrollbar::-webkit-scrollbar { display: none; }
 .mf-hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-/* 8.8: Custom pure-HTML dropdown for high-cardinality fields (Category) */
+/* 9.9: Custom dropdown for high-cardinality fields (Category) — full-width, large touch targets */
 .mf-dd-trigger {
   display: flex; align-items: center; gap: 8px;
-  padding: 11px 16px; border-radius: 12px;
+  padding: 14px 18px; border-radius: 14px;
   border: 1.5px solid var(--mf-border);
   background: var(--mf-surface); color: var(--mf-text);
-  font-size: 15px; font-weight: 500; cursor: pointer;
+  font-size: 16px; font-weight: 600; cursor: pointer;
   transition: border-color 0.15s;
   user-select: none; width: 100%; box-sizing: border-box;
 }
@@ -4241,21 +4241,22 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 .mf-dd-trigger.open .mf-dd-arrow { transform: rotate(180deg); }
 .mf-dd-trigger.disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
 .mf-dd-panel {
-  max-height: 220px; overflow-y: auto;
-  border: 1px solid var(--mf-border); border-radius: 12px;
+  max-height: 260px; overflow-y: auto;
+  border: 1px solid var(--mf-border); border-radius: 14px;
   background: var(--mf-surface); margin-top: 4px;
-  padding: 5px;
+  padding: 6px; width: 100%; box-sizing: border-box;
 }
 .mf-dd-panel::-webkit-scrollbar { width: 4px; }
 .mf-dd-panel::-webkit-scrollbar-thumb { background: var(--mf-border); border-radius: 4px; }
 .mf-dd-item {
-  padding: 10px 16px; border-radius: 8px; font-size: 14px;
+  padding: 13px 18px; border-radius: 10px; font-size: 15px; font-weight: 500;
   color: var(--mf-text); cursor: pointer; transition: background 0.1s;
+  width: 100%; box-sizing: border-box;
 }
 .mf-dd-item:hover { background: color-mix(in srgb, var(--mf-accent) 10%, transparent); }
 .mf-dd-item.active {
   background: color-mix(in srgb, var(--mf-accent) 14%, transparent);
-  color: var(--mf-accent); font-weight: 600;
+  color: var(--mf-accent); font-weight: 700;
 }
 
 /* Upload bar theming */
@@ -5576,8 +5577,7 @@ def dashboard_page():
         # Daily average spending this month
         _daily_avg = round(expense / max(today().day, 1), 2) if expense > 0 else 0.0
 
-        # === RADICAL PARADIGM SHIFT: The Cashflow Rings Hero ===
-        # Replaces the flat text card with an interactive, Apple Watch-style ring dashboard.
+        # Cashflow Rings Hero
         _ring_income = min(1.0, income / (income + expense + 1)) if income > 0 else 0
         _ring_expense = min(1.0, expense / (income + expense + 1)) if expense > 0 else 0
         _income_dash = 2 * 3.14159 * 76 * _ring_income
@@ -5641,8 +5641,7 @@ def dashboard_page():
                     ui.icon('arrow_downward').style('font-size: 16px; color: #FB7185;')
                     ui.label(f"{currency(expense)}").classes('text-sm font-extrabold').style('color: #FB7185; font-feature-settings: "tnum";')
 
-        # === 9.8.2: Desktop-aware Horizontal Scrollable Widgets ===
-        # On desktop (>900px) tiles expand; on mobile they remain compact scrollable
+        # Hero tiles (responsive)
         _tile_w = 'min(220px, 30vw)'
         _tile_h = '120px'
         _tile_base = f'min-width: 140px; width: {_tile_w}; height: {_tile_h}; border-radius: 24px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; flex-shrink: 0; scroll-snap-align: start;'
@@ -5811,10 +5810,7 @@ def dashboard_page():
                                     ui.label(_big_sub).classes('text-xs').style('color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;')
                             ui.label(currency(_si_data['biggest'])).classes('text-xl font-extrabold').style(f'color: {_sb_color}; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
 
-        # Pay period breakdown removed in v9.0
-
-
-        #  Smart Alert Banners (slim, at top  v9.0) 
+        #  Smart Alert Banners (slim, at top  v9.0)
         # Alert logic kept but rendered as slim banners instead of a full card
         _alert_banners_data: list[tuple[str, str, str, str]] = []
         try:
@@ -5875,10 +5871,8 @@ def dashboard_page():
         except Exception:
             pass
 
-        # Quick actions + data quality
-        # Phase 4.6A: Quick actions moved into the Overview card to reduce clutter
-        # Task 9: Premium Budgets section
-        _budget_rows = []  # 9.8.3: captured here, rendered later in side-by-side layout
+        # Budgets data
+        _budget_rows = []
         budgets = read_df_optional('budgets')
         if budgets is not None and not budgets.empty and (not spend.empty) and "category" in spend.columns:
             bcols = {str(c).strip().lower(): c for c in budgets.columns}
@@ -5948,7 +5942,8 @@ def dashboard_page():
                         _dash = pct * _circ
                         _ring_data.append((cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash))
 
-                    _svg_parts = [f'<svg viewBox="0 0 {_ring_size} {_ring_size}" style="width: 100%; max-width: 180px; height: auto;">']
+                    # 9.9: responsive ring — smaller on mobile so legend fits beside it
+                    _svg_parts = [f'<svg viewBox="0 0 {_ring_size} {_ring_size}" style="width: 100%; max-width: min(180px, 35vw); height: auto;">']
                     for (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in _ring_data:
                         _svg_parts.append(f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" stroke="var(--mf-border)" stroke-width="{_stroke_w}" opacity="0.3" />')
                         _svg_parts.append(
@@ -5962,25 +5957,22 @@ def dashboard_page():
                     _svg_parts.append('</svg>')
                     _svg_html = '\n'.join(_svg_parts)
 
+                    # 9.9: nowrap — ring + legend always side-by-side
                     with ui.element('div').style(
-                        'display: flex; align-items: center; gap: 20px; flex-wrap: wrap; justify-content: center;'
+                        'display: flex; align-items: center; gap: 16px;'
                     ):
-                        ui.html(_svg_html).style('flex-shrink: 0;')
-                        with ui.column().classes('gap-2').style('flex: 1; min-width: 120px;'):
+                        ui.html(_svg_html).style('flex-shrink: 0; width: min(180px, 35vw);')
+                        with ui.column().classes('gap-2').style('flex: 1; min-width: 0;'):
                             for (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in _ring_data:
-                                with ui.element('div').style('display: flex; align-items: center; gap: 10px;'):
+                                with ui.element('div').style('display: flex; align-items: center; gap: 8px;'):
                                     ui.element('div').style(f'width: 10px; height: 10px; border-radius: 50%; background: {_rc}; flex-shrink: 0;')
                                     with ui.column().classes('gap-0').style('flex: 1; min-width: 0;'):
                                         with ui.row().classes('items-center justify-between w-full'):
-                                            ui.label(cat).classes('text-xs font-semibold').style('color: var(--mf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px;')
+                                            ui.label(cat).classes('text-xs font-semibold').style('color: var(--mf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;')
                                             ui.label(f'{int(pct*100)}%').classes('text-xs font-extrabold').style(f'color: {_rc};')
-                                        ui.label(f'{currency(spent_amt)} of {currency(bud_amt)}').classes('text-[10px]').style('color: var(--mf-muted); font-feature-settings: "tnum";')
-
-        #  Dashboard section helpers (closure over spend, expense, tx, etc.)
-        # _render_insights() and _render_alerts() removed in v9.0
+                                        ui.label(f'{currency(spent_amt)} / {currency(bud_amt)}').classes('text-[10px]').style('color: var(--mf-muted); font-feature-settings: "tnum";')
 
         def _render_recent_tx():
-            # === RADICAL PARADIGM SHIFT: The Timeline Feed ===
             try:
                 if not tx.empty and "date_parsed" in tx.columns:
                     _recent_tx = tx.sort_values("date_parsed", ascending=False).head(5)
@@ -6371,10 +6363,7 @@ def add_page():
                 """Merchants where we offer OCR-driven multi-category split."""
                 t = _norm_merchant(s)
                 return ('walmart' in t) or ('costco' in t) or ('superstore' in t)
-            # Per 5.14 UX rules:
-            # - Income: Method fixed to Bank (no method dropdown)
-            # - Investment: Method fixed to Bank, Account disabled, Category default Investment
-            # - CC Repay: Method fixed to Card (no method dropdown)
+            # Entry-type specific defaults
             fixed_method = None
             hide_method = False
             disable_account = False
@@ -6385,6 +6374,7 @@ def add_page():
                 fixed_method = 'Bank'
                 hide_method = True
                 disable_account = True  # income goes to bank; avoid card/LOC accounts
+                categories = ['Salary', 'Others']  # 9.9: only two income categories
             if is_invest:
                 fixed_method = 'Bank'
                 hide_method = True
@@ -8283,7 +8273,6 @@ def transactions_page():
                     ui.label("Transactions").classes("text-xl font-extrabold").style("letter-spacing: -0.02em;")
 
         with ui.card().classes("my-card p-5"):
-            # v9.0: Month selector removed; date range filter is the primary filter
             _all_cats = sorted({str(c).strip() for c in tx.get('category', pd.Series([])).tolist() if str(c).strip()})
             _all_accts = sorted({str(a).strip() for a in tx.get('account', pd.Series([])).tolist() if str(a).strip()})
             _all_methods = sorted({str(m).strip() for m in tx.get('method', pd.Series([])).tolist() if str(m).strip()})
@@ -8525,7 +8514,6 @@ def transactions_page():
                 with ui.row().classes('gap-2 items-center').style('flex-wrap: wrap;'):
                     fix_cat = ui.select(cat_choices, value=cat_choices[0], label='Quick category').classes('').style('min-width: 160px; max-width: 220px;').props('dense outlined')
                     ui.button('Apply', icon='label').props('unelevated dense').style('font-size: 12px;').on('click', lambda: _apply_category_selected(table, fix_cat.value))
-            # v9.0: month selector and lock removed
             def refresh_table():
                 df = tx.copy()
                 if f_type.value != "All":
@@ -10643,5 +10631,14 @@ ui.run(
 #    No longer blocks interaction after applying a color
 # 4. Spending Breakdown card: removed mf-home-section class
 #    (parent mf-home-2col handles layout)
+#
+# ── v9.9  ────────────────────────────────────────────────────
+# 1. Mobile budget widget: ring + legend side-by-side (nowrap),
+#    ring uses min(180px, 35vw) so legend fills remaining space
+# 2. Category dropdown (Add Expense): larger touch targets,
+#    font 15px, padding 13px 18px, full-width items
+# 3. Add Income: categories restricted to Salary & Others only
+# 4. Dead code cleanup: removed stale placeholder comments,
+#    verbose labels, and orphaned version-note lines
 #
 
