@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.8'
+APP_VERSION = '9.8.1'
 
 
 def log(message: str) -> None:
@@ -2265,6 +2265,15 @@ def invalidate(*tabs: str) -> None:
     for t in tabs:
         _cache.pop(t, None)
 
+def soft_invalidate(*tabs: str) -> None:
+    """9.8.1: Mark cache as stale but keep serving old data for 5 seconds.
+    This prevents a thundering-herd re-read when doing rapid back-to-back saves."""
+    now = time.time()
+    for t in tabs:
+        if t in _cache:
+            # Set timestamp to 5 seconds before expiry so next read within 5s still uses cache
+            _cache[t] = (now - CACHE_TTL + 5, _cache[t][1])
+
 
 # -----------------------------
 # Rules + Category inference
@@ -4176,7 +4185,7 @@ html.mf-light .q-item:hover{background: rgba(120,160,255,0.14) !important;}
 .mf-add-dialog .q-field__input {
   font-size: 16px !important;  /* prevent iOS zoom */
 }
-.mf-add-dialog .q-dialog__inner > div { max-width: 95vw; }
+.mf-add-dialog .q-dialog__inner > div { max-width: min(680px, 95vw); }
 .mf-add-dialog .q-card { box-sizing: border-box; overflow-x: hidden; }
 /* 8.2.2: Force dialog sections and form fields to stretch full width */
 .mf-add-dialog .q-card > * { width: 100% !important; box-sizing: border-box !important; }
@@ -4324,9 +4333,13 @@ html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
 }
 .mf-dash-grid > * { min-width: 0; }
 @media (min-width: 901px) {
-  .mf-dash-grid { grid-template-columns: repeat(2, 1fr); gap: 20px; }
+  .mf-dash-grid { grid-template-columns: 1fr; gap: 20px; }
   .mf-dash-grid > .mf-dash-full,
   .mf-dash-grid > :has(> .mf-dash-full) { grid-column: 1 / -1; }
+}
+/* 9.8.1: Desktop home sections stretch full-width to match hero */
+@media (min-width: 901px) {
+  .mf-home-section { width: 100% !important; box-sizing: border-box; }
 }
 /* 8.2.2: Ensure canvas children stretch full width  always */
 .mf-canvas > * { width: 100% !important; min-width: 0; box-sizing: border-box !important; margin-left: 0 !important; margin-right: 0 !important; }
@@ -5878,8 +5891,10 @@ def dashboard_page():
 
                     if rows:
                         # 9.8: Budget health rings — smartwatch-style SVG arcs
-                        _ring_colors = ['#8B5CF6', '#3B82F6', '#F59E0B', '#10B981', '#EC4899', '#EF4444']
-                        with ui.element('div').style('margin-top: 20px;'):
+                        # 9.8.1: Load user color preferences for rings
+                        _user_ring_colors = app.storage.user.get('budget_ring_colors', None)
+                        _ring_colors = _user_ring_colors if (isinstance(_user_ring_colors, list) and len(_user_ring_colors) >= 3) else ['#8B5CF6', '#3B82F6', '#F59E0B', '#10B981', '#EC4899', '#EF4444']
+                        with ui.element('div').classes('mf-home-section').style('margin-top: 20px; width: 100%;'):
                             with ui.row().classes('items-center gap-2 mb-3'):
                                 with ui.element('div').style('width: 28px; height: 28px; border-radius: 8px; background: rgba(139,92,246,0.12); display: flex; align-items: center; justify-content: center;'):
                                     ui.icon('account_balance_wallet').style('font-size: 16px; color: #8B5CF6;')
@@ -6021,13 +6036,14 @@ def dashboard_page():
             except Exception:
                 pass
 
-        # 9.7: Spending Insights full-width, then Recent Tx below
-        _render_spending_insights()
+        # 9.8.1: All home sections full-width, matching hero orientation
+        with ui.element('div').classes('mf-home-section').style('width: 100%;'):
+            _render_spending_insights()
 
-        #  Dashboard Grid
-        with ui.element('div').classes('mf-dash-grid'):
-            with ui.element('div'):
-                _render_recent_tx()
+        with ui.element('div').classes('mf-home-section').style('width: 100%;'):
+            with ui.element('div').classes('mf-dash-grid'):
+                with ui.element('div'):
+                    _render_recent_tx()
 
 
     shell(content)
@@ -6270,7 +6286,8 @@ def add_page():
         _accent, _dicon, _dlabel = _dlg_accents.get(entry_type.lower(), ('#6366f1', 'add_circle', entry_type))
 
         dlg = ui.dialog()
-        with dlg, ui.card().classes("my-card mf-add-dialog w-full max-w-[480px]").style("max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 32px; box-shadow: 0 40px 80px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.05); background: linear-gradient(180deg, var(--mf-surface-1), var(--mf-surface-2));"):
+        dlg.props('transition-show="fade" transition-hide="fade" transition-duration="120"')
+        with dlg, ui.card().classes("my-card mf-add-dialog w-full").style("max-width: min(680px, 95vw); max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 32px; box-shadow: 0 40px 80px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.05); background: linear-gradient(180deg, var(--mf-surface-1), var(--mf-surface-2));"):
             # Premium dialog header  accent strip + header area with background
             ui.element('div').style(f'height: 6px; background: linear-gradient(90deg, {_accent}, {_accent}88); border-radius: 32px 32px 0 0;')
             with ui.element('div').style(
@@ -6976,8 +6993,12 @@ def add_page():
                     )
 
                 # Auto-open scan dialog if requested (from "Scan Now" hero button)
+                # 9.8.1: Defer scan dialog open to let the Add dialog fully render first
                 if auto_scan:
-                    _open_scan_dialog()
+                    async def _deferred_auto_scan():
+                        await asyncio.sleep(0.3)
+                        _open_scan_dialog()
+                    asyncio.ensure_future(_deferred_auto_scan())
 
 
                 # Phase 6.5: Multi-category split UI  shown only after OCR Apply for Walmart/Costco/Superstore
@@ -7298,7 +7319,10 @@ def add_page():
             with ui.element('div').style('padding: 0 24px;'):
                 ui.button("Auto-category", on_click=autofill).props("flat")
 
-            def save():
+            # 9.8.1: Save & Add Another state
+            _save_state = {'another': False}
+
+            async def save():
 
                 dd = parse_date(d_date.value) or today()
 
@@ -7348,23 +7372,20 @@ def add_page():
                         group_id = sha16(f"SPLIT|{owner}|{dd.isoformat()}|{account}|{method}|{total_amt}|{notes}|{dt.datetime.now().isoformat()}")
                         idx = 1
                         n = len(plan)
-                        for cat, amt in plan.items():
-                            append_tx(
+                        # 9.8.1: Async split saves
+                        for cat, _split_amt in plan.items():
+                            _split_payload = dict(
                                 tx_id=sha16(group_id + f"|{idx}"),
-                                date_=dd,
-                                owner=owner,
-                                type_=entry_type,
-                                amount=float(amt),
-                                method=method,
-                                account=account,
+                                date_=dd, owner=owner, type_=entry_type,
+                                amount=float(_split_amt), method=method, account=account,
                                 category=str(cat),
                                 notes=(notes + f" | split:{group_id} {idx}/{n}").strip(),
                                 recurring_id="",
                             )
+                            await run.io_bound(lambda p=_split_payload: append_tx(**p))
                             idx += 1
 
                         invalidate('transactions')
-                        invalidate('recurring')
                         cats_str = ', '.join(plan.keys())
                         ui.notify(f" Saved {n} separate transactions: {cats_str}", type="positive", timeout=5.0)
                         dlg.close()
@@ -7376,72 +7397,54 @@ def add_page():
                 try:
 
                     # Build tx id (unique)
-
                     tx_id = sha16(f"{owner}|{dd.isoformat()}|{entry_type}|{amt}|{method}|{account}|{category}|{notes}|{dt.datetime.now().isoformat()}")
 
-
                     rec_id = ""
-
                     if d_rec.value:
-
                         rec_id = create_or_update_recurring_template(
-
-                            owner=owner,
-
-                            type_=entry_type,
-
-                            amount=amt,
-
-                            method=method,
-
-                            account=account,
-
-                            category=category,
-
-                            notes=notes,
-
-                            day_of_month=dd.day,
-
-                            start_date=dd,
-
-                            active=True,
-
+                            owner=owner, type_=entry_type, amount=amt,
+                            method=method, account=account, category=category,
+                            notes=notes, day_of_month=dd.day, start_date=dd, active=True,
                         )
 
-
-                    append_tx(
-
-                        tx_id=tx_id,
-
-                        date_=dd,
-
-                        owner=owner,
-
-                        type_=entry_type,
-
-                        amount=amt,
-
-                        method=method,
-
-                        account=account,
-
-                        category=category,
-
-                        notes=notes,
-
-                        recurring_id=rec_id,
-
+                    # 9.8.1: Async save — write to Google Sheets in background for snappy UX
+                    _tx_payload = dict(
+                        tx_id=tx_id, date_=dd, owner=owner, type_=entry_type,
+                        amount=amt, method=method, account=account,
+                        category=category, notes=notes, recurring_id=rec_id,
                     )
+                    await run.io_bound(lambda: append_tx(**_tx_payload))
 
+                    # 9.8.1: Smart cache invalidation
+                    # Use soft_invalidate for rapid entry (serves stale for 5s), hard for single saves
+                    if _save_state.get('another'):
+                        soft_invalidate('transactions')
+                    else:
+                        invalidate('transactions')
+                    if d_rec.value:
+                        invalidate('recurring')
 
-                    # refresh in-memory cache so the new entry shows up immediately
-                    invalidate('transactions')
-                    invalidate('recurring')
+                    ui.notify("\u2713 Saved", type="positive")
 
-                    ui.notify("Saved", type="positive")
-
-                    dlg.close()
-
+                    # 9.8.1: "Save & Add Another" — reset form instead of closing dialog
+                    if _save_state.get('another'):
+                        _save_state['another'] = False
+                        # Reset form fields for next entry (keep date, method, account)
+                        try:
+                            d_amount.value = None
+                            d_notes.value = ''
+                            d_rec.value = False
+                            split_plan['enabled'] = False
+                            split_plan['amounts'] = {}
+                            split_plan['detected_amounts'] = {}
+                            try:
+                                split_banner.style('display: none;')
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+                    else:
+                        dlg.close()
 
                 except Exception as e:
 
@@ -7456,6 +7459,16 @@ def add_page():
                 "border-radius: 0 0 32px 32px;"
             ):
                 ui.button("Cancel", on_click=dlg.close).props("flat").style("border-radius: 12px; font-weight: 600; color: var(--mf-text); opacity: 0.8;")
+
+                # 9.8.1: "Save & Add Another" for rapid back-to-back entry
+                def _save_and_another():
+                    _save_state['another'] = True
+                    asyncio.ensure_future(save())
+                ui.button("Save & Next", on_click=_save_and_another, icon="playlist_add").props("outline").style(
+                    "border-radius: 14px; font-weight: 600; padding: 10px 20px; font-size: 13px;"
+                    "color: var(--mf-text); border-color: var(--mf-border);"
+                ).tooltip("Save this entry and immediately add another")
+
                 ui.button("Save", on_click=save, icon="check").props("unelevated").style(
                     f"background: linear-gradient(135deg, {_accent}, {_accent}dd) !important; color: #fff !important;"
                     "font-weight: 800; border-radius: 14px; padding: 10px 36px; font-size: 15px;"
@@ -7471,7 +7484,7 @@ def add_page():
     def open_loc_dialog():
         loc_dlg = ui.dialog()
         with loc_dlg, ui.card().classes("my-card mf-add-dialog").style(
-            "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
+            "width: min(640px, 95vw); max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #60a5fa, #60a5fa66); border-radius: 24px 24px 0 0;')
             with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
@@ -7552,7 +7565,7 @@ def add_page():
 
         cc_dlg = ui.dialog()
         with cc_dlg, ui.card().classes("my-card mf-add-dialog").style(
-            "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
+            "width: min(640px, 95vw); max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #eab308, #eab30866); border-radius: 24px 24px 0 0;')
             with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
@@ -7624,7 +7637,7 @@ def add_page():
 
         inv_dlg = ui.dialog()
         with inv_dlg, ui.card().classes("my-card mf-add-dialog").style(
-            "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
+            "width: min(640px, 95vw); max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #a855f7, #a855f766); border-radius: 24px 24px 0 0;')
             with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
@@ -7700,7 +7713,7 @@ def add_page():
 
         intl_dlg = ui.dialog()
         with intl_dlg, ui.card().classes("my-card mf-add-dialog").style(
-            "width: 520px; max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
+            "width: min(640px, 95vw); max-width: 95vw; max-height: 88vh; overflow-y: auto; padding: 0; border-radius: 24px;"
         ):
             ui.element('div').style('height: 4px; background: linear-gradient(90deg, #f472b6, #f472b666); border-radius: 24px 24px 0 0;')
             with ui.element('div').style('padding: 12px 24px 6px 24px; width: 100%; box-sizing: border-box;'):
@@ -7905,6 +7918,103 @@ def admin_page() -> None:
                         ui.label("Month Locks").classes("text-sm font-bold")
                         ui.label("Toggle locks directly from the Ledger page.").classes("text-[11px] uppercase tracking-wider").style("color: var(--mf-muted);")
                 ui.button("Go to Ledger", on_click=lambda: nav_to("/tx")).props("outline rounded size=sm").style("color: var(--mf-text); border-color: rgba(255,255,255,0.1);")
+
+        # 9.8.1: Budget Ring Color Palette Picker
+        _default_ring = ['#8B5CF6', '#3B82F6', '#F59E0B', '#10B981', '#EC4899', '#EF4444']
+        _saved_ring = app.storage.user.get('budget_ring_colors', None)
+        _current_ring = _saved_ring if (isinstance(_saved_ring, list) and len(_saved_ring) >= 3) else list(_default_ring)
+
+        # Color template presets
+        _color_presets = {
+            'Vivid (default)': ['#8B5CF6', '#3B82F6', '#F59E0B', '#10B981', '#EC4899', '#EF4444'],
+            'Ocean': ['#06b6d4', '#0ea5e9', '#38bdf8', '#22d3ee', '#67e8f9', '#a5f3fc'],
+            'Sunset': ['#f97316', '#ef4444', '#ec4899', '#f59e0b', '#e11d48', '#fb923c'],
+            'Forest': ['#22c55e', '#16a34a', '#84cc16', '#10b981', '#059669', '#4ade80'],
+            'Neon': ['#e879f9', '#c084fc', '#818cf8', '#22d3ee', '#34d399', '#fbbf24'],
+            'Royal': ['#7c3aed', '#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd', '#ddd6fe'],
+        }
+
+        with ui.card().classes("my-card p-0 mt-4").style("overflow: hidden;"):
+            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #8B5CF6, #3B82F6, #F59E0B); border-radius: 0;')
+            with ui.column().classes("p-5 gap-4"):
+                with ui.row().classes("items-center gap-3"):
+                    with ui.element("div").style("width: 36px; height: 36px; border-radius: 10px; background: rgba(139,92,246,0.12); display: flex; align-items: center; justify-content: center;"):
+                        ui.icon("palette").style("font-size: 20px; color: #8B5CF6;")
+                    with ui.column().classes("gap-0"):
+                        ui.label("Budget Ring Colors").classes("text-base font-extrabold").style("letter-spacing: -0.02em;")
+                        ui.label("Choose a color palette for your budget health rings on the homepage.").classes("text-xs").style("color: var(--mf-muted);")
+
+                # Live preview: small SVG ring with current colors
+                _preview_holder = ui.element('div').style('display: flex; align-items: center; gap: 16px; flex-wrap: wrap;')
+
+                def _render_ring_preview(colors):
+                    _preview_holder.clear()
+                    with _preview_holder:
+                        _pv_size = 90
+                        _pv_cx, _pv_cy = _pv_size / 2, _pv_size / 2
+                        _pv_sw = 7
+                        _pv_gap = 2
+                        _pv_r0 = (_pv_size / 2) - 6
+                        _pv_parts = [f'<svg viewBox="0 0 {_pv_size} {_pv_size}" style="width: 90px; height: 90px;">']
+                        for _pi in range(min(3, len(colors))):
+                            _pr = _pv_r0 - _pi * (_pv_sw + _pv_gap)
+                            if _pr < 8:
+                                break
+                            _pc = 2 * 3.14159265 * _pr
+                            _pd = (0.7 - _pi * 0.15) * _pc
+                            _pv_parts.append(f'<circle cx="{_pv_cx}" cy="{_pv_cy}" r="{_pr}" fill="none" stroke="var(--mf-border)" stroke-width="{_pv_sw}" opacity="0.25"/>')
+                            _pv_parts.append(f'<circle cx="{_pv_cx}" cy="{_pv_cy}" r="{_pr}" fill="none" stroke="{colors[_pi]}" stroke-width="{_pv_sw}" stroke-dasharray="{_pd} {_pc}" stroke-linecap="round" transform="rotate(-90 {_pv_cx} {_pv_cy})"/>')
+                        _pv_parts.append('</svg>')
+                        ui.html('\n'.join(_pv_parts))
+                        with ui.column().classes('gap-1'):
+                            for _ci in range(min(3, len(colors))):
+                                with ui.row().classes('items-center gap-2'):
+                                    ui.element('div').style(f'width: 12px; height: 12px; border-radius: 50%; background: {colors[_ci]};')
+                                    ui.label(f'Ring {_ci + 1}').classes('text-xs font-medium').style('color: var(--mf-muted);')
+
+                _render_ring_preview(_current_ring)
+
+                # Preset selector
+                ui.label("Presets").classes("text-xs font-semibold").style("color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px;")
+                with ui.element('div').style('display: flex; flex-wrap: wrap; gap: 8px;'):
+                    for _pname, _pcolors in _color_presets.items():
+                        def _apply_preset(_pc=_pcolors, _pn=_pname):
+                            app.storage.user['budget_ring_colors'] = list(_pc)
+                            _render_ring_preview(_pc)
+                            ui.notify(f'Applied "{_pn}" palette. Refresh homepage to see changes.', type='positive')
+                        # Mini swatch showing first 3 colors
+                        with ui.element('div').style(
+                            'cursor: pointer; padding: 8px 14px; border-radius: 12px; border: 1px solid var(--mf-border);'
+                            'background: var(--mf-surface); display: flex; align-items: center; gap: 8px;'
+                            'transition: all 0.15s ease;'
+                        ).on('click', _apply_preset):
+                            for _sc in _pcolors[:3]:
+                                ui.element('div').style(f'width: 14px; height: 14px; border-radius: 50%; background: {_sc};')
+                            ui.label(_pname).classes('text-xs font-semibold').style('color: var(--mf-text);')
+
+                # Custom color inputs (advanced)
+                with ui.expansion('Custom Colors', icon='tune').classes('w-full').style('margin-top: 4px;'):
+                    _color_inputs = {}
+                    for _cci in range(min(6, len(_current_ring))):
+                        with ui.row().classes('items-center gap-3'):
+                            ui.label(f'Color {_cci + 1}').classes('text-xs font-medium w-16').style('color: var(--mf-muted);')
+                            _ci_input = ui.color_input(label='', value=_current_ring[_cci]).props('dense').classes('w-32')
+                            _color_inputs[_cci] = _ci_input
+
+                    def _save_custom():
+                        _new_colors = []
+                        for _k in range(len(_color_inputs)):
+                            _v = str(_color_inputs[_k].value or '#8B5CF6').strip()
+                            if not _v.startswith('#'):
+                                _v = '#' + _v
+                            _new_colors.append(_v)
+                        app.storage.user['budget_ring_colors'] = _new_colors
+                        _render_ring_preview(_new_colors)
+                        ui.notify('Custom colors saved. Refresh homepage to see changes.', type='positive')
+
+                    ui.button('Save Custom Colors', icon='save', on_click=_save_custom).props('unelevated size=sm').classes('mt-2').style(
+                        'background: linear-gradient(135deg, #8B5CF6, #6366f1) !important; color: #fff !important; border-radius: 10px; font-weight: 600;'
+                    )
 
     shell(content)
 
@@ -8840,15 +8950,15 @@ def cards_page() -> None:
             pct_display = f"{int(round(pct_val * 100))}%"
 
             with ui.element('div').classes(col).style('padding: 8px;'):
-                # The Physical Card Visual
+                # The Physical Card Visual — 9.8.1: realistic card proportions + rounded
                 with ui.element('div').style(
                     f'background: {grad};'
-                    'border-radius: 20px;'
+                    'border-radius: 24px;'
                     'padding: 24px;'
                     'position: relative;'
                     'overflow: hidden;'
                     'box-shadow: 0 20px 40px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.2);'
-                    'min-height: 220px;'
+                    'min-height: 200px; max-width: 420px; aspect-ratio: 1.586 / 1;'
                     'display: flex;'
                     'flex-direction: column;'
                     'justify-content: space-between;'
@@ -8901,8 +9011,8 @@ def cards_page() -> None:
                                 ui.element('div').style(f"width: {pct_val*100:.1f}%; height: 100%; border-radius: 3px; background: {util_grad}; box-shadow: 0 0 8px rgba(255,255,255,0.2);")
 
         def _two_row(items):
-            # Responsive grid (prevents large empty right space on wide desktops)
-            with ui.element('div').classes('grid grid-cols-1 md:grid-cols-2 gap-4 w-full'):
+            # 9.8.1: Responsive grid — constrained card width on desktop for realistic card proportions
+            with ui.element('div').classes('grid grid-cols-1 md:grid-cols-2 gap-5 w-full').style('max-width: 900px;'):
                 for c in items:
                     _tile(c, col='w-full')
 
