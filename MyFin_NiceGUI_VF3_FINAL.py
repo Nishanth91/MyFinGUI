@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.8.3'
+APP_VERSION = '9.8.4'
 
 
 def log(message: str) -> None:
@@ -4341,19 +4341,14 @@ html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
 @media (min-width: 901px) {
   .mf-home-section { width: 100% !important; box-sizing: border-box; }
 }
-/* 9.8.3: Desktop side-by-side for budgets + spending */
+/* 9.8.4: Desktop side-by-side for budgets + spending — equal 50/50 */
 .mf-home-2col { display: flex; flex-direction: column; gap: 16px; width: 100%; }
 @media (min-width: 901px) {
   .mf-home-2col { flex-direction: row; gap: 20px; }
-  .mf-home-2col > * { flex: 1; min-width: 0; }
+  .mf-home-2col > * { flex: 1 1 0%; min-width: 0; max-width: 50%; }
 }
-/* 9.8.3: Budget widget mobile/desktop toggle */
-.mf-budget-mobile { display: block; }
-.mf-budget-desktop { display: none; }
-@media (min-width: 901px) {
-  .mf-budget-mobile { display: none !important; }
-  .mf-budget-desktop { display: block !important; }
-}
+/* 9.8.4: Force equal-height cards inside 2col */
+.mf-home-2col .my-card { height: 100%; }
 /* 8.2.2: Ensure canvas children stretch full width  always */
 .mf-canvas > * { width: 100% !important; min-width: 0; box-sizing: border-box !important; margin-left: 0 !important; margin-right: 0 !important; }
 .mf-canvas .my-card { width: 100% !important; box-sizing: border-box !important; margin-left: 0 !important; margin-right: 0 !important; }
@@ -5759,7 +5754,7 @@ def dashboard_page():
             _sb_r, _sb_g, _sb_b = _hex_to_rgb(_sb_color)
             _sb_color2 = _rgb_to_hex(max(0, _sb_r - 40), max(0, _sb_g - 20), min(255, _sb_b + 30))
 
-            with ui.card().classes('my-card p-0 mf-home-section').style('overflow: hidden;'):
+            with ui.card().classes('my-card p-0').style('overflow: hidden; width: 100%;'):
                 ui.element('div').style(f'height: 3px; background: linear-gradient(90deg, {_sb_color}, {_sb_color2}); border-radius: 0;')
                 with ui.column().classes('p-5 gap-4'):
                     with ui.row().classes('items-center gap-2'):
@@ -5921,97 +5916,65 @@ def dashboard_page():
                     except Exception:
                         pass
 
-        # 9.8.3: Budget widget renderer (deferred — called in side-by-side layout below)
+        # 9.8.4: Budget widget renderer — rings on both mobile & desktop
         def _render_budget_widget():
             if not _budget_rows:
                 return
             _user_ring_colors = app.storage.user.get('budget_ring_colors', None)
             _ring_colors = _user_ring_colors if (isinstance(_user_ring_colors, list) and len(_user_ring_colors) >= 3) else ['#8B5CF6', '#3B82F6', '#F59E0B', '#10B981', '#EC4899', '#EF4444']
 
-            # ── Mobile: Horizontally scrollable budget tiles (hero-tile style) ──
-            with ui.element('div').classes('mf-budget-mobile'):
-                with ui.row().classes('items-center gap-2 mb-2 px-1'):
-                    with ui.element('div').style(f'width: 28px; height: 28px; border-radius: 8px; background: {_ring_colors[0]}1A; display: flex; align-items: center; justify-content: center;'):
-                        ui.icon('account_balance_wallet').style(f'font-size: 15px; color: {_ring_colors[0]};')
-                    ui.label('Budgets').classes('text-sm font-extrabold').style('letter-spacing: -0.02em;')
-                with ui.element('div').style(
-                    'display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory;'
-                    '-webkit-overflow-scrolling: touch; scrollbar-width: none; padding: 0 2px 8px 2px;'
-                ).classes('mf-hide-scrollbar'):
-                    for _bi, (cat, spent_amt, bud_amt) in enumerate(_budget_rows):
+            with ui.card().classes('my-card p-0').style('overflow: hidden; width: 100%;'):
+                ui.element('div').style(f'height: 3px; background: linear-gradient(90deg, {_ring_colors[0]}, {_ring_colors[1] if len(_ring_colors) > 1 else _ring_colors[0]}, {_ring_colors[2] if len(_ring_colors) > 2 else _ring_colors[0]}); border-radius: 0;')
+                with ui.column().classes('p-5 gap-4'):
+                    with ui.row().classes('items-center gap-2'):
+                        with ui.element('div').style(f'width: 32px; height: 32px; border-radius: 10px; background: {_ring_colors[0]}1A; display: flex; align-items: center; justify-content: center;'):
+                            ui.icon('account_balance_wallet').style(f'font-size: 18px; color: {_ring_colors[0]};')
+                        ui.label('Budgets').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
+
+                    # Build concentric rings SVG
+                    _ring_size = 180
+                    _cx, _cy = _ring_size / 2, _ring_size / 2
+                    _stroke_w = 12
+                    _gap = 3
+                    _outer_r = (_ring_size / 2) - 8
+                    _ring_data = []
+                    for _ri, (cat, spent_amt, bud_amt) in enumerate(_budget_rows):
                         pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
-                        _rc = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else _ring_colors[_bi % len(_ring_colors)])
-                        with ui.element('div').style(
-                            f'min-width: 150px; width: min(170px, 42vw); border-radius: 20px; padding: 16px;'
-                            f'background: var(--mf-card-top); border: 1px solid var(--mf-border);'
-                            f'display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; scroll-snap-align: start;'
-                            f'box-shadow: 0 4px 12px rgba(0,0,0,0.05);'
-                        ):
-                            with ui.row().classes('items-center gap-2'):
-                                ui.element('div').style(f'width: 10px; height: 10px; border-radius: 50%; background: {_rc};')
-                                ui.label(cat).classes('text-xs font-semibold').style('color: var(--mf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px;')
-                            # Progress bar
-                            with ui.element('div').style('width: 100%; height: 6px; border-radius: 3px; background: var(--mf-border); overflow: hidden;'):
-                                ui.element('div').style(f'width: {int(pct*100)}%; height: 100%; border-radius: 3px; background: {_rc}; transition: width 0.4s ease;')
-                            with ui.row().classes('items-center justify-between w-full'):
-                                ui.label(currency(spent_amt)).classes('text-sm font-extrabold').style(f'color: {_rc}; font-feature-settings: "tnum";')
-                                ui.label(f'{int(pct*100)}%').classes('text-xs font-bold').style(f'color: {_rc};')
-                            ui.label(f'of {currency(bud_amt)}').classes('text-[10px]').style('color: var(--mf-muted); font-feature-settings: "tnum"; margin-top: -6px;')
+                        _rc = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else _ring_colors[_ri % len(_ring_colors)])
+                        _r = _outer_r - _ri * (_stroke_w + _gap)
+                        if _r < 15:
+                            break
+                        _circ = 2 * 3.14159265 * _r
+                        _dash = pct * _circ
+                        _ring_data.append((cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash))
 
-            # ── Desktop: SVG concentric rings card ──
-            with ui.element('div').classes('mf-budget-desktop'):
-                with ui.card().classes('my-card p-0').style('overflow: hidden; width: 100%;'):
-                    ui.element('div').style(f'height: 3px; background: linear-gradient(90deg, {_ring_colors[0]}, {_ring_colors[1] if len(_ring_colors) > 1 else _ring_colors[0]}, {_ring_colors[2] if len(_ring_colors) > 2 else _ring_colors[0]}); border-radius: 0;')
-                    with ui.column().classes('p-5 gap-4'):
-                        with ui.row().classes('items-center gap-2'):
-                            with ui.element('div').style(f'width: 32px; height: 32px; border-radius: 10px; background: {_ring_colors[0]}1A; display: flex; align-items: center; justify-content: center;'):
-                                ui.icon('account_balance_wallet').style(f'font-size: 18px; color: {_ring_colors[0]};')
-                            ui.label('Budgets').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
+                    _svg_parts = [f'<svg viewBox="0 0 {_ring_size} {_ring_size}" style="width: 100%; max-width: 180px; height: auto;">']
+                    for (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in _ring_data:
+                        _svg_parts.append(f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" stroke="var(--mf-border)" stroke-width="{_stroke_w}" opacity="0.3" />')
+                        _svg_parts.append(
+                            f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" '
+                            f'stroke="{_rc}" stroke-width="{_stroke_w}" '
+                            f'stroke-dasharray="{_dash} {_circ}" '
+                            f'stroke-linecap="round" '
+                            f'transform="rotate(-90 {_cx} {_cy})" '
+                            f'style="transition: stroke-dasharray 0.6s ease;" />'
+                        )
+                    _svg_parts.append('</svg>')
+                    _svg_html = '\n'.join(_svg_parts)
 
-                        # Build concentric rings SVG
-                        _ring_size = 220
-                        _cx, _cy = _ring_size / 2, _ring_size / 2
-                        _stroke_w = 14
-                        _gap = 4
-                        _outer_r = (_ring_size / 2) - 10
-                        _ring_data = []
-                        for _ri, (cat, spent_amt, bud_amt) in enumerate(_budget_rows):
-                            pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
-                            _rc = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else _ring_colors[_ri % len(_ring_colors)])
-                            _r = _outer_r - _ri * (_stroke_w + _gap)
-                            if _r < 15:
-                                break
-                            _circ = 2 * 3.14159265 * _r
-                            _dash = pct * _circ
-                            _ring_data.append((cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash))
-
-                        _svg_parts = [f'<svg viewBox="0 0 {_ring_size} {_ring_size}" style="width: 100%; max-width: 210px; height: auto;">']
-                        for (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in _ring_data:
-                            _svg_parts.append(f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" stroke="var(--mf-border)" stroke-width="{_stroke_w}" opacity="0.3" />')
-                            _svg_parts.append(
-                                f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" '
-                                f'stroke="{_rc}" stroke-width="{_stroke_w}" '
-                                f'stroke-dasharray="{_dash} {_circ}" '
-                                f'stroke-linecap="round" '
-                                f'transform="rotate(-90 {_cx} {_cy})" '
-                                f'style="transition: stroke-dasharray 0.6s ease;" />'
-                            )
-                        _svg_parts.append('</svg>')
-                        _svg_html = '\n'.join(_svg_parts)
-
-                        with ui.element('div').style(
-                            'display: flex; align-items: center; gap: 32px; flex-wrap: wrap; justify-content: center;'
-                        ):
-                            ui.html(_svg_html).style('flex-shrink: 0;')
-                            with ui.column().classes('gap-3').style('flex: 1; min-width: 140px; max-width: 360px;'):
-                                for (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in _ring_data:
-                                    with ui.element('div').style('display: flex; align-items: center; gap: 12px;'):
-                                        ui.element('div').style(f'width: 12px; height: 12px; border-radius: 50%; background: {_rc}; flex-shrink: 0;')
-                                        with ui.column().classes('gap-0').style('flex: 1; min-width: 0;'):
-                                            with ui.row().classes('items-center justify-between w-full'):
-                                                ui.label(cat).classes('text-sm font-semibold').style('color: var(--mf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px;')
-                                                ui.label(f'{int(pct*100)}%').classes('text-sm font-extrabold').style(f'color: {_rc};')
-                                            ui.label(f'{currency(spent_amt)} of {currency(bud_amt)}').classes('text-xs').style('color: var(--mf-muted); font-feature-settings: "tnum";')
+                    with ui.element('div').style(
+                        'display: flex; align-items: center; gap: 20px; flex-wrap: wrap; justify-content: center;'
+                    ):
+                        ui.html(_svg_html).style('flex-shrink: 0;')
+                        with ui.column().classes('gap-2').style('flex: 1; min-width: 120px;'):
+                            for (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in _ring_data:
+                                with ui.element('div').style('display: flex; align-items: center; gap: 10px;'):
+                                    ui.element('div').style(f'width: 10px; height: 10px; border-radius: 50%; background: {_rc}; flex-shrink: 0;')
+                                    with ui.column().classes('gap-0').style('flex: 1; min-width: 0;'):
+                                        with ui.row().classes('items-center justify-between w-full'):
+                                            ui.label(cat).classes('text-xs font-semibold').style('color: var(--mf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px;')
+                                            ui.label(f'{int(pct*100)}%').classes('text-xs font-extrabold').style(f'color: {_rc};')
+                                        ui.label(f'{currency(spent_amt)} of {currency(bud_amt)}').classes('text-[10px]').style('color: var(--mf-muted); font-feature-settings: "tnum";')
 
         #  Dashboard section helpers (closure over spend, expense, tx, etc.)
         # _render_insights() and _render_alerts() removed in v9.0
@@ -8073,7 +8036,7 @@ def color_matrix_page() -> None:
                         def _apply_preset(_pc=_pcolors, _pn=_pname):
                             app.storage.user['budget_ring_colors'] = list(_pc)
                             _render_ring_preview(_pc)
-                            ui.notify(f'Applied "{_pn}" palette. Refresh homepage to see changes.', type='positive')
+                            ui.notify(f'Applied "{_pn}" palette.', type='positive', timeout=1500)
                         with ui.element('div').style(
                             'cursor: pointer; padding: 8px 14px; border-radius: 12px; border: 1px solid var(--mf-border);'
                             'background: var(--mf-surface); display: flex; align-items: center; gap: 8px;'
@@ -8101,7 +8064,7 @@ def color_matrix_page() -> None:
                             _new_colors.append(_v)
                         app.storage.user['budget_ring_colors'] = _new_colors
                         _render_ring_preview(_new_colors)
-                        ui.notify('Custom colors saved. Refresh homepage to see changes.', type='positive')
+                        ui.notify('Custom colors saved.', type='positive', timeout=1500)
 
                     ui.button('Save Custom Colors', icon='save', on_click=_save_custom).props('unelevated size=sm').classes('mt-2').style(
                         'background: linear-gradient(135deg, #8B5CF6, #6366f1) !important; color: #fff !important; border-radius: 10px; font-weight: 600;'
@@ -8140,7 +8103,7 @@ def color_matrix_page() -> None:
                         def _apply_sb_preset(_c=_sb_pcolor, _n=_sb_pname):
                             app.storage.user['spending_breakdown_color'] = _c
                             _render_sb_preview(_c)
-                            ui.notify(f'Applied "{_n}" accent. Refresh homepage to see changes.', type='positive')
+                            ui.notify(f'Applied "{_n}" accent.', type='positive', timeout=1500)
                         _is_active = _current_sb_color.lower() == _sb_pcolor.lower()
                         with ui.element('div').style(
                             f'cursor: pointer; padding: 6px 14px; border-radius: 12px;'
@@ -8161,7 +8124,7 @@ def color_matrix_page() -> None:
                             _v = '#' + _v
                         app.storage.user['spending_breakdown_color'] = _v
                         _render_sb_preview(_v)
-                        ui.notify('Accent color saved. Refresh homepage to see changes.', type='positive')
+                        ui.notify('Accent color saved.', type='positive', timeout=1500)
 
                     ui.button('Save Accent Color', icon='save', on_click=_save_sb_custom).props('unelevated size=sm').classes('mt-2').style(
                         'background: linear-gradient(135deg, #3B82F6, #1d4ed8) !important; color: #fff !important; border-radius: 10px; font-weight: 600;'
@@ -10670,5 +10633,15 @@ ui.run(
 #    Removed inline card from admin page
 # 4. Budget rendering refactored into _render_budget_widget()
 #    Data captured in _budget_rows for deferred rendering
+#
+# ── v9.8.4  ──────────────────────────────────────────────────
+# 1. Desktop: Fixed Budgets + Spending Breakdown equal 50/50 sizing
+#    flex: 1 1 0% + max-width: 50% + height: 100% for equal cards
+# 2. Mobile: Removed tile-based budget view, rings on all viewports
+#    Ring params scaled to fit both (viewBox 180, stroke 12, gap 3)
+# 3. Color Matrix notify popups: timeout 1500ms, shorter messages
+#    No longer blocks interaction after applying a color
+# 4. Spending Breakdown card: removed mf-home-section class
+#    (parent mf-home-2col handles layout)
 #
 
