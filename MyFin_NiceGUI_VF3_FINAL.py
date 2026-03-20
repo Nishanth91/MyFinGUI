@@ -10913,6 +10913,7 @@ app.on_startup(lambda: asyncio.create_task(_prewarm_cache()))
 ui.run(
     host="0.0.0.0",
     port=PORT,
+    show=False,           # headless — Render has no browser
     storage_secret=STORAGE_SECRET or "PLEASE_SET_NICEGUI_STORAGE_SECRET",
     title=APP_TITLE,
     favicon=_FAVICON_SVG,
