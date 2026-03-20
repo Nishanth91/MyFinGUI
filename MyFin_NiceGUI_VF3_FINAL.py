@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.10'
+APP_VERSION = '9.11'
 
 
 def log(message: str) -> None:
@@ -5911,87 +5911,80 @@ def dashboard_page():
                     except Exception:
                         pass
 
-        # 9.10: Budget widget renderer — hero-ring style (matches cashflow rings hero)
+        # 9.11: Budget widget — light card with hero-style concentric rings
         def _render_budget_widget():
             if not _budget_rows:
                 return
             _user_ring_colors = app.storage.user.get('budget_ring_colors', None)
             _ring_colors = _user_ring_colors if (isinstance(_user_ring_colors, list) and len(_user_ring_colors) >= 3) else ['#8B5CF6', '#3B82F6', '#F59E0B', '#10B981', '#EC4899', '#EF4444']
 
-            # Overall budget usage
             _total_spent = sum(s for _, s, _ in _budget_rows)
             _total_budget = sum(b for _, _, b in _budget_rows)
             _overall_pct = min(1.0, _total_spent / _total_budget) if _total_budget > 0 else 0
 
-            with ui.element('div').classes('w-full').style(
-                'background: linear-gradient(145deg, rgba(15,23,42,0.92), rgba(30,41,59,0.96));'
-                'border-radius: 32px;'
-                'border: 1px solid rgba(255,255,255,0.08);'
-                'box-shadow: 0 24px 48px -8px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.08);'
-                'backdrop-filter: blur(24px);'
-                'overflow: hidden; position: relative; padding: 24px 20px;'
+            _c0 = _ring_colors[0]
+            _c1 = _ring_colors[1] if len(_ring_colors) > 1 else _c0
+
+            with ui.card().classes('my-card p-0').style(
+                'overflow:hidden;width:100%;'
+                'background:var(--mf-card-top);'
+                'border:1px solid var(--mf-border);'
+                'border-radius:24px;'
             ):
-                # Glowing orbs
-                _c0 = _ring_colors[0]
-                _c1 = _ring_colors[1] if len(_ring_colors) > 1 else _c0
-                ui.html(f'''
-                    <div style="position:absolute;top:-40px;left:-40px;width:160px;height:160px;background:radial-gradient(circle,{_c0}22 0%,transparent 70%);border-radius:50%;pointer-events:none;"></div>
-                    <div style="position:absolute;bottom:-40px;right:-40px;width:160px;height:160px;background:radial-gradient(circle,{_c1}1A 0%,transparent 70%);border-radius:50%;pointer-events:none;"></div>
-                ''')
+                ui.element('div').style(f'height:3px;background:linear-gradient(90deg,{_c0},{_c1});')
+                with ui.column().classes('p-5 gap-4'):
+                    with ui.row().classes('items-center gap-2'):
+                        with ui.element('div').style(f'width:32px;height:32px;border-radius:10px;background:{_c0}1A;display:flex;align-items:center;justify-content:center;'):
+                            ui.icon('account_balance_wallet').style(f'font-size:18px;color:{_c0};')
+                        ui.label('Budgets').classes('text-base font-extrabold').style('letter-spacing:-0.02em;')
 
-                # Title
-                with ui.row().classes('items-center gap-2 mb-4').style('position:relative;z-index:10;'):
-                    ui.icon('account_balance_wallet').style('font-size:18px; color:rgba(255,255,255,0.7);')
-                    ui.label('Budgets').style('font-size:16px; font-weight:800; color:rgba(255,255,255,0.9); letter-spacing:-0.02em;')
+                    # Build concentric rings
+                    _ring_size = 180
+                    _cx, _cy = _ring_size / 2, _ring_size / 2
+                    _stroke_w = 12
+                    _gap = 3
+                    _outer_r = (_ring_size / 2) - 8
+                    _ring_data = []
+                    for _ri, (cat, spent_amt, bud_amt) in enumerate(_budget_rows):
+                        pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
+                        _rc = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else _ring_colors[_ri % len(_ring_colors)])
+                        _r = _outer_r - _ri * (_stroke_w + _gap)
+                        if _r < 15:
+                            break
+                        _circ = 2 * 3.14159265 * _r
+                        _dash = pct * _circ
+                        _ring_data.append((cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash))
 
-                # Build concentric rings
-                _ring_size = 180
-                _cx, _cy = _ring_size / 2, _ring_size / 2
-                _stroke_w = 12
-                _gap = 3
-                _outer_r = (_ring_size / 2) - 8
-                _ring_data = []
-                for _ri, (cat, spent_amt, bud_amt) in enumerate(_budget_rows):
-                    pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
-                    _rc = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else _ring_colors[_ri % len(_ring_colors)])
-                    _r = _outer_r - _ri * (_stroke_w + _gap)
-                    if _r < 15:
-                        break
-                    _circ = 2 * 3.14159265 * _r
-                    _dash = pct * _circ
-                    _ring_data.append((cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash))
+                    # SVG ring with gradient strokes
+                    _svg_parts = []
+                    _svg_parts.append(f'<div style="position:relative;width:190px;height:190px;margin:0 auto;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.08));">')
+                    _svg_parts.append(f'<svg viewBox="0 0 {_ring_size} {_ring_size}" style="transform:rotate(-90deg);width:100%;height:100%;"><defs>')
+                    for _ri, (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in enumerate(_ring_data):
+                        _svg_parts.append(f'<linearGradient id="budG{_ri}" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="{_rc}"/><stop offset="100%" stop-color="{_rc}BB"/></linearGradient>')
+                    _svg_parts.append('</defs>')
+                    for _ri, (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in enumerate(_ring_data):
+                        _svg_parts.append(f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" stroke="var(--mf-border)" stroke-width="{_stroke_w}" stroke-linecap="round" opacity="0.35"/>')
+                        _svg_parts.append(f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" stroke="url(#budG{_ri})" stroke-width="{_stroke_w}" stroke-dasharray="{_dash:.1f} {_circ:.1f}" stroke-linecap="round" style="transition:stroke-dasharray 1.5s cubic-bezier(0.22,1,0.36,1) {_ri*0.15}s;"/>')
+                    _svg_parts.append('</svg>')
+                    # Center text overlay
+                    _pct_color = '#ef4444' if _overall_pct >= 1.0 else ('#f59e0b' if _overall_pct >= 0.8 else 'var(--mf-text)')
+                    _svg_parts.append(f'<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;">')
+                    _svg_parts.append(f'<span style="font-size:11px;font-weight:700;color:var(--mf-muted);text-transform:uppercase;letter-spacing:0.15em;">Budget</span>')
+                    _svg_parts.append(f'<span style="font-size:26px;font-weight:900;color:{_pct_color};letter-spacing:-0.04em;font-feature-settings:\'tnum\';">{int(_overall_pct*100)}%</span>')
+                    _svg_parts.append(f'<span style="font-size:10px;font-weight:600;color:var(--mf-muted);">{currency(_total_spent)}</span>')
+                    _svg_parts.append('</div></div>')
+                    ui.html('\n'.join(_svg_parts))
 
-                # SVG with gradient strokes (hero style)
-                _svg_parts = []
-                _svg_parts.append(f'<div style="position:relative;width:190px;height:190px;margin:0 auto;filter:drop-shadow(0 8px 16px rgba(0,0,0,0.4));">')
-                _svg_parts.append(f'<svg viewBox="0 0 {_ring_size} {_ring_size}" style="transform:rotate(-90deg);width:100%;height:100%;"><defs>')
-                for _ri, (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in enumerate(_ring_data):
-                    _svg_parts.append(f'<linearGradient id="budG{_ri}" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="{_rc}"/><stop offset="100%" stop-color="{_rc}BB"/></linearGradient>')
-                _svg_parts.append('</defs>')
-                for _ri, (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in enumerate(_ring_data):
-                    _svg_parts.append(f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="{_stroke_w}" stroke-linecap="round"/>')
-                    _svg_parts.append(f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" stroke="url(#budG{_ri})" stroke-width="{_stroke_w}" stroke-dasharray="{_dash:.1f} {_circ:.1f}" stroke-linecap="round" style="transition:stroke-dasharray 1.5s cubic-bezier(0.22,1,0.36,1) {_ri*0.15}s;"/>')
-                _svg_parts.append('</svg>')
-                # Center text overlay
-                _pct_color = '#ef4444' if _overall_pct >= 1.0 else ('#f59e0b' if _overall_pct >= 0.8 else '#fff')
-                _svg_parts.append(f'<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;">')
-                _svg_parts.append(f'<span style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.15em;">Budget</span>')
-                _svg_parts.append(f'<span style="font-size:26px;font-weight:900;color:{_pct_color};letter-spacing:-0.04em;font-feature-settings:\'tnum\';text-shadow:0 4px 12px rgba(0,0,0,0.5);">{int(_overall_pct*100)}%</span>')
-                _svg_parts.append(f'<span style="font-size:10px;font-weight:600;color:rgba(255,255,255,0.4);">{currency(_total_spent)}</span>')
-                _svg_parts.append('</div></div>')
-                ui.html('\n'.join(_svg_parts))
-
-                # Glassmorphism badges (like cashflow hero badges)
-                with ui.element('div').style('display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px;position:relative;z-index:10;'):
-                    for (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in _ring_data:
-                        with ui.element('div').style(
-                            f'background:{_rc}1A;padding:5px 12px;border-radius:20px;'
-                            f'border:1px solid {_rc}40;backdrop-filter:blur(8px);'
-                            f'display:flex;align-items:center;gap:6px;'
-                            f'box-shadow:0 4px 12px {_rc}15;'
-                        ):
-                            ui.element('div').style(f'width:8px;height:8px;border-radius:50%;background:{_rc};flex-shrink:0;')
-                            ui.label(f'{cat} {int(pct*100)}%').style(f'font-size:11px;font-weight:700;color:{_rc};white-space:nowrap;')
+                    # Category badges
+                    with ui.element('div').style('display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:12px;'):
+                        for (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in _ring_data:
+                            with ui.element('div').style(
+                                f'background:{_rc}12;padding:5px 12px;border-radius:20px;'
+                                f'border:1px solid {_rc}30;'
+                                f'display:flex;align-items:center;gap:6px;'
+                            ):
+                                ui.element('div').style(f'width:8px;height:8px;border-radius:50%;background:{_rc};flex-shrink:0;')
+                                ui.label(f'{cat} {int(pct*100)}%').style(f'font-size:11px;font-weight:700;color:{_rc};white-space:nowrap;')
 
         def _render_recent_tx():
             try:
@@ -9871,284 +9864,267 @@ def data_upload_page() -> None:
                     ui.label('Data Upload').classes('text-xl font-extrabold').style('letter-spacing: -0.02em;')
                     ui.label('Smart spreadsheet import with card detection & recurring analysis').classes('text-xs').style('color: var(--mf-muted);')
 
-        # ── 9.10: Column mapping info ──
-        with ui.card().classes('my-card p-5 mb-4'):
-            with ui.row().classes('items-center gap-2 mb-3'):
-                ui.icon('info').style('font-size:18px;color:#06b6d4;')
-                ui.label('Expected Spreadsheet Format').classes('text-sm font-bold')
-            _cols_info = [
-                ('Date', 'Transaction date (any format)'),
-                ('International Transaction', 'Amount for international transfers'),
-                ('Credit', 'Income / salary credited'),
-                ('Investment', 'Investment transactions'),
-                ('Credit Card repay', 'CC repayment amounts'),
-                ('Debit', 'Expenses / debit amounts'),
-                ('Reason/Note', 'Description — used for card detection & category inference'),
-            ]
-            for _cn, _cd in _cols_info:
-                with ui.row().classes('items-center gap-3 w-full').style('padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);'):
-                    ui.label(_cn).classes('text-xs font-bold').style('min-width:150px;color:#06b6d4;')
-                    ui.label(_cd).classes('text-xs').style('color:var(--mf-muted);')
+        # 9.11: Single-section Data Upload with inline mode + restore
+        _upload_state = {'mode': 'append', 'file_data': None, 'file_name': ''}
+        _result_container = ui.column().classes('w-full gap-3')
 
-        # ── Upload mode selection ──
-        _upload_state = {'mode': 'append'}
-        with ui.card().classes('my-card p-5 mb-4'):
-            with ui.row().classes('items-center gap-2 mb-3'):
-                ui.icon('swap_horiz').style('font-size:18px;color:#f59e0b;')
-                ui.label('Upload Mode').classes('text-sm font-bold')
-            with ui.row().classes('gap-4'):
+        with ui.card().classes('my-card p-5'):
+            # Step 1: Expected format (collapsible hint)
+            with ui.expansion('Expected Spreadsheet Columns', icon='info').classes('w-full').style('font-weight:600;'):
+                _cols_info = [
+                    ('Date', 'Transaction date (any format)'),
+                    ('International Transaction', 'Amount for international transfers'),
+                    ('Credit', 'Income / salary credited'),
+                    ('Investment', 'Investment transactions'),
+                    ('Credit Card repay', 'CC repayment amounts'),
+                    ('Debit', 'Expenses / debit amounts'),
+                    ('Reason/Note', 'Description — used for card detection & category inference'),
+                ]
+                for _cn, _cd in _cols_info:
+                    with ui.row().classes('items-center gap-3 w-full').style('padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);'):
+                        ui.label(_cn).classes('text-xs font-bold').style('min-width:150px;color:#06b6d4;')
+                        ui.label(_cd).classes('text-xs').style('color:var(--mf-muted);')
+
+            ui.element('div').style('height:16px;')
+
+            # Step 2: File picker
+            ui.label('Choose your spreadsheet (.csv or .xlsx)').classes('text-sm font-semibold mb-2')
+            upload_el = ui.upload(label='Select file', auto_upload=True).props('accept=.csv,.xlsx,.xls').classes('w-full')
+
+            _status_label = ui.label('').classes('text-xs mt-2').style('color:var(--mf-muted);')
+
+            def _on_file_selected(e):
+                try:
+                    raw = e.content.read() if hasattr(e, 'content') else e
+                    _upload_state['file_data'] = raw if isinstance(raw, (bytes, bytearray)) else bytes(raw)
+                    _upload_state['file_name'] = getattr(e, 'name', 'file') or 'file'
+                    _status_label.set_text(f'File ready: {_upload_state["file_name"]}')
+                except Exception as ex:
+                    ui.notify(f'Error reading file: {ex}', type='negative')
+            upload_el.on('upload', _on_file_selected)
+
+            ui.element('div').style('height:12px;')
+
+            # Step 3: Append or Replace toggle + Restore button
+            with ui.row().classes('items-center gap-4 flex-wrap'):
                 _mode_toggle = ui.toggle(
-                    {'append': 'Append to existing', 'replace': 'Replace all data'},
+                    {'append': 'Append', 'replace': 'Replace All'},
                     value='append'
-                ).props('no-caps rounded').style('font-weight:600;')
+                ).props('no-caps rounded dense').style('font-weight:600;')
                 def _on_mode_change(e):
                     _upload_state['mode'] = e.value
                 _mode_toggle.on('update:model-value', _on_mode_change)
-            ui.label('Append: keeps existing transactions and adds new ones. Replace: removes all existing transactions first.').classes('text-[11px] mt-2').style('color:var(--mf-muted);')
 
-        # ── File upload ──
-        _result_container = ui.column().classes('w-full gap-3')
-
-        with ui.card().classes('my-card p-5 mb-4'):
-            with ui.row().classes('items-center gap-2 mb-3'):
-                ui.icon('upload_file').style('font-size:18px;color:#22c55e;')
-                ui.label('Upload Spreadsheet').classes('text-sm font-bold')
-            ui.label('Upload a CSV or Excel file (.csv, .xlsx) with the columns listed above.').classes('text-xs mb-3').style('color:var(--mf-muted);')
-
-            upload_el = ui.upload(label='Choose file', auto_upload=True).props('accept=.csv,.xlsx,.xls').classes('w-full')
-
-            async def _on_smart_upload(e):
-                try:
-                    raw = e.content.read() if hasattr(e, 'content') else e
-                    data = raw if isinstance(raw, (bytes, bytearray)) else bytes(raw)
-
-                    # Parse file
-                    fname = getattr(e, 'name', '') or ''
-                    if fname.endswith(('.xlsx', '.xls')):
-                        try:
-                            import openpyxl  # noqa
-                            df = pd.read_excel(io.BytesIO(data))
-                        except ImportError:
-                            df = pd.read_excel(io.BytesIO(data), engine='openpyxl')
-                    else:
-                        df = parse_uploaded_csv(data)
-
-                    if df is None or df.empty:
-                        ui.notify('File is empty.', type='warning')
+                async def _do_restore():
+                    data = _upload_state.get('file_data')
+                    if not data:
+                        ui.notify('Upload a file first.', type='warning')
                         return
-
-                    # Normalize column names
-                    col_map = {}
-                    for c in df.columns:
-                        cl = str(c).strip().lower()
-                        if 'date' in cl:
-                            col_map['date'] = c
-                        elif 'international' in cl:
-                            col_map['intl'] = c
-                        elif cl in ('credit', 'credits', 'income', 'salary'):
-                            col_map['credit'] = c
-                        elif 'invest' in cl:
-                            col_map['invest'] = c
-                        elif 'credit card' in cl or 'cc repay' in cl or 'cc_repay' in cl or 'creditcard' in cl:
-                            col_map['cc_repay'] = c
-                        elif cl in ('debit', 'debits', 'expense', 'expenses', 'amount'):
-                            col_map['debit'] = c
-                        elif 'reason' in cl or 'note' in cl or 'description' in cl:
-                            col_map['notes'] = c
-
-                    if 'date' not in col_map:
-                        ui.notify('No date column found. Expected a column with "Date" in its name.', type='negative')
-                        return
-
-                    # Card detection from notes
-                    def _detect_card(notes_str: str, tx_type: str) -> tuple:
-                        """Returns (method, account) based on notes content."""
-                        nl = notes_str.lower().strip()
-                        if tx_type in ('credit', 'investment'):
-                            return ('Bank', '')
-                        if 'rbc visa' in nl:
-                            return ('Card', 'RBC VISA')
-                        if 'rbc mastercard' in nl or 'rbc mc' in nl:
-                            return ('Card', 'RBC Mastercard')
-                        if 'loc' in nl:
-                            return ('Card', 'RBC Line of Credit')
-                        if 'black cc' in nl or 'blac card' in nl or 'black card' in nl:
-                            return ('Card', 'CT Mastercard - Black')
-                        # Default for expenses/cc repay: CT Grey
-                        if tx_type in ('cc_repay',):
-                            if 'master card' in nl or 'mastercard' in nl:
-                                return ('Card', 'CT Mastercard - Grey')
-                            return ('Card', 'CT Mastercard - Grey')
-                        # Default expense card
-                        return ('Card', 'CT Mastercard - Grey')
-
-                    # Category inference from notes using rules engine
-                    _rules = load_rules()
-
-                    def _infer_category(notes_str: str, tx_type: str) -> str:
-                        if tx_type == 'intl':
-                            return 'International Transfer'
-                        if tx_type == 'credit':
-                            return 'Salary'
-                        if tx_type == 'invest':
-                            return 'Investment'
-                        if tx_type == 'cc_repay':
-                            return 'CC Repayment'
-                        # Try rules engine
-                        nl = notes_str.lower()
-                        for keyword, cat in _rules:
-                            if keyword.lower() in nl:
-                                return cat
-                        return 'Uncategorized'
-
-                    # Replace mode: clear existing transactions
-                    mode = _upload_state.get('mode', 'append')
-                    if mode == 'replace':
-                        try:
-                            headers = sheet_headers('transactions')
-                            empty_df = pd.DataFrame(columns=headers)
-                            await run.io_bound(lambda: write_df_to_sheet('transactions', empty_df, headers))
-                            invalidate('transactions')
-                        except Exception as ex:
-                            ui.notify(f'Failed to clear transactions: {ex}', type='negative')
+                    fname = _upload_state.get('file_name', '')
+                    try:
+                        if fname.endswith(('.xlsx', '.xls')):
+                            try:
+                                import openpyxl  # noqa
+                                df = pd.read_excel(io.BytesIO(data))
+                            except ImportError:
+                                df = pd.read_excel(io.BytesIO(data), engine='openpyxl')
+                        else:
+                            df = parse_uploaded_csv(data)
+                        if df is None or df.empty:
+                            ui.notify('File is empty.', type='warning')
                             return
 
-                    # Process each row — multiple amount columns = multiple transactions
-                    _amount_cols = {
-                        'intl': ('International Transfer', col_map.get('intl')),
-                        'credit': ('Credit', col_map.get('credit')),
-                        'invest': ('Investment', col_map.get('invest')),
-                        'cc_repay': ('CC Repay', col_map.get('cc_repay')),
-                        'debit': ('Debit', col_map.get('debit')),
-                    }
+                        # Normalize columns
+                        col_map = {}
+                        for c in df.columns:
+                            cl = str(c).strip().lower()
+                            if 'date' in cl:
+                                col_map['date'] = c
+                            elif 'international' in cl:
+                                col_map['intl'] = c
+                            elif cl in ('credit', 'credits', 'income', 'salary'):
+                                col_map['credit'] = c
+                            elif 'invest' in cl:
+                                col_map['invest'] = c
+                            elif 'credit card' in cl or 'cc repay' in cl or 'cc_repay' in cl or 'creditcard' in cl:
+                                col_map['cc_repay'] = c
+                            elif cl in ('debit', 'debits', 'expense', 'expenses', 'amount'):
+                                col_map['debit'] = c
+                            elif 'reason' in cl or 'note' in cl or 'description' in cl:
+                                col_map['notes'] = c
+                        if 'date' not in col_map:
+                            ui.notify('No date column found.', type='negative')
+                            return
 
-                    imported = 0
-                    _recurring_tracker: dict[str, list] = {}  # key -> list of (date, day_of_month)
+                        def _detect_card(notes_str: str, tx_type: str) -> tuple:
+                            nl = notes_str.lower().strip()
+                            if tx_type in ('credit', 'investment'):
+                                return ('Bank', '')
+                            if 'rbc visa' in nl:
+                                return ('Card', 'RBC VISA')
+                            if 'rbc mastercard' in nl or 'rbc mc' in nl:
+                                return ('Card', 'RBC Mastercard')
+                            if 'loc' in nl:
+                                return ('Card', 'RBC Line of Credit')
+                            if 'black cc' in nl or 'blac card' in nl or 'black card' in nl:
+                                return ('Card', 'CT Mastercard - Black')
+                            if tx_type in ('cc_repay',):
+                                return ('Card', 'CT Mastercard - Grey')
+                            return ('Card', 'CT Mastercard - Grey')
 
-                    for _, row in df.iterrows():
-                        d = parse_date(row.get(col_map['date']))
-                        if not d:
-                            continue
-                        notes = str(row.get(col_map.get('notes', ''), '') or '').strip()
+                        _rules = load_rules()
+                        def _infer_category(notes_str: str, tx_type: str) -> str:
+                            if tx_type == 'intl':
+                                return 'International Transfer'
+                            if tx_type == 'credit':
+                                return 'Salary'
+                            if tx_type == 'invest':
+                                return 'Investment'
+                            if tx_type == 'cc_repay':
+                                return 'CC Repayment'
+                            nl = notes_str.lower()
+                            for keyword, cat in _rules:
+                                if keyword.lower() in nl:
+                                    return cat
+                            return 'Uncategorized'
 
-                        for tx_key, (tx_type_label, col_name) in _amount_cols.items():
-                            if col_name is None:
+                        mode = _upload_state.get('mode', 'append')
+                        _status_label.set_text(f'Processing... ({mode} mode)')
+
+                        if mode == 'replace':
+                            try:
+                                headers = sheet_headers('transactions')
+                                empty_df = pd.DataFrame(columns=headers)
+                                await run.io_bound(lambda: write_df_to_sheet('transactions', empty_df, headers))
+                                invalidate('transactions')
+                            except Exception as ex:
+                                ui.notify(f'Failed to clear: {ex}', type='negative')
+                                return
+
+                        _amount_cols = {
+                            'intl': ('International Transfer', col_map.get('intl')),
+                            'credit': ('Credit', col_map.get('credit')),
+                            'invest': ('Investment', col_map.get('invest')),
+                            'cc_repay': ('CC Repay', col_map.get('cc_repay')),
+                            'debit': ('Debit', col_map.get('debit')),
+                        }
+                        imported = 0
+                        _recurring_tracker: dict[str, list] = {}
+
+                        for _, row in df.iterrows():
+                            d = parse_date(row.get(col_map['date']))
+                            if not d:
                                 continue
-                            amt = to_float(row.get(col_name, 0))
-                            if amt <= 0:
+                            notes = str(row.get(col_map.get('notes', ''), '') or '').strip()
+                            for tx_key, (tx_type_label, col_name) in _amount_cols.items():
+                                if col_name is None:
+                                    continue
+                                amt = to_float(row.get(col_name, 0))
+                                if amt <= 0:
+                                    continue
+                                method, account = _detect_card(notes, tx_key)
+                                category = _infer_category(notes, tx_key)
+                                txid = str(uuid.uuid4())
+                                await run.io_bound(lambda _id=txid, _d=d, _t=tx_type_label, _a=amt, _m=method, _ac=account, _cat=category, _n=notes: append_tx(
+                                    id=_id, date=_d.isoformat(), owner='Family',
+                                    type=_t, amount=_a, method=_m, account=_ac,
+                                    category=_cat, notes=_n,
+                                    is_recurring=False, recurring_id='', created_at=now_iso(),
+                                ))
+                                imported += 1
+                                _rkey = f'{tx_type_label}|{amt}|{notes[:30].lower().strip()}'
+                                _recurring_tracker.setdefault(_rkey, []).append((d, d.day))
+
+                        # Recurring detection
+                        _recurring_created = 0
+                        for _rkey, dates_list in _recurring_tracker.items():
+                            if len(dates_list) < 2:
                                 continue
+                            _months_seen = set(rd.strftime('%Y-%m') for rd, _ in dates_list)
+                            if len(_months_seen) < 2:
+                                continue
+                            parts = _rkey.split('|', 2)
+                            _r_type, _r_amt = parts[0], float(parts[1])
+                            _r_notes = parts[2] if len(parts) > 2 else ''
+                            _r_method, _r_account = _detect_card(_r_notes, _r_type.lower().replace(' ', '_'))
+                            _r_category = _infer_category(_r_notes, _r_type.lower().replace(' ', '_'))
+                            _day_counts: dict[int, int] = {}
+                            for _, _rday in dates_list:
+                                _day_counts[_rday] = _day_counts.get(_rday, 0) + 1
+                            _best_day = max(_day_counts, key=_day_counts.get)
+                            _earliest = min(d for d, _ in dates_list)
+                            try:
+                                await run.io_bound(lambda _t=_r_type, _a=_r_amt, _m=_r_method, _ac=_r_account, _cat=_r_category, _n=_r_notes, _day=_best_day, _start=_earliest: create_or_update_recurring_template(
+                                    owner='Family', type_=_t, amount=_a,
+                                    method=_m, account=_ac, category=_cat,
+                                    notes=_n, day_of_month=_day, start_date=_start, active=True,
+                                ))
+                                _recurring_created += 1
+                            except Exception:
+                                pass
 
-                            method, account = _detect_card(notes, tx_key)
-                            category = _infer_category(notes, tx_key)
-                            txid = str(uuid.uuid4())
+                        invalidate('transactions')
+                        invalidate('recurring')
 
-                            await run.io_bound(lambda _id=txid, _d=d, _t=tx_type_label, _a=amt, _m=method, _ac=account, _cat=category, _n=notes: append_tx(
-                                id=_id, date=_d.isoformat(), owner='Family',
-                                type=_t, amount=_a, method=_m, account=_ac,
-                                category=_cat, notes=_n,
-                                is_recurring=False, recurring_id='', created_at=now_iso(),
-                            ))
-                            imported += 1
+                        _status_label.set_text('')
+                        _result_container.clear()
+                        with _result_container:
+                            with ui.card().classes('my-card p-5').style('border:1px solid rgba(34,197,94,0.2);'):
+                                with ui.row().classes('items-center gap-3 mb-3'):
+                                    ui.icon('check_circle').style('font-size:28px;color:#22c55e;')
+                                    ui.label('Import Complete').classes('text-lg font-extrabold').style('color:#22c55e;')
+                                _stats = [
+                                    ('Transactions imported', str(imported)),
+                                    ('Recurring templates created', str(_recurring_created)),
+                                    ('Upload mode', 'Replace' if mode == 'replace' else 'Append'),
+                                    ('Source rows processed', str(len(df))),
+                                ]
+                                for _sl, _sv in _stats:
+                                    with ui.row().classes('items-center justify-between w-full').style('padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);'):
+                                        ui.label(_sl).classes('text-xs font-medium').style('color:var(--mf-muted);')
+                                        ui.label(_sv).classes('text-sm font-bold').style('font-feature-settings:"tnum";')
+                        ui.notify(f'Imported {imported} transactions, {_recurring_created} recurring.', type='positive')
 
-                            # Track for recurring detection
-                            _rkey = f'{tx_type_label}|{amt}|{notes[:30].lower().strip()}'
-                            _recurring_tracker.setdefault(_rkey, []).append((d, d.day))
-
-                    # ── Recurring detection ──
-                    _recurring_created = 0
-                    for _rkey, dates_list in _recurring_tracker.items():
-                        if len(dates_list) < 2:
-                            continue
-                        # Check if transactions appear in different months
-                        _months_seen = set()
-                        for _rd, _rday in dates_list:
-                            _months_seen.add(_rd.strftime('%Y-%m'))
-                        if len(_months_seen) < 2:
-                            continue
-
-                        # This is likely recurring — create template
-                        parts = _rkey.split('|', 2)
-                        _r_type = parts[0]
-                        _r_amt = float(parts[1])
-                        _r_notes = parts[2] if len(parts) > 2 else ''
-                        _r_method, _r_account = _detect_card(_r_notes, _r_type.lower().replace(' ', '_'))
-                        _r_category = _infer_category(_r_notes, _r_type.lower().replace(' ', '_'))
-                        # Use most common day of month
-                        _day_counts: dict[int, int] = {}
-                        for _, _rday in dates_list:
-                            _day_counts[_rday] = _day_counts.get(_rday, 0) + 1
-                        _best_day = max(_day_counts, key=_day_counts.get)
-                        _earliest = min(d for d, _ in dates_list)
-
-                        try:
-                            await run.io_bound(lambda _t=_r_type, _a=_r_amt, _m=_r_method, _ac=_r_account, _cat=_r_category, _n=_r_notes, _day=_best_day, _start=_earliest: create_or_update_recurring_template(
-                                owner='Family', type_=_t, amount=_a,
-                                method=_m, account=_ac, category=_cat,
-                                notes=_n, day_of_month=_day, start_date=_start, active=True,
-                            ))
-                            _recurring_created += 1
-                        except Exception:
-                            pass
-
-                    invalidate('transactions')
-                    invalidate('recurring')
-
-                    # Show results
-                    _result_container.clear()
-                    with _result_container:
-                        with ui.card().classes('my-card p-5').style('border:1px solid rgba(34,197,94,0.2);'):
-                            with ui.row().classes('items-center gap-3 mb-3'):
-                                ui.icon('check_circle').style('font-size:28px;color:#22c55e;')
-                                ui.label('Import Complete').classes('text-lg font-extrabold').style('color:#22c55e;')
-                            _stats = [
-                                ('Transactions imported', str(imported)),
-                                ('Recurring templates created', str(_recurring_created)),
-                                ('Upload mode', 'Replace' if mode == 'replace' else 'Append'),
-                                ('Source rows processed', str(len(df))),
-                            ]
-                            for _sl, _sv in _stats:
-                                with ui.row().classes('items-center justify-between w-full').style('padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);'):
-                                    ui.label(_sl).classes('text-xs font-medium').style('color:var(--mf-muted);')
-                                    ui.label(_sv).classes('text-sm font-bold').style('font-feature-settings:"tnum";')
-
-                    ui.notify(f'Imported {imported} transactions, {_recurring_created} recurring templates detected.', type='positive')
-
-                except Exception as ex:
-                    ui.notify(f'Import failed: {ex}', type='negative')
-                    import traceback
-                    _logger.error('Smart upload error: %s', traceback.format_exc())
-
-            upload_el.on('upload', _on_smart_upload)
-
-        # ── Backup & Restore (kept for convenience) ──
-        with ui.card().classes('my-card p-5 mt-4'):
-            with ui.row().classes('items-center gap-2 mb-3'):
-                ui.icon('archive').style('font-size:18px;color:var(--mf-muted);')
-                ui.label('Backup & Restore').classes('text-sm font-bold')
-            with ui.row().classes('gap-3 flex-wrap'):
-                def _download_backup() -> None:
-                    try:
-                        b = make_backup_zip()
-                        ui.download(b, filename=f'myfin_backup_{datetime.date.today().isoformat()}.zip')
                     except Exception as ex:
-                        ui.notify(f'Backup failed: {ex}', type='negative')
-                ui.button('Download Backup', icon='cloud_download', on_click=_download_backup).props('outline rounded size=sm').style('text-transform:none;')
+                        ui.notify(f'Import failed: {ex}', type='negative')
+                        _status_label.set_text(f'Error: {ex}')
+                        import traceback
+                        _logger.error('Smart upload error: %s', traceback.format_exc())
+
+                ui.button('Restore', icon='restore', on_click=_do_restore).props('unelevated rounded').style(
+                    'background:linear-gradient(135deg,#06b6d4,#0ea5e9);color:white;font-weight:700;text-transform:none;padding:8px 28px;')
+
+            ui.label('Select Append to add new data or Replace All to clear existing data before import. Then click Restore.').classes('text-[11px] mt-2').style('color:var(--mf-muted);')
 
     shell(content)
 
 
-# ── 9.10: Merchants page ─────────────────────────────────────
+# ── 9.11: Merchants page ─────────────────────────────────────
 _MERCHANTS = [
-    # (name, search_keywords, logo_domain, icon_fallback, category, brand_color)
-    ("Walmart", ["walmart"], "walmart.ca", "shopping_cart", "Grocery & Supermarket", "#0071CE"),
-    ("Costco", ["costco"], "costco.ca", "shopping_cart", "Grocery & Supermarket", "#E31837"),
-    ("Gill's Supermarket", ["gill"], "gillssupermarket.com", "local_grocery_store", "Grocery & Supermarket", "#4CAF50"),
-    ("Dino's", ["dino"], None, "restaurant", "Restaurants & Dining", "#FF5722"),
-    ("McDonalds", ["mcdonald", "mcdonalds", "mcd"], "mcdonalds.com", "fastfood", "Restaurants & Dining", "#FFC72C"),
-    ("Tim Hortons", ["tim horton", "tims", "timhorton"], "timhortons.com", "local_cafe", "Restaurants & Dining", "#C8102E"),
-    ("Bombay Spices", ["bombay spice", "bombay"], None, "restaurant_menu", "Specialty & Ethnic", "#FF9800"),
-    ("Dollarama", ["dollarama"], "dollarama.com", "store", "Discount & Dollar", "#00A651"),
+    # (name, search_keywords, icon, category, brand_color, img_url_or_none)
+    ("Walmart", ["walmart"], "shopping_cart", "Grocery & Supermarket", "#0071CE",
+     "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Walmart_logo.svg/120px-Walmart_logo.svg.png"),
+    ("Costco", ["costco"], "shopping_cart", "Grocery & Supermarket", "#E31837",
+     "https://upload.wikimedia.org/wikipedia/commons/thumb/5/59/Costco_Wholesale_logo_2010-10-26.svg/120px-Costco_Wholesale_logo_2010-10-26.svg.png"),
+    ("Gill's Supermarket", ["gill"], "local_grocery_store", "Grocery & Supermarket", "#4CAF50", None),
+    ("Dino's", ["dino"], "local_grocery_store", "Grocery & Supermarket", "#8BC34A", None),
+    ("Bombay Spices", ["bombay spice", "bombay"], "storefront", "Grocery & Supermarket", "#FF9800", None),
+    ("McDonalds", ["mcdonald", "mcdonalds", "mcd"], "fastfood", "Restaurants & Dining", "#FFC72C",
+     "https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/McDonald%27s_Golden_Arches.svg/80px-McDonald%27s_Golden_Arches.svg.png"),
+    ("Tim Hortons", ["tim horton", "tims", "timhorton"], "local_cafe", "Restaurants & Dining", "#C8102E",
+     "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/Tim_Hortons_Logo_%282022%29.svg/120px-Tim_Hortons_Logo_%282022%29.svg.png"),
+    ("Amazon", ["amazon"], "shopping_bag", "Discount & Online", "#FF9900",
+     "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Amazon_logo.svg/120px-Amazon_logo.svg.png"),
+    ("Dollarama", ["dollarama"], "store", "Discount & Online", "#00A651",
+     "https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/Dollarama_logo.svg/120px-Dollarama_logo.svg.png"),
 ]
+
+# Category icons for the merchant section header
+_MERCH_CAT_ICONS = {
+    "Grocery & Supermarket": "local_grocery_store",
+    "Restaurants & Dining": "restaurant",
+    "Discount & Online": "local_offer",
+}
 
 @ui.page('/merchants')
 def merchants_page() -> None:
@@ -10158,27 +10134,23 @@ def merchants_page() -> None:
 
     def content() -> None:
         # Header
-        with ui.element('div').classes('w-full').style(
-            'background: linear-gradient(145deg, rgba(15,23,42,0.92), rgba(30,41,59,0.96));'
-            'border-radius: 32px; border: 1px solid rgba(255,255,255,0.08);'
-            'box-shadow: 0 24px 48px -8px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.08);'
-            'backdrop-filter: blur(24px); overflow: hidden; position: relative; padding: 28px 24px; margin-bottom: 20px;'
-        ):
-            ui.html('<div style="position:absolute;top:-50px;right:-30px;width:180px;height:180px;background:radial-gradient(circle,rgba(99,102,241,0.12) 0%,transparent 70%);border-radius:50%;pointer-events:none;"></div>')
-            with ui.row().classes('items-center gap-4').style('position:relative;z-index:10;'):
-                with ui.element('div').style(
-                    'width:48px;height:48px;border-radius:16px;display:flex;align-items:center;justify-content:center;'
-                    'background:linear-gradient(135deg,#6366f1,#8b5cf6);box-shadow:0 8px 24px rgba(99,102,241,0.3);'
-                ):
-                    ui.icon('storefront').style('font-size:24px;color:white;')
-                with ui.column().classes('gap-0'):
-                    ui.label('Merchants').style('font-size:24px;font-weight:900;color:rgba(255,255,255,0.95);letter-spacing:-0.03em;')
-                    ui.label('Spending by merchant & international transfers').style('font-size:12px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.05em;')
+        with ui.card().classes('my-card p-0 mb-4').style('overflow:hidden;'):
+            ui.element('div').style('height:4px;background:linear-gradient(90deg,#6366f1,#8b5cf6,#ec4899);border-radius:16px 16px 0 0;')
+            with ui.column().classes('p-6 gap-2'):
+                with ui.row().classes('items-center gap-4'):
+                    with ui.element('div').style(
+                        'width:48px;height:48px;border-radius:16px;display:flex;align-items:center;justify-content:center;'
+                        'background:linear-gradient(135deg,#6366f1,#8b5cf6);box-shadow:0 8px 24px rgba(99,102,241,0.3);'
+                    ):
+                        ui.icon('storefront').style('font-size:24px;color:white;')
+                    with ui.column().classes('gap-0'):
+                        ui.label('Merchants').classes('text-2xl font-black').style('letter-spacing:-0.03em;')
+                        ui.label('Monthly spend & all-time totals by merchant').classes('text-xs font-semibold uppercase tracking-wider').style('color:var(--mf-muted);')
 
         # Load transactions
         tx = cached_df('transactions')
         if tx.empty:
-            ui.label('No transaction data available yet.').style('color: var(--mf-muted); padding: 20px;')
+            ui.label('No transaction data available yet.').style('color:var(--mf-muted);padding:20px;')
             return
 
         tx['date_parsed'] = tx['date'].apply(parse_date)
@@ -10186,82 +10158,127 @@ def merchants_page() -> None:
         tx['amount_num'] = tx['amount'].apply(to_float)
         tx['type_l'] = tx.get('type', pd.Series(dtype=str)).astype(str).str.lower().str.strip()
         tx['notes_l'] = tx.get('notes', pd.Series(dtype=str)).astype(str).str.lower()
+        tx['cat_l'] = tx.get('category', pd.Series(dtype=str)).astype(str).str.lower()
         tx['month'] = tx['date_parsed'].apply(lambda d: d.strftime('%Y-%m'))
         _cur_month = month_key(today())
         _prev_d = today().replace(day=1) - dt.timedelta(days=1)
         _prev_month = month_key(_prev_d)
 
-        # Match transactions to merchants
         def _match_merchant(notes_lower: str, keywords: list) -> bool:
             return any(kw in notes_lower for kw in keywords)
 
-        # Group merchants by category
+        # Gather per-merchant data
+        _all_merchant_data = []  # (name, icon, color, img, cur_spend, total, tx_count, diff_pct)
         _categories: dict[str, list] = {}
-        for m_name, m_keys, m_domain, m_icon, m_cat, m_color in _MERCHANTS:
-            _categories.setdefault(m_cat, []).append((m_name, m_keys, m_domain, m_icon, m_color))
+        for m_name, m_keys, m_icon, m_cat, m_color, m_img in _MERCHANTS:
+            _categories.setdefault(m_cat, [])
 
+            _m_mask = tx['notes_l'].apply(lambda n, k=m_keys: _match_merchant(n, k))
+            _m_spend = tx[_m_mask & tx['type_l'].isin(['debit', 'expense'])]
+            _total = float(_m_spend['amount_num'].sum()) if not _m_spend.empty else 0.0
+            _tx_count = len(_m_spend)
+            _cur_spend = float(_m_spend[_m_spend['month'] == _cur_month]['amount_num'].sum()) if not _m_spend.empty else 0.0
+            _prev_spend = float(_m_spend[_m_spend['month'] == _prev_month]['amount_num'].sum()) if not _m_spend.empty else 0.0
+            _diff = _cur_spend - _prev_spend
+            _diff_pct = round((_diff / _prev_spend) * 100) if _prev_spend > 0 else 0
+
+            _entry = (m_name, m_icon, m_color, m_img, _cur_spend, _total, _tx_count, _diff_pct, _diff)
+            _categories[m_cat].append(_entry)
+            _all_merchant_data.append(_entry)
+
+        # ── Render each category as grid ──
         for cat_name, merchants in _categories.items():
+            _cat_icon = _MERCH_CAT_ICONS.get(cat_name, 'category')
+            _cat_color = merchants[0][2] if merchants else '#6366f1'
             with ui.card().classes('my-card p-0 mb-4').style('overflow:hidden;'):
-                # Category header gradient
-                _cat_color = merchants[0][4]
                 ui.element('div').style(f'height:3px;background:linear-gradient(90deg,{_cat_color},{_cat_color}88);')
-                with ui.column().classes('p-5 gap-4'):
-                    with ui.row().classes('items-center gap-2 mb-1'):
-                        ui.icon('category').style(f'font-size:18px;color:{_cat_color};')
+                with ui.column().classes('p-5 gap-3'):
+                    with ui.row().classes('items-center gap-2'):
+                        ui.icon(_cat_icon).style(f'font-size:18px;color:{_cat_color};')
                         ui.label(cat_name).classes('text-base font-extrabold').style('letter-spacing:-0.02em;')
 
-                    for m_name, m_keys, m_domain, m_icon, m_color in merchants:
-                        # Calculate spend
-                        _m_mask = tx['notes_l'].apply(lambda n, k=m_keys: _match_merchant(n, k))
-                        _m_tx = tx[_m_mask]
-                        _m_spend = tx[_m_mask & tx['type_l'].isin(['debit', 'expense'])]
-                        _total = float(_m_spend['amount_num'].sum()) if not _m_spend.empty else 0.0
-                        _tx_count = len(_m_spend)
-
-                        # Monthly comparison
-                        _cur_spend = float(_m_spend[_m_spend['month'] == _cur_month]['amount_num'].sum()) if not _m_spend.empty else 0.0
-                        _prev_spend = float(_m_spend[_m_spend['month'] == _prev_month]['amount_num'].sum()) if not _m_spend.empty else 0.0
-                        _diff = _cur_spend - _prev_spend
-                        _diff_pct = round((_diff / _prev_spend) * 100) if _prev_spend > 0 else 0
-
-                        with ui.element('div').style(
-                            'display:flex;align-items:center;gap:14px;padding:14px 16px;'
-                            'border-radius:16px;background:var(--mf-surface-2);'
-                            'border:1px solid rgba(255,255,255,0.04);'
-                            'transition:all 0.2s ease;'
-                        ):
-                            # Logo / icon
-                            if m_domain:
-                                with ui.element('div').style(
-                                    f'width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;'
-                                    f'background:white;box-shadow:0 2px 8px rgba(0,0,0,0.1);overflow:hidden;flex-shrink:0;'
-                                ):
-                                    ui.html(f'<img src="https://logo.clearbit.com/{m_domain}" style="width:32px;height:32px;object-fit:contain;" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\';" /><i class="q-icon notranslate material-icons" style="display:none;font-size:22px;color:{m_color};">{m_icon}</i>')
-                            else:
-                                with ui.element('div').style(
-                                    f'width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;'
-                                    f'background:{m_color}1A;flex-shrink:0;'
-                                ):
-                                    ui.icon(m_icon).style(f'font-size:22px;color:{m_color};')
-
-                            # Info
-                            with ui.column().classes('gap-0').style('flex:1;min-width:0;'):
-                                with ui.row().classes('items-center justify-between w-full'):
-                                    ui.label(m_name).classes('text-sm font-bold').style('white-space:nowrap;overflow:hidden;text-overflow:ellipsis;')
-                                    ui.label(currency(_total)).classes('text-sm font-extrabold').style(f'color:{m_color};font-feature-settings:"tnum";')
-                                with ui.row().classes('items-center gap-3 mt-1'):
-                                    ui.label(f'{_tx_count} transactions').classes('text-xs').style('color:var(--mf-muted);')
-                                    if _prev_spend > 0 or _cur_spend > 0:
-                                        _arrow = 'arrow_upward' if _diff > 0 else ('arrow_downward' if _diff < 0 else 'remove')
-                                        _ac = '#ef4444' if _diff > 0 else ('#22c55e' if _diff < 0 else 'var(--mf-muted)')
-                                        _sign = '+' if _diff > 0 else ''
+                    # Grid layout: 2 cols on mobile, 3-4 on desktop
+                    with ui.element('div').style(
+                        'display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;width:100%;'
+                    ):
+                        for m_name, m_icon, m_color, m_img, _cur_spend, _total, _tx_count, _diff_pct, _diff in merchants:
+                            with ui.element('div').style(
+                                f'border-radius:18px;background:var(--mf-surface-2);'
+                                f'border:1px solid {m_color}18;padding:16px;'
+                                f'display:flex;flex-direction:column;gap:10px;transition:all 0.2s ease;'
+                            ):
+                                # Icon/logo row
+                                with ui.row().classes('items-center gap-3'):
+                                    if m_img:
                                         with ui.element('div').style(
-                                            f'display:flex;align-items:center;gap:3px;background:{_ac}15;padding:2px 8px;border-radius:10px;'
+                                            'width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;'
+                                            'background:white;box-shadow:0 2px 8px rgba(0,0,0,0.08);overflow:hidden;flex-shrink:0;'
                                         ):
-                                            ui.icon(_arrow).style(f'font-size:12px;color:{_ac};')
-                                            ui.label(f'{_sign}{_diff_pct}% vs last mo').classes('text-[10px] font-semibold').style(f'color:{_ac};')
+                                            ui.html(f'<img src="{m_img}" style="width:30px;height:30px;object-fit:contain;" onerror="this.parentElement.innerHTML=\'<i class=q-icon notranslate material-icons style=font-size:22px;color:{m_color}>{m_icon}</i>\'"/>')
+                                    else:
+                                        with ui.element('div').style(
+                                            f'width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;'
+                                            f'background:{m_color}15;flex-shrink:0;'
+                                        ):
+                                            ui.icon(m_icon).style(f'font-size:20px;color:{m_color};')
+                                    ui.label(m_name).classes('text-sm font-bold').style('white-space:nowrap;overflow:hidden;text-overflow:ellipsis;')
 
-                        ui.element('div').style('height:8px;')  # spacer between merchants
+                                # This month spend
+                                ui.label('This Month').classes('text-[10px] font-semibold').style('color:var(--mf-muted);text-transform:uppercase;letter-spacing:0.06em;')
+                                ui.label(currency(_cur_spend)).classes('text-lg font-black').style(f'color:{m_color};font-feature-settings:"tnum";letter-spacing:-0.02em;margin-top:-4px;')
+
+                                # Month-over-month badge
+                                if _diff != 0:
+                                    _arrow = 'trending_up' if _diff > 0 else 'trending_down'
+                                    _ac = '#ef4444' if _diff > 0 else '#22c55e'
+                                    _sign = '+' if _diff > 0 else ''
+                                    with ui.element('div').style(
+                                        f'display:flex;align-items:center;gap:4px;background:{_ac}12;padding:3px 8px;border-radius:8px;align-self:flex-start;'
+                                    ):
+                                        ui.icon(_arrow).style(f'font-size:14px;color:{_ac};')
+                                        ui.label(f'{_sign}{_diff_pct}% vs last mo').classes('text-[10px] font-semibold').style(f'color:{_ac};')
+
+        # ── Fuel Section ──
+        _fuel_keywords = ['fuel', 'gas', 'petro', 'shell', 'esso', 'pioneer', 'canadian tire gas', 'costco gas', 'gasoline']
+        _fuel_mask = tx['notes_l'].apply(lambda n: any(k in n for k in _fuel_keywords)) | tx['cat_l'].str.contains('fuel|gas', na=False)
+        _fuel_tx = tx[_fuel_mask & tx['type_l'].isin(['debit', 'expense'])]
+        _fuel_total = float(_fuel_tx['amount_num'].sum()) if not _fuel_tx.empty else 0.0
+        _fuel_count = len(_fuel_tx)
+        _fuel_cur = float(_fuel_tx[_fuel_tx['month'] == _cur_month]['amount_num'].sum()) if not _fuel_tx.empty else 0.0
+        _fuel_prev = float(_fuel_tx[_fuel_tx['month'] == _prev_month]['amount_num'].sum()) if not _fuel_tx.empty else 0.0
+        _fuel_diff = _fuel_cur - _fuel_prev
+        _fuel_pct = round((_fuel_diff / _fuel_prev) * 100) if _fuel_prev > 0 else 0
+
+        with ui.card().classes('my-card p-0 mb-4').style('overflow:hidden;'):
+            ui.element('div').style('height:3px;background:linear-gradient(90deg,#f97316,#ef4444);')
+            with ui.column().classes('p-5 gap-3'):
+                with ui.row().classes('items-center gap-2 mb-1'):
+                    ui.icon('local_gas_station').style('font-size:18px;color:#f97316;')
+                    ui.label('Fuel & Gas').classes('text-base font-extrabold').style('letter-spacing:-0.02em;')
+                with ui.element('div').style(
+                    'display:flex;align-items:center;gap:14px;padding:16px;'
+                    'border-radius:16px;background:linear-gradient(135deg,rgba(249,115,22,0.08),rgba(239,68,68,0.04));'
+                    'border:1px solid rgba(249,115,22,0.15);'
+                ):
+                    with ui.element('div').style(
+                        'width:52px;height:52px;border-radius:16px;display:flex;align-items:center;justify-content:center;'
+                        'background:linear-gradient(135deg,#f97316,#ef4444);box-shadow:0 8px 24px rgba(249,115,22,0.25);flex-shrink:0;'
+                    ):
+                        ui.icon('local_gas_station').style('font-size:24px;color:white;')
+                    with ui.column().classes('gap-1').style('flex:1;'):
+                        ui.label('All-Time Fuel Spend').classes('text-xs font-semibold').style('color:var(--mf-muted);text-transform:uppercase;letter-spacing:0.06em;')
+                        ui.label(currency(_fuel_total)).classes('text-2xl font-black').style('color:#f97316;font-feature-settings:"tnum";letter-spacing:-0.03em;')
+                        with ui.row().classes('items-center gap-4'):
+                            ui.label(f'{_fuel_count} fill-ups').classes('text-xs').style('color:var(--mf-muted);')
+                            ui.label(f'This month: {currency(_fuel_cur)}').classes('text-xs font-semibold').style('color:#fb923c;')
+                            if _fuel_prev > 0 or _fuel_cur > 0:
+                                _f_arrow = 'trending_up' if _fuel_diff > 0 else 'trending_down'
+                                _f_ac = '#ef4444' if _fuel_diff > 0 else '#22c55e'
+                                _f_sign = '+' if _fuel_diff > 0 else ''
+                                _f_word = 'higher' if _fuel_diff > 0 else 'lower'
+                                with ui.element('div').style(f'display:flex;align-items:center;gap:4px;background:{_f_ac}12;padding:3px 8px;border-radius:8px;'):
+                                    ui.icon(_f_arrow).style(f'font-size:14px;color:{_f_ac};')
+                                    ui.label(f'{_f_sign}{_fuel_pct}% {_f_word} than last month').classes('text-[10px] font-semibold').style(f'color:{_f_ac};')
 
         # ── International Transfers section ──
         _intl_tx = tx[tx['type_l'].isin(['international', 'international transfer', 'intl'])]
@@ -10269,14 +10286,15 @@ def merchants_page() -> None:
         _intl_count = len(_intl_tx)
         _intl_cur = float(_intl_tx[_intl_tx['month'] == _cur_month]['amount_num'].sum()) if not _intl_tx.empty else 0.0
         _intl_prev = float(_intl_tx[_intl_tx['month'] == _prev_month]['amount_num'].sum()) if not _intl_tx.empty else 0.0
+        _intl_diff = _intl_cur - _intl_prev
+        _intl_pct = round((_intl_diff / _intl_prev) * 100) if _intl_prev > 0 else 0
 
         with ui.card().classes('my-card p-0 mb-4').style('overflow:hidden;'):
             ui.element('div').style('height:3px;background:linear-gradient(90deg,#6366f1,#8b5cf6);')
-            with ui.column().classes('p-5 gap-4'):
+            with ui.column().classes('p-5 gap-3'):
                 with ui.row().classes('items-center gap-2 mb-1'):
                     ui.icon('public').style('font-size:18px;color:#6366f1;')
                     ui.label('International Transfers').classes('text-base font-extrabold').style('letter-spacing:-0.02em;')
-
                 with ui.element('div').style(
                     'display:flex;align-items:center;gap:14px;padding:16px;'
                     'border-radius:16px;background:linear-gradient(135deg,rgba(99,102,241,0.08),rgba(139,92,246,0.05));'
@@ -10292,18 +10310,32 @@ def merchants_page() -> None:
                         ui.label(currency(_intl_total)).classes('text-2xl font-black').style('color:#8b5cf6;font-feature-settings:"tnum";letter-spacing:-0.03em;')
                         with ui.row().classes('items-center gap-4'):
                             ui.label(f'{_intl_count} transfers').classes('text-xs').style('color:var(--mf-muted);')
-                            if _intl_cur > 0 or _intl_prev > 0:
-                                ui.label(f'This month: {currency(_intl_cur)}').classes('text-xs font-semibold').style('color:#a78bfa;')
+                            ui.label(f'This month: {currency(_intl_cur)}').classes('text-xs font-semibold').style('color:#a78bfa;')
+                            if _intl_prev > 0 or _intl_cur > 0:
+                                _i_arrow = 'trending_up' if _intl_diff > 0 else 'trending_down'
+                                _i_ac = '#ef4444' if _intl_diff > 0 else '#22c55e'
+                                _i_sign = '+' if _intl_diff > 0 else ''
+                                _i_word = 'higher' if _intl_diff > 0 else 'lower'
+                                with ui.element('div').style(f'display:flex;align-items:center;gap:4px;background:{_i_ac}12;padding:3px 8px;border-radius:8px;'):
+                                    ui.icon(_i_arrow).style(f'font-size:14px;color:{_i_ac};')
+                                    ui.label(f'{_i_sign}{_intl_pct}% {_i_word} than last month').classes('text-[10px] font-semibold').style(f'color:{_i_ac};')
 
-        # Monthly breakdown table for international
-        if not _intl_tx.empty:
-            with ui.card().classes('my-card p-5'):
-                ui.label('International Transfers by Month').classes('text-sm font-bold mb-3')
-                _intl_monthly = _intl_tx.groupby('month', as_index=False)['amount_num'].sum().sort_values('month', ascending=False).head(12)
-                for _, _row in _intl_monthly.iterrows():
-                    with ui.row().classes('items-center justify-between w-full').style('padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);'):
-                        ui.label(str(_row['month'])).classes('text-xs font-medium').style('color:var(--mf-muted);')
-                        ui.label(currency(float(_row['amount_num']))).classes('text-sm font-bold').style('color:#8b5cf6;font-feature-settings:"tnum";')
+        # ── Bottom: All-Time Totals per Merchant ──
+        with ui.card().classes('my-card p-0 mb-4').style('overflow:hidden;'):
+            ui.element('div').style('height:3px;background:linear-gradient(90deg,#64748b,#94a3b8);')
+            with ui.column().classes('p-5 gap-3'):
+                with ui.row().classes('items-center gap-2 mb-1'):
+                    ui.icon('leaderboard').style('font-size:18px;color:#94a3b8;')
+                    ui.label('All-Time Totals').classes('text-base font-extrabold').style('letter-spacing:-0.02em;')
+                _sorted = sorted(_all_merchant_data, key=lambda x: x[5], reverse=True)
+                for m_name, m_icon, m_color, m_img, _cs, _total, _tc, _dp, _d in _sorted:
+                    with ui.row().classes('items-center justify-between w-full').style('padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);'):
+                        with ui.row().classes('items-center gap-3'):
+                            ui.icon(m_icon).style(f'font-size:18px;color:{m_color};')
+                            ui.label(m_name).classes('text-sm font-semibold')
+                        with ui.row().classes('items-center gap-3'):
+                            ui.label(f'{_tc} tx').classes('text-[10px]').style('color:var(--mf-muted);')
+                            ui.label(currency(_total)).classes('text-sm font-extrabold').style(f'color:{m_color};font-feature-settings:"tnum";')
 
     shell(content)
 
@@ -11064,5 +11096,35 @@ ui.run(
 #    - Payment Method Distribution (pie chart)
 #
 # 6. Admin tile: "Data Importer" → "Data Upload" with new icon
+#
+# ── v9.11  ───────────────────────────────────────────────────
+# 1. Budget widget: removed dark glassmorphism background,
+#    now uses standard light card (var(--mf-card-top)) with
+#    concentric rings and category badges — theme-aware
+#
+# 2. Merchants page completely rebuilt:
+#    - Grid layout (auto-fill 160px) instead of vertical list
+#    - Each tile shows THIS MONTH spend (primary), % vs last month
+#    - Dino's and Bombay Spices moved to Grocery & Supermarket
+#    - Amazon added to Discount & Online (with Dollarama)
+#    - Fixed icons: Wikimedia SVG URLs for major brands,
+#      Material Icons fallback for local stores
+#    - Category headers with appropriate icons
+#
+# 3. New Fuel & Gas section: tracks all fuel spend,
+#    all-time total + this month + % higher/lower than last month
+#
+# 4. International Transfers: removed monthly breakdown table,
+#    now shows % increase/decrease vs last month inline
+#
+# 5. All-Time Totals section at bottom of Merchants page,
+#    sorted by total spend descending
+#
+# 6. Data Upload rebuilt as single card:
+#    - File picker + inline Append/Replace toggle + Restore button
+#    - Column format in collapsible expansion
+#    - Removed separate Backup & Restore and Upload Mode sections
+#    - Same smart logic: card detection, category inference,
+#      recurring detection, replace/append modes
 #
 
