@@ -3748,6 +3748,7 @@ a.mf-more-item.is-active:visited {
 }
 .mf-canvas{
   max-width: 1440px;
+  width: 100%;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -4371,6 +4372,17 @@ html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
   width: 100% !important;
   min-width: 0 !important;
   box-sizing: border-box !important;
+}
+/* 9.11.1: Merchant grid — override width:100% on grid items so they fill columns properly */
+.mf-merchant-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)) !important;
+  gap: 14px !important;
+  width: 100% !important;
+}
+.mf-merchant-grid > * {
+  width: auto !important;
+  min-width: 0 !important;
 }
 /* KPI tiles: lighter, cleaner look (E5) */
 .kpi { border-radius: 16px !important; }
@@ -9909,14 +9921,12 @@ def data_upload_page() -> None:
 
             _status_label = ui.label('').classes('text-xs mt-2').style('color:var(--mf-muted);')
 
-            def _on_file_selected(e):
-                """Handle NiceGUI upload event — e.content is a SpooledTemporaryFile."""
+            async def _on_file_selected(e):
+                """Handle NiceGUI 3.x upload: e.file is a FileUpload with async read()."""
                 try:
-                    content = e.content
-                    content.seek(0)
-                    raw = content.read()
+                    raw = await e.file.read()
                     _upload_state['file_data'] = raw if isinstance(raw, (bytes, bytearray)) else bytes(raw)
-                    _upload_state['file_name'] = getattr(e, 'name', 'uploaded_file') or 'uploaded_file'
+                    _upload_state['file_name'] = getattr(e.file, 'name', 'uploaded_file') or 'uploaded_file'
                     _status_label.set_text(f'✓ File ready: {_upload_state["file_name"]} ({len(raw):,} bytes)')
                 except Exception as ex:
                     _logger.error('Upload read error: %s', ex)
@@ -10222,9 +10232,7 @@ def merchants_page() -> None:
                         ui.label(cat_name).classes('text-base font-extrabold').style('letter-spacing:-0.02em;')
 
                     # Grid layout: 1 col on narrow mobile, 2 on tablet, 3 on desktop
-                    with ui.element('div').style(
-                        'display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;width:100%;'
-                    ):
+                    with ui.element('div').classes('mf-merchant-grid'):
                         for m_name, m_icon, m_color, m_img, _cur_spend, _total, _tx_count, _diff_pct, _diff in merchants:
                             with ui.element('div').style(
                                 f'border-radius:18px;background:var(--mf-surface-2);'
