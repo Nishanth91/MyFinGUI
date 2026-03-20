@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.11'
+APP_VERSION = '9.11.1'
 
 
 def log(message: str) -> None:
@@ -3775,6 +3775,10 @@ a.mf-more-item.is-active:visited {
   .mf-main { margin-left: 100px; }
   .mf-hamburger { display: none !important; }
   .mf-bottombar { display: none !important; }
+  /* 9.11.1: ensure nav buttons are consistently left-aligned */
+  .mf-navbtn .q-btn__content { flex-direction: row !important; gap: 8px; justify-content: flex-start !important; }
+  .mf-navbtn .q-btn__content .q-icon { font-size: 20px; }
+  .mf-navbtn .q-btn__content span { font-size: 12px; opacity: 0.85; font-weight: 600; }
 }
 
 /*  Mobile (900px): bottom bar visible, rail is overlay only  */
@@ -5925,18 +5929,30 @@ def dashboard_page():
             _c0 = _ring_colors[0]
             _c1 = _ring_colors[1] if len(_ring_colors) > 1 else _c0
 
-            with ui.card().classes('my-card p-0').style(
+            # 9.11.1: Dark gray glassmorphism card (like hero), centered rings
+            with ui.element('div').classes('w-full').style(
                 'overflow:hidden;width:100%;'
-                'background:var(--mf-card-top);'
-                'border:1px solid var(--mf-border);'
-                'border-radius:24px;'
+                'background:linear-gradient(145deg, rgba(28,28,38,0.93), rgba(40,40,52,0.96));'
+                'border:1px solid rgba(255,255,255,0.08);'
+                'border-radius:28px;'
+                'box-shadow:0 20px 50px -10px rgba(0,0,0,0.45), inset 0 1px 3px rgba(255,255,255,0.06);'
+                'backdrop-filter:blur(20px);'
+                'position:relative;'
+                'padding:0;'
             ):
                 ui.element('div').style(f'height:3px;background:linear-gradient(90deg,{_c0},{_c1});')
-                with ui.column().classes('p-5 gap-4'):
+                # Subtle radial glow accents
+                ui.html(f'''
+                    <div style="position:absolute;top:-40px;left:-40px;width:160px;height:160px;background:radial-gradient(circle,{_c0}18 0%,transparent 70%);border-radius:50%;pointer-events:none;"></div>
+                    <div style="position:absolute;bottom:-40px;right:-40px;width:160px;height:160px;background:radial-gradient(circle,{_c1}12 0%,transparent 70%);border-radius:50%;pointer-events:none;"></div>
+                ''')
+                with ui.element('div').style(
+                    'display:flex;flex-direction:column;align-items:center;padding:24px 20px;gap:16px;position:relative;z-index:1;'
+                ):
                     with ui.row().classes('items-center gap-2'):
-                        with ui.element('div').style(f'width:32px;height:32px;border-radius:10px;background:{_c0}1A;display:flex;align-items:center;justify-content:center;'):
+                        with ui.element('div').style(f'width:32px;height:32px;border-radius:10px;background:{_c0}25;display:flex;align-items:center;justify-content:center;'):
                             ui.icon('account_balance_wallet').style(f'font-size:18px;color:{_c0};')
-                        ui.label('Budgets').classes('text-base font-extrabold').style('letter-spacing:-0.02em;')
+                        ui.label('Budgets').classes('text-base font-extrabold').style('letter-spacing:-0.02em;color:#fff;')
 
                     # Build concentric rings
                     _ring_size = 180
@@ -5955,33 +5971,34 @@ def dashboard_page():
                         _dash = pct * _circ
                         _ring_data.append((cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash))
 
-                    # SVG ring with gradient strokes
+                    # SVG ring with gradient strokes — centered
                     _svg_parts = []
-                    _svg_parts.append(f'<div style="position:relative;width:190px;height:190px;margin:0 auto;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.08));">')
+                    _svg_parts.append(f'<div style="position:relative;width:190px;height:190px;margin:0 auto;filter:drop-shadow(0 8px 16px rgba(0,0,0,0.4));">')
                     _svg_parts.append(f'<svg viewBox="0 0 {_ring_size} {_ring_size}" style="transform:rotate(-90deg);width:100%;height:100%;"><defs>')
                     for _ri, (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in enumerate(_ring_data):
                         _svg_parts.append(f'<linearGradient id="budG{_ri}" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="{_rc}"/><stop offset="100%" stop-color="{_rc}BB"/></linearGradient>')
                     _svg_parts.append('</defs>')
                     for _ri, (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in enumerate(_ring_data):
-                        _svg_parts.append(f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" stroke="var(--mf-border)" stroke-width="{_stroke_w}" stroke-linecap="round" opacity="0.35"/>')
+                        _svg_parts.append(f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="{_stroke_w}" stroke-linecap="round"/>')
                         _svg_parts.append(f'<circle cx="{_cx}" cy="{_cy}" r="{_r}" fill="none" stroke="url(#budG{_ri})" stroke-width="{_stroke_w}" stroke-dasharray="{_dash:.1f} {_circ:.1f}" stroke-linecap="round" style="transition:stroke-dasharray 1.5s cubic-bezier(0.22,1,0.36,1) {_ri*0.15}s;"/>')
                     _svg_parts.append('</svg>')
-                    # Center text overlay
-                    _pct_color = '#ef4444' if _overall_pct >= 1.0 else ('#f59e0b' if _overall_pct >= 0.8 else 'var(--mf-text)')
+                    # Center text overlay — white on dark
+                    _pct_color = '#ef4444' if _overall_pct >= 1.0 else ('#f59e0b' if _overall_pct >= 0.8 else '#ffffff')
                     _svg_parts.append(f'<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;">')
-                    _svg_parts.append(f'<span style="font-size:11px;font-weight:700;color:var(--mf-muted);text-transform:uppercase;letter-spacing:0.15em;">Budget</span>')
-                    _svg_parts.append(f'<span style="font-size:26px;font-weight:900;color:{_pct_color};letter-spacing:-0.04em;font-feature-settings:\'tnum\';">{int(_overall_pct*100)}%</span>')
-                    _svg_parts.append(f'<span style="font-size:10px;font-weight:600;color:var(--mf-muted);">{currency(_total_spent)}</span>')
+                    _svg_parts.append(f'<span style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.55);text-transform:uppercase;letter-spacing:0.15em;">Budget</span>')
+                    _svg_parts.append(f'<span style="font-size:26px;font-weight:900;color:{_pct_color};letter-spacing:-0.04em;font-feature-settings:\'tnum\';text-shadow:0 2px 8px rgba(0,0,0,0.4);">{int(_overall_pct*100)}%</span>')
+                    _svg_parts.append(f'<span style="font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);">{currency(_total_spent)}</span>')
                     _svg_parts.append('</div></div>')
                     ui.html('\n'.join(_svg_parts))
 
-                    # Category badges
-                    with ui.element('div').style('display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:12px;'):
+                    # Category badges — centered, dark-bg aware
+                    with ui.element('div').style('display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:4px;'):
                         for (cat, spent_amt, bud_amt, pct, _rc, _r, _circ, _dash) in _ring_data:
                             with ui.element('div').style(
-                                f'background:{_rc}12;padding:5px 12px;border-radius:20px;'
-                                f'border:1px solid {_rc}30;'
+                                f'background:{_rc}18;padding:5px 12px;border-radius:20px;'
+                                f'border:1px solid {_rc}35;'
                                 f'display:flex;align-items:center;gap:6px;'
+                                f'backdrop-filter:blur(6px);'
                             ):
                                 ui.element('div').style(f'width:8px;height:8px;border-radius:50%;background:{_rc};flex-shrink:0;')
                                 ui.label(f'{cat} {int(pct*100)}%').style(f'font-size:11px;font-weight:700;color:{_rc};white-space:nowrap;')
@@ -9889,19 +9906,26 @@ def data_upload_page() -> None:
 
             # Step 2: File picker
             ui.label('Choose your spreadsheet (.csv or .xlsx)').classes('text-sm font-semibold mb-2')
-            upload_el = ui.upload(label='Select file', auto_upload=True).props('accept=.csv,.xlsx,.xls').classes('w-full')
 
             _status_label = ui.label('').classes('text-xs mt-2').style('color:var(--mf-muted);')
 
             def _on_file_selected(e):
+                """Handle NiceGUI upload event — e.content is a SpooledTemporaryFile."""
                 try:
-                    raw = e.content.read() if hasattr(e, 'content') else e
+                    content = e.content
+                    content.seek(0)
+                    raw = content.read()
                     _upload_state['file_data'] = raw if isinstance(raw, (bytes, bytearray)) else bytes(raw)
-                    _upload_state['file_name'] = getattr(e, 'name', 'file') or 'file'
-                    _status_label.set_text(f'File ready: {_upload_state["file_name"]}')
+                    _upload_state['file_name'] = getattr(e, 'name', 'uploaded_file') or 'uploaded_file'
+                    _status_label.set_text(f'✓ File ready: {_upload_state["file_name"]} ({len(raw):,} bytes)')
                 except Exception as ex:
+                    _logger.error('Upload read error: %s', ex)
                     ui.notify(f'Error reading file: {ex}', type='negative')
-            upload_el.on('upload', _on_file_selected)
+
+            ui.upload(
+                label='Select file', auto_upload=True,
+                on_upload=_on_file_selected,
+            ).props('accept=.csv,.xlsx,.xls').classes('w-full')
 
             ui.element('div').style('height:12px;')
 
@@ -9958,7 +9982,7 @@ def data_upload_page() -> None:
 
                         def _detect_card(notes_str: str, tx_type: str) -> tuple:
                             nl = notes_str.lower().strip()
-                            if tx_type in ('credit', 'investment'):
+                            if tx_type in ('credit', 'invest', 'investment'):
                                 return ('Bank', '')
                             if 'rbc visa' in nl:
                                 return ('Card', 'RBC VISA')
@@ -10103,20 +10127,20 @@ def data_upload_page() -> None:
 _MERCHANTS = [
     # (name, search_keywords, icon, category, brand_color, img_url_or_none)
     ("Walmart", ["walmart"], "shopping_cart", "Grocery & Supermarket", "#0071CE",
-     "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Walmart_logo.svg/120px-Walmart_logo.svg.png"),
+     "https://www.google.com/s2/favicons?domain=walmart.ca&sz=128"),
     ("Costco", ["costco"], "shopping_cart", "Grocery & Supermarket", "#E31837",
-     "https://upload.wikimedia.org/wikipedia/commons/thumb/5/59/Costco_Wholesale_logo_2010-10-26.svg/120px-Costco_Wholesale_logo_2010-10-26.svg.png"),
+     "https://www.google.com/s2/favicons?domain=costco.ca&sz=128"),
     ("Gill's Supermarket", ["gill"], "local_grocery_store", "Grocery & Supermarket", "#4CAF50", None),
     ("Dino's", ["dino"], "local_grocery_store", "Grocery & Supermarket", "#8BC34A", None),
     ("Bombay Spices", ["bombay spice", "bombay"], "storefront", "Grocery & Supermarket", "#FF9800", None),
     ("McDonalds", ["mcdonald", "mcdonalds", "mcd"], "fastfood", "Restaurants & Dining", "#FFC72C",
-     "https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/McDonald%27s_Golden_Arches.svg/80px-McDonald%27s_Golden_Arches.svg.png"),
+     "https://www.google.com/s2/favicons?domain=mcdonalds.com&sz=128"),
     ("Tim Hortons", ["tim horton", "tims", "timhorton"], "local_cafe", "Restaurants & Dining", "#C8102E",
-     "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/Tim_Hortons_Logo_%282022%29.svg/120px-Tim_Hortons_Logo_%282022%29.svg.png"),
+     "https://www.google.com/s2/favicons?domain=timhortons.com&sz=128"),
     ("Amazon", ["amazon"], "shopping_bag", "Discount & Online", "#FF9900",
-     "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Amazon_logo.svg/120px-Amazon_logo.svg.png"),
+     "https://www.google.com/s2/favicons?domain=amazon.ca&sz=128"),
     ("Dollarama", ["dollarama"], "store", "Discount & Online", "#00A651",
-     "https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/Dollarama_logo.svg/120px-Dollarama_logo.svg.png"),
+     "https://www.google.com/s2/favicons?domain=dollarama.com&sz=128"),
 ]
 
 # Category icons for the merchant section header
@@ -10197,9 +10221,9 @@ def merchants_page() -> None:
                         ui.icon(_cat_icon).style(f'font-size:18px;color:{_cat_color};')
                         ui.label(cat_name).classes('text-base font-extrabold').style('letter-spacing:-0.02em;')
 
-                    # Grid layout: 2 cols on mobile, 3-4 on desktop
+                    # Grid layout: 1 col on narrow mobile, 2 on tablet, 3 on desktop
                     with ui.element('div').style(
-                        'display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;width:100%;'
+                        'display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;width:100%;'
                     ):
                         for m_name, m_icon, m_color, m_img, _cur_spend, _total, _tx_count, _diff_pct, _diff in merchants:
                             with ui.element('div').style(
@@ -11126,5 +11150,29 @@ ui.run(
 #    - Removed separate Backup & Restore and Upload Mode sections
 #    - Same smart logic: card detection, category inference,
 #      recurring detection, replace/append modes
+#
+# ── v9.11.1  ─────────────────────────────────────────────────
+# 1. Merchant icons fixed: replaced broken Wikimedia SVG URLs
+#    with Google Favicon API (google.com/s2/favicons?domain=&sz=128)
+#    — reliable cross-browser loading for all branded merchants
+#
+# 2. Desktop layout: wider merchant grid (minmax 240px vs 160px),
+#    nav sidebar buttons now row layout (icon + label side-by-side)
+#    with consistent left alignment
+#
+# 3. Data Upload restore fixed: switched from .on('upload') to
+#    NiceGUI on_upload parameter — file bytes now properly captured
+#    via SpooledTemporaryFile.seek(0) + .read()
+#
+# 4. Smart note scanning: fixed card detection for 'invest' type
+#    (was checking 'investment' key that never matched), ensures
+#    investment transactions correctly route to Bank method
+#
+# 5. Budget widget: dark gray glassmorphism background matching
+#    hero tile style (not white), rings and content fully centered
+#    on mobile with flex centering, white text on dark bg,
+#    subtle radial glow accents, drop-shadow on rings
+#
+# 6. Version bump to 9.11.1
 #
 
