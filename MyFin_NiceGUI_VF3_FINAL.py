@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.11.1'
+APP_VERSION = '9.11.2'
 
 
 def log(message: str) -> None:
@@ -9958,10 +9958,14 @@ def data_upload_page() -> None:
                     try:
                         if fname.endswith(('.xlsx', '.xls')):
                             try:
-                                import openpyxl  # noqa
-                                df = pd.read_excel(io.BytesIO(data))
+                                import openpyxl  # noqa: F401
                             except ImportError:
-                                df = pd.read_excel(io.BytesIO(data), engine='openpyxl')
+                                import subprocess, sys
+                                _status_label.set_text('Installing xlsx support...')
+                                await run.io_bound(lambda: subprocess.check_call(
+                                    [sys.executable, '-m', 'pip', 'install', 'openpyxl', '-q']
+                                ))
+                            df = pd.read_excel(io.BytesIO(data), engine='openpyxl')
                         else:
                             df = parse_uploaded_csv(data)
                         if df is None or df.empty:
@@ -10220,19 +10224,24 @@ def merchants_page() -> None:
             _categories[m_cat].append(_entry)
             _all_merchant_data.append(_entry)
 
-        # ── Render each category as grid ──
+        # ── Render each category ──
         for cat_name, merchants in _categories.items():
             _cat_icon = _MERCH_CAT_ICONS.get(cat_name, 'category')
             _cat_color = merchants[0][2] if merchants else '#6366f1'
-            with ui.card().classes('my-card p-0 mb-4').style('overflow:hidden;'):
+            # Category header
+            with ui.element('div').style(
+                'width:100%;border-radius:20px;overflow:hidden;'
+                'background:var(--mf-card-bg, linear-gradient(165deg, var(--mf-card-top), var(--mf-card-bottom)));'
+                'border:1px solid var(--mf-card-border);box-shadow:0 6px 24px rgba(0,0,0,0.22);margin-bottom:16px;'
+            ):
                 ui.element('div').style(f'height:3px;background:linear-gradient(90deg,{_cat_color},{_cat_color}88);')
-                with ui.column().classes('p-5 gap-3'):
-                    with ui.row().classes('items-center gap-2'):
+                with ui.element('div').style('padding:20px;'):
+                    with ui.row().classes('items-center gap-2 mb-4'):
                         ui.icon(_cat_icon).style(f'font-size:18px;color:{_cat_color};')
                         ui.label(cat_name).classes('text-base font-extrabold').style('letter-spacing:-0.02em;')
 
-                    # Grid layout: 1 col on narrow mobile, 2 on tablet, 3 on desktop
-                    with ui.element('div').classes('mf-merchant-grid'):
+                    # 9.11.2: Use NiceGUI ui.grid() for proper CSS grid
+                    with ui.grid(columns='repeat(auto-fill, minmax(240px, 1fr))').style('gap:14px;width:100%;'):
                         for m_name, m_icon, m_color, m_img, _cur_spend, _total, _tx_count, _diff_pct, _diff in merchants:
                             with ui.element('div').style(
                                 f'border-radius:18px;background:var(--mf-surface-2);'
@@ -11183,5 +11192,18 @@ ui.run(
 #    subtle radial glow accents, drop-shadow on rings
 #
 # 6. Version bump to 9.11.1
+#
+# ── v9.11.2  ─────────────────────────────────────────────────
+# 1. xlsx import: openpyxl auto-installed on-demand if missing
+#    (fixes "Import.openpyxl failed" on Render)
+#
+# 2. Merchant grid REBUILT: replaced ui.element('div') + manual
+#    grid CSS with NiceGUI's native ui.grid(columns=...).
+#    Removed .my-card/.column wrapper that was forcing
+#    width:100%!important on grid children, collapsing to 1 col.
+#    Category cards now use plain div with card-like styling
+#    to avoid Quasar class interference.
+#
+# 3. Version bump to 9.11.2
 #
 
