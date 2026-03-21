@@ -57,7 +57,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.11.4'
+APP_VERSION = '9.11.5'
 
 
 def log(message: str) -> None:
@@ -9973,10 +9973,6 @@ def data_upload_page() -> None:
                             ui.notify('File is empty.', type='warning')
                             return
 
-                        # ── Detect format from the UPLOADED FILE columns ──
-                        # Previous versions checked sheet headers, but a corrupted
-                        # Replace could overwrite headers with TABS defaults (LONG),
-                        # causing false detection.  The FILE is the source of truth.
                         _file_cols = [str(c).strip() for c in df.columns]
                         _file_cols_lower = {c.lower() for c in _file_cols}
                         _is_file_wide = not ('type' in _file_cols_lower and 'amount' in _file_cols_lower)
@@ -9984,96 +9980,76 @@ def data_upload_page() -> None:
                         mode = _upload_state.get('mode', 'append')
                         _status_label.set_text(f'Processing... ({mode} mode)')
 
+                        # ---- Step 1: Serialize all values for Google Sheets ----
+                        # Timestamps -> 'YYYY-MM-DD', NaN/NaT -> '', floats .0 -> int
+                        def _serialize(val):
+                            if val is None:
+                                return ''
+                            if isinstance(val, pd.Timestamp):
+                                return val.strftime('%Y-%m-%d') if pd.notna(val) else ''
+                            if isinstance(val, dt.datetime):
+                                return val.strftime('%Y-%m-%d')
+                            if isinstance(val, dt.date):
+                                return val.isoformat()
+                            if isinstance(val, float):
+                                if pd.isna(val):
+                                    return ''
+                                if val == int(val):
+                                    return str(int(val))
+                                return str(val)
+                            s = str(val).strip()
+                            return '' if s.lower() == 'nan' or s.lower() == 'nat' else s
+
+                        # Apply serialization to every cell
+                        for col in df.columns:
+                            df[col] = df[col].apply(_serialize)
+
+                        # Drop fully-empty rows
+                        _total_before = len(df)
+                        df = df[df.apply(lambda r: any(v != '' for v in r.values), axis=1)]
+
                         imported = 0
-                        _skipped = 0
+                        _skipped = _total_before - len(df)  # empty rows dropped
 
-                        if _is_file_wide:
-                            # ---- WIDE FILE (Date, International Transaction, Credit, Debit, Reason/Note) ----
-                            # Clean NaN → '' so write_df_to_sheet won't produce 'nan' strings
-                            df = df.fillna('')
-                            # Drop fully-empty rows (all columns blank after fillna)
-                            df = df[df.apply(lambda r: any(str(v).strip() != '' for v in r.values), axis=1)]
+                        # ---- Step 2: Ensure sheet headers match file columns ----
+                        _sheet_hdrs = sheet_headers('transactions')
+                        _sheet_lower_set = {h.lower().strip() for h in _sheet_hdrs}
+                        _overlap = _file_cols_lower.intersection(_sheet_lower_set)
+                        _headers_fixed = False
+                        if len(_overlap) < 2:
+                            # Sheet headers don't match file (corrupted by prior Replace).
+                            # Fix them to match the file's column names.
+                            _w = ws('transactions')
+                            await run.io_bound(lambda: _w.update('A1', [_file_cols]))
+                            _header_cache['transactions'] = _file_cols
+                            _headers_fixed = True
 
-                            if mode == 'replace':
-                                # ── Replace: one-shot batch write (headers + all data) ──
-                                await run.io_bound(lambda: write_df_to_sheet('transactions', df, _file_cols))
-                                _header_cache['transactions'] = _file_cols
-                                invalidate('transactions')
-                                imported = len(df)
-                            else:
-                                # ── Append: ensure sheet headers match the file columns ──
-                                _sheet_hdrs = sheet_headers('transactions')
-                                _sheet_lower_set = {h.lower().strip() for h in _sheet_hdrs}
-                                # Count how many file columns match sheet headers
-                                _overlap = _file_cols_lower.intersection(_sheet_lower_set)
-                                if len(_overlap) < 2:
-                                    # Headers are corrupted (e.g. LONG defaults from a bad Replace).
-                                    # Overwrite header row with the file's column names so append_row matches.
-                                    _w = ws('transactions')
-                                    await run.io_bound(lambda: _w.update('A1', [_file_cols]))
-                                    _header_cache['transactions'] = _file_cols
-
-                                for _, row in df.iterrows():
-                                    row_dict = {}
-                                    for col in df.columns:
-                                        val = row[col]
-                                        if str(val).strip() != '':
-                                            row_dict[str(col).strip()] = val
-                                    if not row_dict:
-                                        _skipped += 1
-                                        continue
-                                    # Verify at least one date column has a parseable date
-                                    _has_date = False
-                                    for col in row_dict:
-                                        if 'date' in col.lower():
-                                            if parse_date(row_dict[col]):
-                                                _has_date = True
-                                                break
-                                    if not _has_date:
-                                        _skipped += 1
-                                        continue
-                                    await run.io_bound(lambda r=dict(row_dict): append_row('transactions', r))
-                                    imported += 1
-                                invalidate('transactions')
-
+                        # ---- Step 3: Write data ----
+                        if mode == 'replace':
+                            # One-shot batch: clear sheet, write headers + all rows
+                            await run.io_bound(lambda: write_df_to_sheet('transactions', df, _file_cols))
+                            _header_cache['transactions'] = _file_cols
+                            invalidate('transactions')
+                            imported = len(df)
                         else:
-                            # ---- LONG FILE (id, date, type, amount) ----
-                            # File already has LONG columns → write rows directly.
-                            # Ensure sheet headers match the file.
-                            _sheet_hdrs = sheet_headers('transactions')
-                            _sheet_lower_set = {h.lower().strip() for h in _sheet_hdrs}
-                            _overlap = _file_cols_lower.intersection(_sheet_lower_set)
-
-                            if mode == 'replace':
-                                df = df.fillna('')
-                                df = df[df.apply(lambda r: any(str(v).strip() != '' for v in r.values), axis=1)]
-                                await run.io_bound(lambda: write_df_to_sheet('transactions', df, _file_cols))
-                                _header_cache['transactions'] = _file_cols
-                                invalidate('transactions')
-                                imported = len(df)
-                            else:
-                                if len(_overlap) < 2:
-                                    _w = ws('transactions')
-                                    await run.io_bound(lambda: _w.update('A1', [_file_cols]))
-                                    _header_cache['transactions'] = _file_cols
-                                df = df.fillna('')
-                                for _, row in df.iterrows():
-                                    row_dict = {}
-                                    for col in df.columns:
-                                        val = row[col]
-                                        if str(val).strip() != '':
-                                            row_dict[str(col).strip()] = val
-                                    if not row_dict:
-                                        _skipped += 1
-                                        continue
-                                    await run.io_bound(lambda r=dict(row_dict): append_row('transactions', r))
-                                    imported += 1
-                                invalidate('transactions')
+                            # Append: write each row via gspread append_row (positional)
+                            # Use the worksheet directly with a list of values (not dict)
+                            # to avoid header-matching issues with the dict-based append_row.
+                            _w = ws('transactions')
+                            for _, row in df.iterrows():
+                                vals = [row[c] for c in _file_cols]
+                                if all(v == '' for v in vals):
+                                    _skipped += 1
+                                    continue
+                                await run.io_bound(
+                                    lambda v=list(vals): _w.append_row(v, value_input_option='USER_ENTERED')
+                                )
+                                imported += 1
+                            invalidate('transactions')
 
                         invalidate('recurring')
 
-                        # ── Determine display label ──
-                        _fmt = 'Wide (direct write)' if _is_file_wide else 'Long (direct write)'
+                        _fmt = 'Wide' if _is_file_wide else 'Long'
 
                         # Save restore timestamp for display
                         _restore_ts = now_iso()
@@ -10097,12 +10073,14 @@ def data_upload_page() -> None:
                                     ui.label('Import Complete').classes('text-lg font-extrabold').style('color:#22c55e;')
                                 _stats = [
                                     ('Rows written to sheet', str(imported)),
-                                    ('Rows skipped (empty/no date)', str(_skipped)),
-                                    ('File format detected', _fmt),
+                                    ('Rows skipped (empty)', str(_skipped)),
+                                    ('File format', _fmt),
                                     ('Upload mode', 'Replace' if mode == 'replace' else 'Append'),
-                                    ('Source rows in file', str(len(df))),
+                                    ('Source rows in file', str(_total_before)),
                                     ('File', fname),
                                 ]
+                                if _headers_fixed:
+                                    _stats.insert(3, ('Sheet headers', 'Auto-fixed to match file'))
                                 for _sl, _sv in _stats:
                                     with ui.row().classes('items-center justify-between w-full').style('padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);'):
                                         ui.label(_sl).classes('text-xs font-medium').style('color:var(--mf-muted);')
@@ -11267,5 +11245,33 @@ except Exception as _startup_err:
 #    NaN values cleaned to '' before write, empty rows dropped.
 #
 # 5. Version bump to 9.11.4
+#
+# -- v9.11.5  -------------------------------------------------------
+# 1. Restore: added _serialize() to convert ALL cell values BEFORE
+#    processing:  pd.Timestamp -> 'YYYY-MM-DD', dt.datetime -> date
+#    string, NaN/NaT -> '', float 1234.0 -> '1234', 'nan'/'nat' -> ''.
+#    Previous versions passed raw Timestamp objects to append_row /
+#    parse_date which caused silent failures and skipped rows.
+#
+# 2. Removed broken date-validation skip that rejected 71/72 rows.
+#    After fillna(''), rows with NaT dates had empty date column
+#    excluded from row_dict, so the 'date' key was never found and
+#    _has_date stayed False.  Now: all non-empty rows are written.
+#
+# 3. Append mode: switched from dict-based append_row() (requires
+#    header matching) to positional ws.append_row(values_list) using
+#    gspread directly.  Values are in file-column order which matches
+#    the sheet headers (auto-fixed if corrupted).  This avoids any
+#    dict-key vs header-name mismatch.
+#
+# 4. wide_transactions_to_long() handles categorization on read:
+#    maps Credit->type='credit', Debit->'debit', International
+#    Transaction->'international', etc.  So writing clean WIDE data
+#    to the sheet is sufficient -- the app auto-categorizes on load.
+#
+# 5. Import summary now shows 'Source rows in file' as the count
+#    BEFORE empty-row filtering, and reports header auto-fix status.
+#
+# 6. Version bump to 9.11.5
 #
 
