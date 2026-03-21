@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.11.2'
+APP_VERSION = '9.11.3'
 
 
 def log(message: str) -> None:
@@ -9972,156 +9972,180 @@ def data_upload_page() -> None:
                             ui.notify('File is empty.', type='warning')
                             return
 
-                        # Normalize columns
-                        col_map = {}
-                        for c in df.columns:
-                            cl = str(c).strip().lower()
-                            if 'date' in cl:
-                                col_map['date'] = c
-                            elif 'international' in cl:
-                                col_map['intl'] = c
-                            elif cl in ('credit', 'credits', 'income', 'salary'):
-                                col_map['credit'] = c
-                            elif 'invest' in cl:
-                                col_map['invest'] = c
-                            elif 'credit card' in cl or 'cc repay' in cl or 'cc_repay' in cl or 'creditcard' in cl:
-                                col_map['cc_repay'] = c
-                            elif cl in ('debit', 'debits', 'expense', 'expenses', 'amount'):
-                                col_map['debit'] = c
-                            elif 'reason' in cl or 'note' in cl or 'description' in cl:
-                                col_map['notes'] = c
-                        if 'date' not in col_map:
-                            ui.notify('No date column found.', type='negative')
-                            return
-
-                        def _detect_card(notes_str: str, tx_type: str) -> tuple:
-                            nl = notes_str.lower().strip()
-                            if tx_type in ('credit', 'invest', 'investment'):
-                                return ('Bank', '')
-                            if 'rbc visa' in nl:
-                                return ('Card', 'RBC VISA')
-                            if 'rbc mastercard' in nl or 'rbc mc' in nl:
-                                return ('Card', 'RBC Mastercard')
-                            if 'loc' in nl:
-                                return ('Card', 'RBC Line of Credit')
-                            if 'black cc' in nl or 'blac card' in nl or 'black card' in nl:
-                                return ('Card', 'CT Mastercard - Black')
-                            if tx_type in ('cc_repay',):
-                                return ('Card', 'CT Mastercard - Grey')
-                            return ('Card', 'CT Mastercard - Grey')
-
-                        _rules = load_rules()
-                        def _infer_category(notes_str: str, tx_type: str) -> str:
-                            if tx_type == 'intl':
-                                return 'International Transfer'
-                            if tx_type == 'credit':
-                                return 'Salary'
-                            if tx_type == 'invest':
-                                return 'Investment'
-                            if tx_type == 'cc_repay':
-                                return 'CC Repayment'
-                            nl = notes_str.lower()
-                            for keyword, cat in _rules:
-                                if keyword.lower() in nl:
-                                    return cat
-                            return 'Uncategorized'
+                        # ── Detect sheet format: WIDE vs LONG ──
+                        _sheet_hdrs = sheet_headers('transactions')
+                        _sheet_hdrs_lower = {h.lower().strip() for h in _sheet_hdrs}
+                        _is_long_format = ('type' in _sheet_hdrs_lower and 'amount' in _sheet_hdrs_lower)
 
                         mode = _upload_state.get('mode', 'append')
                         _status_label.set_text(f'Processing... ({mode} mode)')
 
                         if mode == 'replace':
                             try:
-                                headers = sheet_headers('transactions')
-                                empty_df = pd.DataFrame(columns=headers)
-                                await run.io_bound(lambda: write_df_to_sheet('transactions', empty_df, headers))
+                                empty_df = pd.DataFrame(columns=_sheet_hdrs)
+                                await run.io_bound(lambda: write_df_to_sheet('transactions', empty_df, _sheet_hdrs))
                                 invalidate('transactions')
                             except Exception as ex:
                                 ui.notify(f'Failed to clear: {ex}', type='negative')
                                 return
 
-                        _amount_cols = {
-                            'intl': ('International Transfer', col_map.get('intl')),
-                            'credit': ('Credit', col_map.get('credit')),
-                            'invest': ('Investment', col_map.get('invest')),
-                            'cc_repay': ('CC Repay', col_map.get('cc_repay')),
-                            'debit': ('Debit', col_map.get('debit')),
-                        }
                         imported = 0
-                        _recurring_tracker: dict[str, list] = {}
+                        _skipped = 0
 
-                        for _, row in df.iterrows():
-                            d = parse_date(row.get(col_map['date']))
-                            if not d:
-                                continue
-                            notes = str(row.get(col_map.get('notes', ''), '') or '').strip()
-                            for tx_key, (tx_type_label, col_name) in _amount_cols.items():
-                                if col_name is None:
+                        if _is_long_format:
+                            # ── LONG format sheet (id, date, type, amount, ...) ──
+                            # Parse uploaded wide-format file into individual transactions
+                            col_map = {}
+                            for c in df.columns:
+                                cl = str(c).strip().lower()
+                                if 'date' in cl:
+                                    col_map['date'] = c
+                                elif 'international' in cl:
+                                    col_map['intl'] = c
+                                elif 'credit card' in cl or 'cc repay' in cl or 'cc_repay' in cl or 'creditcard' in cl:
+                                    col_map['cc_repay'] = c
+                                elif cl in ('credit', 'credits', 'income', 'salary'):
+                                    col_map['credit'] = c
+                                elif 'invest' in cl:
+                                    col_map['invest'] = c
+                                elif cl in ('debit', 'debits', 'expense', 'expenses', 'amount'):
+                                    col_map['debit'] = c
+                                elif 'reason' in cl or 'note' in cl or 'description' in cl:
+                                    col_map['notes'] = c
+                            if 'date' not in col_map:
+                                ui.notify('No date column found.', type='negative')
+                                return
+
+                            def _detect_card(notes_str: str, tx_type: str) -> tuple:
+                                nl = notes_str.lower().strip()
+                                if tx_type in ('credit', 'invest', 'investment'):
+                                    return ('Bank', '')
+                                if 'rbc visa' in nl:
+                                    return ('Card', 'RBC VISA')
+                                if 'rbc mastercard' in nl or 'rbc mc' in nl:
+                                    return ('Card', 'RBC Mastercard')
+                                if 'loc' in nl:
+                                    return ('Card', 'RBC Line of Credit')
+                                if 'black cc' in nl or 'blac card' in nl or 'black card' in nl:
+                                    return ('Card', 'CT Mastercard - Black')
+                                if tx_type in ('cc_repay',):
+                                    return ('Card', 'CT Mastercard - Grey')
+                                return ('Card', 'CT Mastercard - Grey')
+
+                            _rules = load_rules()
+                            def _infer_category(notes_str: str, tx_type: str) -> str:
+                                if tx_type == 'intl':
+                                    return 'International Transfer'
+                                if tx_type == 'credit':
+                                    return 'Salary'
+                                if tx_type == 'invest':
+                                    return 'Investment'
+                                if tx_type == 'cc_repay':
+                                    return 'CC Repayment'
+                                nl = notes_str.lower()
+                                for keyword, cat in _rules:
+                                    if keyword.lower() in nl:
+                                        return cat
+                                return 'Uncategorized'
+
+                            _amount_cols = {
+                                'intl': ('International Transfer', col_map.get('intl')),
+                                'credit': ('Credit', col_map.get('credit')),
+                                'invest': ('Investment', col_map.get('invest')),
+                                'cc_repay': ('CC Repay', col_map.get('cc_repay')),
+                                'debit': ('Debit', col_map.get('debit')),
+                            }
+                            for _, row in df.iterrows():
+                                d = parse_date(row.get(col_map['date']))
+                                if not d:
+                                    _skipped += 1
                                     continue
-                                amt = to_float(row.get(col_name, 0))
-                                if amt <= 0:
+                                notes = str(row.get(col_map.get('notes', ''), '') or '').strip()
+                                for tx_key, (tx_type_label, col_name) in _amount_cols.items():
+                                    if col_name is None:
+                                        continue
+                                    amt = to_float(row.get(col_name, 0))
+                                    if amt <= 0 or pd.isna(amt):
+                                        continue
+                                    method, account = _detect_card(notes, tx_key)
+                                    category = _infer_category(notes, tx_key)
+                                    txid = str(uuid.uuid4())
+                                    await run.io_bound(lambda _id=txid, _d=d, _t=tx_type_label, _a=amt, _m=method, _ac=account, _cat=category, _n=notes: append_tx(
+                                        id=_id, date=_d.isoformat(), owner='Family',
+                                        type=_t, amount=_a, method=_m, account=_ac,
+                                        category=_cat, notes=_n,
+                                        is_recurring=False, recurring_id='', created_at=now_iso(),
+                                    ))
+                                    imported += 1
+                        else:
+                            # ── WIDE format sheet (Date, Intl, Credit, Debit, etc.) ──
+                            # Write each row directly using the uploaded file's column names
+                            # which match the sheet's own headers (case-insensitive via append_row)
+                            for _, row in df.iterrows():
+                                row_dict = {}
+                                has_any_amount = False
+                                for col in df.columns:
+                                    val = row[col]
+                                    if pd.notna(val) and str(val).strip() and str(val).strip().lower() != 'nan':
+                                        row_dict[col] = val
+                                        # Check if this row has any monetary value
+                                        cl = str(col).strip().lower()
+                                        if cl not in ('date', 'account', 'owner') and 'reason' not in cl and 'note' not in cl and 'description' not in cl:
+                                            if to_float(val) > 0:
+                                                has_any_amount = True
+                                if not row_dict:
+                                    _skipped += 1
                                     continue
-                                method, account = _detect_card(notes, tx_key)
-                                category = _infer_category(notes, tx_key)
-                                txid = str(uuid.uuid4())
-                                await run.io_bound(lambda _id=txid, _d=d, _t=tx_type_label, _a=amt, _m=method, _ac=account, _cat=category, _n=notes: append_tx(
-                                    id=_id, date=_d.isoformat(), owner='Family',
-                                    type=_t, amount=_a, method=_m, account=_ac,
-                                    category=_cat, notes=_n,
-                                    is_recurring=False, recurring_id='', created_at=now_iso(),
-                                ))
+                                # Check date exists
+                                _has_date = False
+                                for col in row_dict:
+                                    if 'date' in str(col).lower():
+                                        if parse_date(row_dict[col]):
+                                            _has_date = True
+                                            break
+                                if not _has_date:
+                                    _skipped += 1
+                                    continue
+                                await run.io_bound(lambda r=dict(row_dict): append_row('transactions', r))
                                 imported += 1
-                                _rkey = f'{tx_type_label}|{amt}|{notes[:30].lower().strip()}'
-                                _recurring_tracker.setdefault(_rkey, []).append((d, d.day))
-
-                        # Recurring detection
-                        _recurring_created = 0
-                        for _rkey, dates_list in _recurring_tracker.items():
-                            if len(dates_list) < 2:
-                                continue
-                            _months_seen = set(rd.strftime('%Y-%m') for rd, _ in dates_list)
-                            if len(_months_seen) < 2:
-                                continue
-                            parts = _rkey.split('|', 2)
-                            _r_type, _r_amt = parts[0], float(parts[1])
-                            _r_notes = parts[2] if len(parts) > 2 else ''
-                            _r_method, _r_account = _detect_card(_r_notes, _r_type.lower().replace(' ', '_'))
-                            _r_category = _infer_category(_r_notes, _r_type.lower().replace(' ', '_'))
-                            _day_counts: dict[int, int] = {}
-                            for _, _rday in dates_list:
-                                _day_counts[_rday] = _day_counts.get(_rday, 0) + 1
-                            _best_day = max(_day_counts, key=_day_counts.get)
-                            _earliest = min(d for d, _ in dates_list)
-                            try:
-                                await run.io_bound(lambda _t=_r_type, _a=_r_amt, _m=_r_method, _ac=_r_account, _cat=_r_category, _n=_r_notes, _day=_best_day, _start=_earliest: create_or_update_recurring_template(
-                                    owner='Family', type_=_t, amount=_a,
-                                    method=_m, account=_ac, category=_cat,
-                                    notes=_n, day_of_month=_day, start_date=_start, active=True,
-                                ))
-                                _recurring_created += 1
-                            except Exception:
-                                pass
 
                         invalidate('transactions')
                         invalidate('recurring')
 
+                        # Save restore timestamp for display
+                        _restore_ts = now_iso()
+                        app.storage.user['last_restore'] = {
+                            'time': _restore_ts,
+                            'file': fname,
+                            'rows': imported,
+                            'mode': mode,
+                        }
+
                         _status_label.set_text('')
                         _result_container.clear()
                         with _result_container:
-                            with ui.card().classes('my-card p-5').style('border:1px solid rgba(34,197,94,0.2);'):
+                            with ui.element('div').style(
+                                'border-radius:16px;padding:20px;'
+                                'background:var(--mf-card-bg, linear-gradient(165deg, var(--mf-card-top), var(--mf-card-bottom)));'
+                                'border:1px solid rgba(34,197,94,0.25);box-shadow:0 4px 16px rgba(34,197,94,0.1);'
+                            ):
                                 with ui.row().classes('items-center gap-3 mb-3'):
                                     ui.icon('check_circle').style('font-size:28px;color:#22c55e;')
                                     ui.label('Import Complete').classes('text-lg font-extrabold').style('color:#22c55e;')
+                                _fmt = 'Wide (pass-through)' if not _is_long_format else 'Long (parsed)'
                                 _stats = [
-                                    ('Transactions imported', str(imported)),
-                                    ('Recurring templates created', str(_recurring_created)),
+                                    ('Rows written to sheet', str(imported)),
+                                    ('Rows skipped (no date/data)', str(_skipped)),
+                                    ('Sheet format detected', _fmt),
                                     ('Upload mode', 'Replace' if mode == 'replace' else 'Append'),
-                                    ('Source rows processed', str(len(df))),
+                                    ('Source rows in file', str(len(df))),
+                                    ('File', fname),
                                 ]
                                 for _sl, _sv in _stats:
                                     with ui.row().classes('items-center justify-between w-full').style('padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);'):
                                         ui.label(_sl).classes('text-xs font-medium').style('color:var(--mf-muted);')
                                         ui.label(_sv).classes('text-sm font-bold').style('font-feature-settings:"tnum";')
-                        ui.notify(f'Imported {imported} transactions, {_recurring_created} recurring.', type='positive')
+                        ui.notify(f'Imported {imported} rows ({_fmt}).', type='positive')
 
                     except Exception as ex:
                         ui.notify(f'Import failed: {ex}', type='negative')
@@ -10133,6 +10157,32 @@ def data_upload_page() -> None:
                     'background:linear-gradient(135deg,#06b6d4,#0ea5e9);color:white;font-weight:700;text-transform:none;padding:8px 28px;')
 
             ui.label('Select Append to add new data or Replace All to clear existing data before import. Then click Restore.').classes('text-[11px] mt-2').style('color:var(--mf-muted);')
+
+            # ── Restore History Note ──
+            _last = app.storage.user.get('last_restore')
+            if _last and isinstance(_last, dict):
+                _lr_time = _last.get('time', '')
+                _lr_file = _last.get('file', 'unknown')
+                _lr_rows = _last.get('rows', '?')
+                _lr_mode = _last.get('mode', '')
+                # Format timestamp for display
+                try:
+                    _dt_obj = dt.datetime.fromisoformat(_lr_time)
+                    _display_time = _dt_obj.strftime('%b %d, %Y at %I:%M %p UTC')
+                except Exception:
+                    _display_time = _lr_time or 'unknown'
+                ui.element('div').style('height:16px;')
+                with ui.element('div').style(
+                    'border-radius:12px;padding:14px 18px;'
+                    'background:rgba(6,182,212,0.06);'
+                    'border:1px solid rgba(6,182,212,0.15);'
+                ):
+                    with ui.row().classes('items-center gap-2 mb-1'):
+                        ui.icon('history').style('font-size:18px;color:#06b6d4;')
+                        ui.label('Last Restore').classes('text-sm font-bold').style('color:#06b6d4;')
+                    with ui.column().classes('gap-1 ml-1'):
+                        ui.label(f'{_display_time}').classes('text-xs font-semibold')
+                        ui.label(f'File: {_lr_file}  ·  {_lr_rows} rows  ·  {_lr_mode.title() if _lr_mode else ""}').classes('text-[11px]').style('color:var(--mf-muted);')
 
     shell(content)
 
@@ -11205,5 +11255,24 @@ ui.run(
 #    to avoid Quasar class interference.
 #
 # 3. Version bump to 9.11.2
+#
+# ── v9.11.3  ─────────────────────────────────────────────────
+# 1. Restore data flow FIXED: root cause was Google Sheet uses
+#    WIDE format headers (Date, International Transaction,
+#    Credit, Debit, Reason/Note) but append_tx wrote LONG format
+#    keys (id, date, type, amount) that didn't match sheet
+#    headers — append_row silently dropped all unmatched values.
+#    Now auto-detects sheet format:
+#    - WIDE sheets: writes rows directly using uploaded column
+#      names matching sheet headers (pass-through mode)
+#    - LONG sheets: parses via append_tx with card detection
+#    Filters NaN amounts, validates date column presence.
+#
+# 2. Restore history note on Data Upload page: after a restore,
+#    saves timestamp + filename + row count to user storage.
+#    Data Upload page now displays "Last Restore" card showing
+#    when restore was done, which file, and how many rows.
+#
+# 3. Version bump to 9.11.3
 #
 
