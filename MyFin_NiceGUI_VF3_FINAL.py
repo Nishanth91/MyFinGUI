@@ -56,7 +56,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.11.3'
+APP_VERSION = '9.11.4'
 
 
 def log(message: str) -> None:
@@ -9972,145 +9972,107 @@ def data_upload_page() -> None:
                             ui.notify('File is empty.', type='warning')
                             return
 
-                        # ── Detect sheet format: WIDE vs LONG ──
-                        _sheet_hdrs = sheet_headers('transactions')
-                        _sheet_hdrs_lower = {h.lower().strip() for h in _sheet_hdrs}
-                        _is_long_format = ('type' in _sheet_hdrs_lower and 'amount' in _sheet_hdrs_lower)
+                        # ── Detect format from the UPLOADED FILE columns ──
+                        # Previous versions checked sheet headers, but a corrupted
+                        # Replace could overwrite headers with TABS defaults (LONG),
+                        # causing false detection.  The FILE is the source of truth.
+                        _file_cols = [str(c).strip() for c in df.columns]
+                        _file_cols_lower = {c.lower() for c in _file_cols}
+                        _is_file_wide = not ('type' in _file_cols_lower and 'amount' in _file_cols_lower)
 
                         mode = _upload_state.get('mode', 'append')
                         _status_label.set_text(f'Processing... ({mode} mode)')
 
-                        if mode == 'replace':
-                            try:
-                                empty_df = pd.DataFrame(columns=_sheet_hdrs)
-                                await run.io_bound(lambda: write_df_to_sheet('transactions', empty_df, _sheet_hdrs))
-                                invalidate('transactions')
-                            except Exception as ex:
-                                ui.notify(f'Failed to clear: {ex}', type='negative')
-                                return
-
                         imported = 0
                         _skipped = 0
 
-                        if _is_long_format:
-                            # ── LONG format sheet (id, date, type, amount, ...) ──
-                            # Parse uploaded wide-format file into individual transactions
-                            col_map = {}
-                            for c in df.columns:
-                                cl = str(c).strip().lower()
-                                if 'date' in cl:
-                                    col_map['date'] = c
-                                elif 'international' in cl:
-                                    col_map['intl'] = c
-                                elif 'credit card' in cl or 'cc repay' in cl or 'cc_repay' in cl or 'creditcard' in cl:
-                                    col_map['cc_repay'] = c
-                                elif cl in ('credit', 'credits', 'income', 'salary'):
-                                    col_map['credit'] = c
-                                elif 'invest' in cl:
-                                    col_map['invest'] = c
-                                elif cl in ('debit', 'debits', 'expense', 'expenses', 'amount'):
-                                    col_map['debit'] = c
-                                elif 'reason' in cl or 'note' in cl or 'description' in cl:
-                                    col_map['notes'] = c
-                            if 'date' not in col_map:
-                                ui.notify('No date column found.', type='negative')
-                                return
+                        if _is_file_wide:
+                            # ══════ WIDE FILE (Date, International Transaction, Credit, Debit, Reason/Note …) ══════
+                            # Clean NaN → '' so write_df_to_sheet won't produce 'nan' strings
+                            df = df.fillna('')
+                            # Drop fully-empty rows (all columns blank after fillna)
+                            df = df[df.apply(lambda r: any(str(v).strip() != '' for v in r.values), axis=1)]
 
-                            def _detect_card(notes_str: str, tx_type: str) -> tuple:
-                                nl = notes_str.lower().strip()
-                                if tx_type in ('credit', 'invest', 'investment'):
-                                    return ('Bank', '')
-                                if 'rbc visa' in nl:
-                                    return ('Card', 'RBC VISA')
-                                if 'rbc mastercard' in nl or 'rbc mc' in nl:
-                                    return ('Card', 'RBC Mastercard')
-                                if 'loc' in nl:
-                                    return ('Card', 'RBC Line of Credit')
-                                if 'black cc' in nl or 'blac card' in nl or 'black card' in nl:
-                                    return ('Card', 'CT Mastercard - Black')
-                                if tx_type in ('cc_repay',):
-                                    return ('Card', 'CT Mastercard - Grey')
-                                return ('Card', 'CT Mastercard - Grey')
+                            if mode == 'replace':
+                                # ── Replace: one-shot batch write (headers + all data) ──
+                                await run.io_bound(lambda: write_df_to_sheet('transactions', df, _file_cols))
+                                _header_cache['transactions'] = _file_cols
+                                invalidate('transactions')
+                                imported = len(df)
+                            else:
+                                # ── Append: ensure sheet headers match the file columns ──
+                                _sheet_hdrs = sheet_headers('transactions')
+                                _sheet_lower_set = {h.lower().strip() for h in _sheet_hdrs}
+                                # Count how many file columns match sheet headers
+                                _overlap = _file_cols_lower.intersection(_sheet_lower_set)
+                                if len(_overlap) < 2:
+                                    # Headers are corrupted (e.g. LONG defaults from a bad Replace).
+                                    # Overwrite header row with the file's column names so append_row matches.
+                                    _w = ws('transactions')
+                                    await run.io_bound(lambda: _w.update('A1', [_file_cols]))
+                                    _header_cache['transactions'] = _file_cols
 
-                            _rules = load_rules()
-                            def _infer_category(notes_str: str, tx_type: str) -> str:
-                                if tx_type == 'intl':
-                                    return 'International Transfer'
-                                if tx_type == 'credit':
-                                    return 'Salary'
-                                if tx_type == 'invest':
-                                    return 'Investment'
-                                if tx_type == 'cc_repay':
-                                    return 'CC Repayment'
-                                nl = notes_str.lower()
-                                for keyword, cat in _rules:
-                                    if keyword.lower() in nl:
-                                        return cat
-                                return 'Uncategorized'
-
-                            _amount_cols = {
-                                'intl': ('International Transfer', col_map.get('intl')),
-                                'credit': ('Credit', col_map.get('credit')),
-                                'invest': ('Investment', col_map.get('invest')),
-                                'cc_repay': ('CC Repay', col_map.get('cc_repay')),
-                                'debit': ('Debit', col_map.get('debit')),
-                            }
-                            for _, row in df.iterrows():
-                                d = parse_date(row.get(col_map['date']))
-                                if not d:
-                                    _skipped += 1
-                                    continue
-                                notes = str(row.get(col_map.get('notes', ''), '') or '').strip()
-                                for tx_key, (tx_type_label, col_name) in _amount_cols.items():
-                                    if col_name is None:
+                                for _, row in df.iterrows():
+                                    row_dict = {}
+                                    for col in df.columns:
+                                        val = row[col]
+                                        if str(val).strip() != '':
+                                            row_dict[str(col).strip()] = val
+                                    if not row_dict:
+                                        _skipped += 1
                                         continue
-                                    amt = to_float(row.get(col_name, 0))
-                                    if amt <= 0 or pd.isna(amt):
+                                    # Verify at least one date column has a parseable date
+                                    _has_date = False
+                                    for col in row_dict:
+                                        if 'date' in col.lower():
+                                            if parse_date(row_dict[col]):
+                                                _has_date = True
+                                                break
+                                    if not _has_date:
+                                        _skipped += 1
                                         continue
-                                    method, account = _detect_card(notes, tx_key)
-                                    category = _infer_category(notes, tx_key)
-                                    txid = str(uuid.uuid4())
-                                    await run.io_bound(lambda _id=txid, _d=d, _t=tx_type_label, _a=amt, _m=method, _ac=account, _cat=category, _n=notes: append_tx(
-                                        id=_id, date=_d.isoformat(), owner='Family',
-                                        type=_t, amount=_a, method=_m, account=_ac,
-                                        category=_cat, notes=_n,
-                                        is_recurring=False, recurring_id='', created_at=now_iso(),
-                                    ))
+                                    await run.io_bound(lambda r=dict(row_dict): append_row('transactions', r))
                                     imported += 1
-                        else:
-                            # ── WIDE format sheet (Date, Intl, Credit, Debit, etc.) ──
-                            # Write each row directly using the uploaded file's column names
-                            # which match the sheet's own headers (case-insensitive via append_row)
-                            for _, row in df.iterrows():
-                                row_dict = {}
-                                has_any_amount = False
-                                for col in df.columns:
-                                    val = row[col]
-                                    if pd.notna(val) and str(val).strip() and str(val).strip().lower() != 'nan':
-                                        row_dict[col] = val
-                                        # Check if this row has any monetary value
-                                        cl = str(col).strip().lower()
-                                        if cl not in ('date', 'account', 'owner') and 'reason' not in cl and 'note' not in cl and 'description' not in cl:
-                                            if to_float(val) > 0:
-                                                has_any_amount = True
-                                if not row_dict:
-                                    _skipped += 1
-                                    continue
-                                # Check date exists
-                                _has_date = False
-                                for col in row_dict:
-                                    if 'date' in str(col).lower():
-                                        if parse_date(row_dict[col]):
-                                            _has_date = True
-                                            break
-                                if not _has_date:
-                                    _skipped += 1
-                                    continue
-                                await run.io_bound(lambda r=dict(row_dict): append_row('transactions', r))
-                                imported += 1
+                                invalidate('transactions')
 
-                        invalidate('transactions')
+                        else:
+                            # ══════ LONG FILE (id, date, type, amount, …) ══════
+                            # File already has LONG columns → write rows directly.
+                            # Ensure sheet headers match the file.
+                            _sheet_hdrs = sheet_headers('transactions')
+                            _sheet_lower_set = {h.lower().strip() for h in _sheet_hdrs}
+                            _overlap = _file_cols_lower.intersection(_sheet_lower_set)
+
+                            if mode == 'replace':
+                                df = df.fillna('')
+                                df = df[df.apply(lambda r: any(str(v).strip() != '' for v in r.values), axis=1)]
+                                await run.io_bound(lambda: write_df_to_sheet('transactions', df, _file_cols))
+                                _header_cache['transactions'] = _file_cols
+                                invalidate('transactions')
+                                imported = len(df)
+                            else:
+                                if len(_overlap) < 2:
+                                    _w = ws('transactions')
+                                    await run.io_bound(lambda: _w.update('A1', [_file_cols]))
+                                    _header_cache['transactions'] = _file_cols
+                                df = df.fillna('')
+                                for _, row in df.iterrows():
+                                    row_dict = {}
+                                    for col in df.columns:
+                                        val = row[col]
+                                        if str(val).strip() != '':
+                                            row_dict[str(col).strip()] = val
+                                    if not row_dict:
+                                        _skipped += 1
+                                        continue
+                                    await run.io_bound(lambda r=dict(row_dict): append_row('transactions', r))
+                                    imported += 1
+                                invalidate('transactions')
+
                         invalidate('recurring')
+
+                        # ── Determine display label ──
+                        _fmt = 'Wide (direct write)' if _is_file_wide else 'Long (direct write)'
 
                         # Save restore timestamp for display
                         _restore_ts = now_iso()
@@ -10132,11 +10094,10 @@ def data_upload_page() -> None:
                                 with ui.row().classes('items-center gap-3 mb-3'):
                                     ui.icon('check_circle').style('font-size:28px;color:#22c55e;')
                                     ui.label('Import Complete').classes('text-lg font-extrabold').style('color:#22c55e;')
-                                _fmt = 'Wide (pass-through)' if not _is_long_format else 'Long (parsed)'
                                 _stats = [
                                     ('Rows written to sheet', str(imported)),
-                                    ('Rows skipped (no date/data)', str(_skipped)),
-                                    ('Sheet format detected', _fmt),
+                                    ('Rows skipped (empty/no date)', str(_skipped)),
+                                    ('File format detected', _fmt),
                                     ('Upload mode', 'Replace' if mode == 'replace' else 'Append'),
                                     ('Source rows in file', str(len(df))),
                                     ('File', fname),
@@ -11274,5 +11235,29 @@ ui.run(
 #    when restore was done, which file, and how many rows.
 #
 # 3. Version bump to 9.11.3
+#
+# ── v9.11.4  ─────────────────────────────────────────────────
+# 1. Restore: format detection moved from SHEET headers to
+#    UPLOADED FILE columns.  Previous versions checked the
+#    sheet's header row, but a prior buggy Replace had
+#    overwritten the WIDE headers with TABS defaults (LONG:
+#    id, date, type, amount, …).  The file is now the source
+#    of truth: if it has 'type' + 'amount' columns → LONG,
+#    otherwise → WIDE.
+#
+# 2. Replace mode now uses write_df_to_sheet() for a single
+#    efficient batch write (headers + all data in one API call)
+#    instead of clearing first, then row-by-row append.
+#    This also restores the correct WIDE headers on the sheet.
+#
+# 3. Append mode: detects corrupted sheet headers (< 2 column
+#    overlap with file) and auto-fixes them by overwriting
+#    row 1 with the file's column names before appending.
+#
+# 4. Both WIDE and LONG files now write data directly (no
+#    WIDE→LONG conversion step that was losing rows).
+#    NaN values cleaned to '' before write, empty rows dropped.
+#
+# 5. Version bump to 9.11.4
 #
 
