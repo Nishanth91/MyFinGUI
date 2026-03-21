@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ======================================
 # FinTrackr App  Phase 4.6A (REAL FIX BUILD)
 # Changes vs P4.5: Dashboard hero, Rules selection, OCR toast timeout, richer palette
@@ -9987,7 +9988,7 @@ def data_upload_page() -> None:
                         _skipped = 0
 
                         if _is_file_wide:
-                            # ══════ WIDE FILE (Date, International Transaction, Credit, Debit, Reason/Note …) ══════
+                            # ---- WIDE FILE (Date, International Transaction, Credit, Debit, Reason/Note) ----
                             # Clean NaN → '' so write_df_to_sheet won't produce 'nan' strings
                             df = df.fillna('')
                             # Drop fully-empty rows (all columns blank after fillna)
@@ -10036,7 +10037,7 @@ def data_upload_page() -> None:
                                 invalidate('transactions')
 
                         else:
-                            # ══════ LONG FILE (id, date, type, amount, …) ══════
+                            # ---- LONG FILE (id, date, type, amount) ----
                             # File already has LONG columns → write rows directly.
                             # Ensure sheet headers match the file.
                             _sheet_hdrs = sheet_headers('transactions')
@@ -10938,15 +10939,22 @@ async def _prewarm_cache():
 app.on_startup(lambda: asyncio.create_task(_keepalive_loop()))
 app.on_startup(lambda: asyncio.create_task(_prewarm_cache()))
 
-ui.run(
-    host="0.0.0.0",
-    port=PORT,
-    show=False,           # headless — Render has no browser
-    storage_secret=STORAGE_SECRET or "PLEASE_SET_NICEGUI_STORAGE_SECRET",
-    title=APP_TITLE,
-    favicon=_FAVICON_SVG,
-    reconnect_timeout=15,
-)
+try:
+    _logger.info('[startup] FinTrackr %s starting on port %s', APP_VERSION, PORT)
+    ui.run(
+        host="0.0.0.0",
+        port=PORT,
+        show=False,           # headless — Render has no browser
+        storage_secret=STORAGE_SECRET or "PLEASE_SET_NICEGUI_STORAGE_SECRET",
+        title=APP_TITLE,
+        favicon=_FAVICON_SVG,
+        reconnect_timeout=15,
+    )
+except Exception as _startup_err:
+    import traceback
+    print(f'[FATAL] FinTrackr failed to start: {_startup_err}', flush=True)
+    traceback.print_exc()
+    raise
 
 # Release: FinTrackr Phase 8.7
 # 
