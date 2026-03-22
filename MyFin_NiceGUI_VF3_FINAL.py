@@ -57,7 +57,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.15.2'
+APP_VERSION = '9.16'
 
 
 def log(message: str) -> None:
@@ -2619,7 +2619,7 @@ def create_or_update_recurring_template(
             "day_of_month": str(day_of_month),
             "start_date": start_date.isoformat(),
             "active": "TRUE" if active else "FALSE",
-            "last_generated_month": "",
+            "last_generated_month": month_key(start_date),  # 9.15.2: mark current month as done — user already added this month's tx manually
         })
     except Exception as e:
         _logger.error("Failed to append recurring template: %s", e)
@@ -5906,9 +5906,17 @@ def dashboard_page():
                 _ins_spend = tx[tx['type_l'].isin(['debit', 'expense'])].copy()
                 if not _ins_spend.empty and 'category' in _ins_spend.columns:
                     _si_total = float(_ins_spend['amount_num'].sum())
-                    # Biggest expense excluding LOC/intl categories
-                    _excl_cats = {'loc utilization', 'repayment', 'cc repay', 'international', 'international transfer'}
-                    _real_spend = _ins_spend[~_ins_spend['category'].str.strip().str.lower().isin(_excl_cats)]
+                    # 9.16: Exclude recurring fixed expenses + LOC/intl/repayment from breakdown
+                    _excl_cats = {
+                        'rent', 'car emi', 'car loan', 'emi',
+                        'loc utilization', 'repayment', 'cc repay',
+                        'international', 'international transfer', 'international transaction',
+                    }
+                    # Also exclude by type (international transfer, loc draw, etc.)
+                    _excl_types = {'international transfer', 'international', 'loc draw', 'loc_draw', 'loc withdrawal', 'loc_withdrawal'}
+                    _type_mask = _ins_spend.get('type', pd.Series(dtype=str)).astype(str).str.strip().str.lower().isin(_excl_types)
+                    _cat_mask = _ins_spend['category'].str.strip().str.lower().isin(_excl_cats)
+                    _real_spend = _ins_spend[~_cat_mask & ~_type_mask]
                     _si_biggest = 0.0
                     _si_big_note = ''
                     _si_big_cat = ''
