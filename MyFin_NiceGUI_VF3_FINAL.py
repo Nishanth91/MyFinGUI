@@ -8960,45 +8960,16 @@ def cards_page() -> None:
                 if 'type_norm' not in txu.columns:
                     txu['type_norm'] = txu.get('type','').astype(str).str.strip().str.lower()
 
-                # Try infer cycle window from billing day (optional; keep fallback to all-time)
-                cycle_mask = pd.Series([True]*len(txu))
-                try:
-                    bd_int = int(float(bd)) if str(bd).strip() else None
-                except Exception:
-                    bd_int = None
-                if bd_int and 1 <= bd_int <= 31:
-                    txu['date_parsed'] = txu.get('date','').apply(parse_date)
-                    if txu['date_parsed'].notna().any():
-                        today_d = today()
-                        import calendar as _cal
-                        # last statement date = most recent billing day
-                        last_stmt_month = today_d.month
-                        last_stmt_year = today_d.year
-                        if today_d.day < bd_int:
-                            # go previous month
-                            if last_stmt_month == 1:
-                                last_stmt_month = 12
-                                last_stmt_year -= 1
-                            else:
-                                last_stmt_month -= 1
-                        last_day = _cal.monthrange(last_stmt_year, last_stmt_month)[1]
-                        stmt_day = min(bd_int, last_day)
-                        last_stmt = dt.date(last_stmt_year, last_stmt_month, stmt_day)
-                        cycle_start = last_stmt + dt.timedelta(days=1)
-                        cycle_mask = (txu['date_parsed'] >= cycle_start) & (txu['date_parsed'] <= today_d)
-
                 method_key = str(method).strip()
                 card_key = str(name).strip()
 
-                scope = txu[cycle_mask].copy()
+                # All-time balance: charges - repayments (not filtered by billing cycle)
+                _acct_match = txu.get('account','').astype(str).str.strip() == card_key
+                spend_mask = (txu['type_norm'].isin(['debit','expense','spend','loc draw','loc_draw','loc withdrawal','loc_withdrawal'])) & _acct_match
+                util_used = float(txu.loc[spend_mask, 'amount_num'].sum())
 
-                # 8.5: Include LOC Draw as utilization for LOC cards, and LOC Repay as repayment
-                _acct_match = scope.get('account','').astype(str).str.strip() == card_key
-                spend_mask = (scope['type_norm'].isin(['debit','expense','spend','loc draw','loc_draw','loc withdrawal','loc_withdrawal'])) & _acct_match
-                util_used = float(scope.loc[spend_mask, 'amount_num'].sum())
-
-                repay_mask = (scope['type_norm'].isin(['credit card repay','cc repay','credit card repayment','cc repayment','loc repay','loc_repay','loc repayment','loc_repayment'])) & _acct_match
-                util_paid = float(scope.loc[repay_mask, 'amount_num'].sum())
+                repay_mask = (txu['type_norm'].isin(['credit card repay','cc repay','credit card repayment','cc repayment','loc repay','loc_repay','loc repayment','loc_repayment'])) & _acct_match
+                util_paid = float(txu.loc[repay_mask, 'amount_num'].sum())
 
             balance = max(0.0, util_used - util_paid)
             remaining = max(0.0, (lim - balance)) if lim else 0.0
@@ -11317,6 +11288,13 @@ except Exception as _startup_err:
 #      - account -> 'Account' column (if present)
 #    This fixes manual Add Expense/Income not showing in hero/cards.
 #
-# 3. Version bump to 9.12
+# 3. Cards page: fixed balance calculation.  Previously used billing-
+#    cycle-filtered transactions (e.g. Mar 16-21 for billing day 15),
+#    which excluded valid charges outside the current window, showing
+#    $0 balance even when charges existed.  Now uses ALL transactions
+#    for each card (all-time charges minus all-time repayments) to
+#    compute the outstanding balance, remaining credit, and utilization.
+#
+# 4. Version bump to 9.12
 #
 
