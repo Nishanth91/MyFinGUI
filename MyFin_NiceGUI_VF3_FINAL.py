@@ -57,7 +57,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.11.5'
+APP_VERSION = '9.12'
 
 
 def log(message: str) -> None:
@@ -7375,9 +7375,6 @@ def add_page():
             with ui.element('div').style('padding: 0 24px;'):
                 ui.button("Auto-category", on_click=autofill).props("flat")
 
-            # 9.8.1: Save & Add Another state
-            _save_state = {'another': False}
-
             async def save():
 
                 dd = parse_date(d_date.value) or today()
@@ -7471,36 +7468,12 @@ def add_page():
                     )
                     await run.io_bound(lambda: append_tx(**_tx_payload))
 
-                    # 9.8.1: Smart cache invalidation
-                    # Use soft_invalidate for rapid entry (serves stale for 5s), hard for single saves
-                    if _save_state.get('another'):
-                        soft_invalidate('transactions')
-                    else:
-                        invalidate('transactions')
+                    invalidate('transactions')
                     if d_rec.value:
                         invalidate('recurring')
 
                     ui.notify("\u2713 Saved", type="positive")
-
-                    # 9.8.1: "Save & Add Another" — reset form instead of closing dialog
-                    if _save_state.get('another'):
-                        _save_state['another'] = False
-                        # Reset form fields for next entry (keep date, method, account)
-                        try:
-                            d_amount.value = None
-                            d_notes.value = ''
-                            d_rec.value = False
-                            split_plan['enabled'] = False
-                            split_plan['amounts'] = {}
-                            split_plan['detected_amounts'] = {}
-                            try:
-                                split_banner.style('display: none;')
-                            except Exception:
-                                pass
-                        except Exception:
-                            pass
-                    else:
-                        dlg.close()
+                    dlg.close()
 
                 except Exception as e:
 
@@ -7515,15 +7488,6 @@ def add_page():
                 "border-radius: 0 0 32px 32px;"
             ):
                 ui.button("Cancel", on_click=dlg.close).props("flat").style("border-radius: 12px; font-weight: 600; color: var(--mf-text); opacity: 0.8;")
-
-                # 9.8.1: "Save & Add Another" for rapid back-to-back entry
-                def _save_and_another():
-                    _save_state['another'] = True
-                    asyncio.ensure_future(save())
-                ui.button("Save & Next", on_click=_save_and_another, icon="playlist_add").props("outline").style(
-                    "border-radius: 14px; font-weight: 600; padding: 10px 20px; font-size: 13px;"
-                    "color: var(--mf-text); border-color: var(--mf-border);"
-                ).tooltip("Save this entry and immediately add another")
 
                 ui.button("Save", on_click=save, icon="check").props("unelevated").style(
                     f"background: linear-gradient(135deg, {_accent}, {_accent}dd) !important; color: #fff !important;"
@@ -11273,5 +11237,12 @@ except Exception as _startup_err:
 #    BEFORE empty-row filtering, and reports header auto-fix status.
 #
 # 6. Version bump to 9.11.5
+#
+# -- v9.12  ----------------------------------------------------------
+# 1. Add Expense dialog: removed "Save & Next" button and all
+#    associated _save_state / save-and-another logic.  Dialog now
+#    has just Cancel and Save.  Save always closes the dialog.
+#
+# 2. Version bump to 9.12
 #
 
