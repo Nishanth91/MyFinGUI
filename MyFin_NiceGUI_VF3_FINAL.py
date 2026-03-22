@@ -2132,8 +2132,69 @@ def append_tx(tx: Optional[Dict[str, Any]] = None, **kwargs: Any) -> None:
     tx.setdefault('recurring_id', '')
     tx.setdefault('created_at', tx.get('created_at', now_iso()))
 
-    # `append_row` expects a dict; it writes values in the sheet's header order.
-    append_row('transactions', tx)
+    # Detect whether the sheet uses WIDE headers (Date, Credit, Debit, ...)
+    # or LONG headers (id, date, type, amount, ...).
+    # If WIDE, convert the LONG tx dict into WIDE column format so values
+    # land in the correct columns.
+    _hdrs = sheet_headers('transactions')
+    _hdrs_lower = {h.lower().strip() for h in _hdrs}
+    _is_wide_sheet = not ('type' in _hdrs_lower and 'amount' in _hdrs_lower)
+
+    if _is_wide_sheet:
+        _hdr_map = {h.lower().strip(): h for h in _hdrs}
+        wide_row = {}
+
+        # Date
+        for _k, _h in _hdr_map.items():
+            if 'date' in _k:
+                wide_row[_h] = tx.get('date', '')
+                break
+
+        # Amount -> correct WIDE column based on transaction type
+        _tx_type = str(tx.get('type', '')).lower().strip()
+        _amt = tx.get('amount', '')
+        _type_col_names = {
+            'debit':    ['debit', 'expense'],
+            'expense':  ['debit', 'expense'],
+            'credit':   ['credit', 'income'],
+            'income':   ['credit', 'income'],
+            'international':          ['international transaction', 'international', 'intl'],
+            'international transfer': ['international transaction', 'international', 'intl'],
+            'investment': ['investment', 'invest'],
+            'invest':     ['investment', 'invest'],
+            'cc_repay':          ['credit card repay', 'cc repay', 'creditcard repay'],
+            'cc repayment':      ['credit card repay', 'cc repay'],
+            'loc_withdrawal':    ['loc withdrawal'],
+            'loc withdrawal':    ['loc withdrawal'],
+            'loc_repayment':     ['loc repayment'],
+            'loc repayment':     ['loc repayment'],
+        }
+        _targets = _type_col_names.get(_tx_type, ['debit'])
+        _amt_col = None
+        for _tname in _targets:
+            for _hk, _hv in _hdr_map.items():
+                if _tname in _hk:
+                    _amt_col = _hv
+                    break
+            if _amt_col:
+                break
+        if _amt_col:
+            wide_row[_amt_col] = _amt
+
+        # Notes -> Reason/Note column
+        for _hk, _hv in _hdr_map.items():
+            if 'reason' in _hk or 'note' in _hk:
+                wide_row[_hv] = tx.get('notes', '')
+                break
+
+        # Account (if sheet has an Account column)
+        if 'account' in _hdr_map:
+            wide_row[_hdr_map['account']] = tx.get('account', '')
+
+        append_row('transactions', wide_row)
+    else:
+        # LONG format sheet — write as-is
+        append_row('transactions', tx)
 
 def find_row_index_by_id(tab: str, id_col: str, id_val: str) -> tuple[int, list[str]] | tuple[None, list[str]]:
     w = ws(tab)
@@ -11243,6 +11304,19 @@ except Exception as _startup_err:
 #    associated _save_state / save-and-another logic.  Dialog now
 #    has just Cancel and Save.  Save always closes the dialog.
 #
-# 2. Version bump to 9.12
+# 2. append_tx: WIDE-sheet aware.  When the sheet has WIDE headers
+#    (Date, Credit, Debit, Reason/Note, ...) but append_tx receives
+#    LONG keys (type, amount, method, notes, ...), the values were
+#    silently dropped because the keys didn't match any WIDE header.
+#    Now append_tx detects WIDE vs LONG headers and converts:
+#      - type='Debit' + amount=50 -> writes 50 into the 'Debit' column
+#      - type='Credit' -> writes into 'Credit' column
+#      - type='International Transfer' -> 'International Transaction'
+#      - type='Investment' -> 'Investment' column
+#      - notes -> 'Reason/Note' column
+#      - account -> 'Account' column (if present)
+#    This fixes manual Add Expense/Income not showing in hero/cards.
+#
+# 3. Version bump to 9.12
 #
 
