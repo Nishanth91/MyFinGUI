@@ -8963,15 +8963,27 @@ def cards_page() -> None:
                 method_key = str(method).strip()
                 card_key = str(name).strip()
 
+                # Debug: log what we're matching against
+                _acct_col = txu.get('account', pd.Series(dtype=str))
+                _acct_vals = _acct_col.astype(str).str.strip().unique().tolist() if isinstance(_acct_col, pd.Series) else []
+                _type_vals = txu['type_norm'].unique().tolist()
+                print(f"[Cards DEBUG] card_key={card_key!r} | tx_accounts={_acct_vals} | tx_types={_type_vals} | tx_rows={len(txu)}")
+
                 # All-time balance: charges - repayments (not filtered by billing cycle)
                 _acct_match = txu.get('account','').astype(str).str.strip() == card_key
+                _acct_match_count = int(_acct_match.sum())
+                print(f"[Cards DEBUG] card_key={card_key!r} acct_matches={_acct_match_count}")
+
                 spend_mask = (txu['type_norm'].isin(['debit','expense','spend','loc draw','loc_draw','loc withdrawal','loc_withdrawal'])) & _acct_match
                 util_used = float(txu.loc[spend_mask, 'amount_num'].sum())
 
                 repay_mask = (txu['type_norm'].isin(['credit card repay','cc repay','credit card repayment','cc repayment','loc repay','loc_repay','loc repayment','loc_repayment'])) & _acct_match
                 util_paid = float(txu.loc[repay_mask, 'amount_num'].sum())
+                print(f"[Cards DEBUG] card_key={card_key!r} util_used={util_used} util_paid={util_paid}")
 
             balance = max(0.0, util_used - util_paid)
+            _debug_used = util_used
+            _debug_paid = util_paid
             remaining = max(0.0, (lim - balance)) if lim else 0.0
             pct = (balance/lim) if lim else 0.0
             pct = max(0.0, min(1.0, pct))
@@ -9027,7 +9039,25 @@ def cards_page() -> None:
                 'pct': pct,
                 'spark_x': spark_x,
                 'spark_y': spark_y,
+                '_debug_used': _debug_used,
+                '_debug_paid': _debug_paid,
             })
+
+        # --- Temporary debug panel (remove after diagnosis) ---
+        with ui.expansion('Debug: Cards Data', icon='bug_report').classes('w-full mb-4').style('font-size: 11px; background: rgba(255,200,0,0.05); border: 1px dashed rgba(255,200,0,0.3); border-radius: 12px;'):
+            tx_debug = cached_df('transactions')
+            if not tx_debug.empty:
+                _cols = list(tx_debug.columns)
+                _acct_vals = tx_debug.get('account', pd.Series(dtype=str)).astype(str).str.strip().unique().tolist() if 'account' in tx_debug.columns else ['NO account COLUMN']
+                _type_vals = tx_debug.get('type', pd.Series(dtype=str)).astype(str).str.strip().str.lower().unique().tolist() if 'type' in tx_debug.columns else ['NO type COLUMN']
+                ui.label(f'Columns: {_cols}').classes('text-xs')
+                ui.label(f'Unique accounts in tx: {_acct_vals}').classes('text-xs')
+                ui.label(f'Unique types in tx: {_type_vals}').classes('text-xs')
+                ui.label(f'Total rows: {len(tx_debug)}').classes('text-xs')
+            else:
+                ui.label('transactions DataFrame is EMPTY').classes('text-xs text-red')
+            for e in entries:
+                ui.label(f"Card: {e['name']!r} | balance={e['balance']} | used={e.get('_debug_used', '?')} paid={e.get('_debug_paid', '?')}").classes('text-xs')
 
         def _is_ct(c):
             n = c['name'].lower()
