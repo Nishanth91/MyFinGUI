@@ -5908,15 +5908,19 @@ def dashboard_page():
                     _si_total = float(_ins_spend['amount_num'].sum())
                     # 9.16: Exclude recurring fixed expenses + LOC/intl/repayment from breakdown
                     _excl_cats = {
-                        'rent', 'car emi', 'car loan', 'emi',
+                        'rent', 'car', 'car emi', 'car loan', 'emi', 'auto loan',
                         'loc utilization', 'repayment', 'cc repay',
                         'international', 'international transfer', 'international transaction',
                     }
+                    # Keywords to exclude by notes (case-insensitive substring match)
+                    _excl_note_keywords = ['car emi', 'car loan', 'rent -', 'rent:', 'international transfer']
                     # Also exclude by type (international transfer, loc draw, etc.)
                     _excl_types = {'international transfer', 'international', 'loc draw', 'loc_draw', 'loc withdrawal', 'loc_withdrawal'}
                     _type_mask = _ins_spend.get('type', pd.Series(dtype=str)).astype(str).str.strip().str.lower().isin(_excl_types)
                     _cat_mask = _ins_spend['category'].str.strip().str.lower().isin(_excl_cats)
-                    _real_spend = _ins_spend[~_cat_mask & ~_type_mask]
+                    _notes_lower = _ins_spend.get('notes', pd.Series(dtype=str)).astype(str).str.strip().str.lower()
+                    _notes_mask = _notes_lower.apply(lambda n: any(kw in n for kw in _excl_note_keywords))
+                    _real_spend = _ins_spend[~_cat_mask & ~_type_mask & ~_notes_mask]
                     _si_biggest = 0.0
                     _si_big_note = ''
                     _si_big_cat = ''
