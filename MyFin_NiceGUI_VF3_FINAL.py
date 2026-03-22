@@ -57,7 +57,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.15.1'
+APP_VERSION = '9.15.2'
 
 
 def log(message: str) -> None:
@@ -303,6 +303,137 @@ async def _apple_touch_icon():
 
     _apple_touch_icon_cache = _make_png(W, H, pixels)
     return Response(content=_apple_touch_icon_cache, media_type='image/png')
+
+
+# ---------------------------
+# Maskable Icon (Android adaptive icon — content inset to 80% safe zone)
+# ---------------------------
+_maskable_icon_cache: Optional[bytes] = None
+
+@app.get('/icon-maskable-192.png')
+async def _maskable_icon():
+    """192x192 maskable icon for Android adaptive icons.
+    Content is inset to the inner 80% safe zone so Android can
+    crop to circle/squircle/etc without cutting the chart graphic.
+    Background gradient fills edge-to-edge (no white).
+    """
+    global _maskable_icon_cache
+    if _maskable_icon_cache is not None:
+        return Response(content=_maskable_icon_cache, media_type='image/png')
+
+    import struct, zlib, math
+    W = H = 192
+
+    def _lerp(a, b, t):
+        return a + (b - a) * t
+    def _lerp3(c1, c2, t):
+        return (int(_lerp(c1[0], c2[0], t)), int(_lerp(c1[1], c2[1], t)), int(_lerp(c1[2], c2[2], t)))
+    def _blend(bg, fg, a):
+        return (int(bg[0]*(1-a)+fg[0]*a), int(bg[1]*(1-a)+fg[1]*a), int(bg[2]*(1-a)+fg[2]*a))
+    def _sdf_circle(px, py, ccx, ccy, rad):
+        return math.sqrt((px-ccx)**2+(py-ccy)**2) - rad
+    def _smoothstep(e0, e1, x):
+        t = max(0.0, min(1.0, (x-e0)/(e1-e0)))
+        return t*t*(3-2*t)
+    def _dist_to_segment(px, py, x1, y1, x2, y2):
+        dx, dy = x2-x1, y2-y1
+        l2 = dx*dx+dy*dy
+        if l2 == 0: return math.sqrt((px-x1)**2+(py-y1)**2)
+        t = max(0, min(1, ((px-x1)*dx+(py-y1)*dy)/l2))
+        return math.sqrt((px-x1-t*dx)**2+(py-y1-t*dy)**2)
+
+    # Safe zone = inner 80% = 19.2px padding each side
+    # Content area: 38.4 to 153.6 (115.2px wide)
+    # Scale original 180x180 art into this safe zone
+    PAD = 19.2
+    SAFE = 153.6  # W - PAD
+
+    def _map(v, old_max=180.0):
+        """Map coordinate from 180x180 space into safe zone."""
+        return PAD + (v / old_max) * (SAFE - PAD)
+
+    nodes = [
+        (_map(38), _map(130)),
+        (_map(72), _map(72)),
+        (_map(108), _map(108)),
+        (_map(142), _map(50)),
+    ]
+    dot_r = 9.0 * (SAFE - PAD) / 180.0
+    line_w = 5.0 * (SAFE - PAD) / 180.0
+
+    star_cx, star_cy = _map(148), _map(40)
+    star2_cx, star2_cy = _map(30), _map(130)
+
+    GOLD = (251, 191, 36)
+    GOLD_LT = (253, 224, 120)
+
+    pixels = bytearray()
+    for y in range(H):
+        pixels.append(0)
+        for x in range(W):
+            t_diag = (x / W * 0.6 + y / H * 0.4)
+            bg_dark = (15, 25, 35)
+            bg_emerald = (20, 90, 60)
+            bg = _lerp3(bg_dark, bg_emerald, t_diag)
+
+            cd = math.sqrt((x-96)**2+(y-96)**2) / 140
+            if cd < 1.0:
+                bg = _blend(bg, (25, 50, 42), (1-cd)*0.15)
+
+            r, g, b = bg
+
+            min_seg_d = 999.0
+            for i in range(len(nodes)-1):
+                d = _dist_to_segment(x, y, nodes[i][0], nodes[i][1], nodes[i+1][0], nodes[i+1][1])
+                min_seg_d = min(min_seg_d, d)
+
+            if min_seg_d < 16.0:
+                ga = (1.0 - _smoothstep(line_w+1, 16.0, min_seg_d)) * 0.15
+                r, g, b = _blend((r,g,b), GOLD, ga)
+            if min_seg_d < line_w + 1.5:
+                la = 1.0 - _smoothstep(line_w - 0.5, line_w + 1.5, min_seg_d)
+                r, g, b = _blend((r,g,b), GOLD, la * 0.95)
+
+            for nx, ny in nodes:
+                dd = _sdf_circle(x, y, nx, ny, dot_r)
+                if dd < 6.0 and dd > -dot_r:
+                    rga = (1.0 - _smoothstep(0.0, 6.0, dd)) * 0.12
+                    r, g, b = _blend((r,g,b), GOLD, rga)
+                if dd < 1.5:
+                    fa = 1.0 - _smoothstep(-0.5, 1.5, dd)
+                    r, g, b = _blend((r,g,b), GOLD, fa * 0.95)
+                inner_d = _sdf_circle(x, y, nx-1.5, ny-1.5, dot_r*0.35)
+                if inner_d < 1.0:
+                    ha = (1.0 - _smoothstep(-0.5, 1.0, inner_d)) * 0.35
+                    r, g, b = _blend((r,g,b), (255,255,255), ha)
+
+            for scx, scy, sr in [(star_cx, star_cy, 11), (star2_cx, star2_cy, 6)]:
+                sdx, sdy = abs(x-scx), abs(y-scy)
+                cross_d = min(sdx + sdy*3.5, sdx*3.5 + sdy)
+                if cross_d < sr * 2.5:
+                    sa = (1.0 - cross_d / (sr * 2.5)) ** 1.8
+                    r, g, b = _blend((r,g,b), GOLD_LT, sa * 0.75)
+                cd2 = math.sqrt(sdx**2+sdy**2)
+                if cd2 < sr*0.45:
+                    ca = (1.0 - cd2 / (sr*0.45)) * 0.9
+                    r, g, b = _blend((r,g,b), (255,255,255), ca)
+
+            r = max(0, min(255, int(r)))
+            g = max(0, min(255, int(g)))
+            b = max(0, min(255, int(b)))
+            pixels.extend((r, g, b))
+
+    def _make_png(width, height, raw):
+        def _chunk(ctype, data):
+            c = ctype + data
+            return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
+        sig = b'\x89PNG\r\n\x1a\n'
+        ihdr = struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)
+        idat = zlib.compress(bytes(raw), 9)
+        return sig + _chunk(b'IHDR', ihdr) + _chunk(b'IDAT', idat) + _chunk(b'IEND', b'')
+
+    _maskable_icon_cache = _make_png(W, H, pixels)
+    return Response(content=_maskable_icon_cache, media_type='image/png')
 
 
 # -----------------------------
@@ -10900,7 +11031,8 @@ async def _manifest():
         "theme_color": "#0F1923",
         "orientation": "portrait-primary",
         "icons": [
-            {"src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png"},
+            {"src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any"},
+            {"src": "/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
         ],
     })
 
@@ -10916,6 +11048,7 @@ const PRECACHE = [
   'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap',
   'https://fonts.googleapis.com/icon?family=Material+Icons',
   '/apple-touch-icon.png',
+  '/icon-maskable-192.png',
   '/manifest.json',
 ];
 
@@ -10943,7 +11076,7 @@ self.addEventListener('fetch', e => {{
   // Cache-first for fonts, icons, manifest, and NiceGUI static bundles
   const shouldCache = (
     url.includes('fonts.googleapis.com') || url.includes('fonts.gstatic.com') ||
-    url.includes('/apple-touch-icon') || url.includes('/manifest.json') ||
+    url.includes('/apple-touch-icon') || url.includes('/icon-maskable') || url.includes('/manifest.json') ||
     url.includes('/_nicegui/') ||
     url.includes('cdn.jsdelivr.net') ||
     url.endsWith('.js') || url.endsWith('.css') || url.endsWith('.woff2')
