@@ -57,7 +57,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.14'
+APP_VERSION = '9.15'
 
 
 def log(message: str) -> None:
@@ -5304,7 +5304,6 @@ def accounts_list() -> List[str]:
         "CT Mastercard - Grey",
         "RBC VISA",
         "RBC Mastercard",
-        "RBC Line of Credit",
     ]
     return VALID_ACCOUNTS
 
@@ -5321,10 +5320,14 @@ def categories_list() -> List[str]:
 
 def methods_list() -> List[str]:
     cards = cached_df("cards")
-    methods = set(["Debit", "Card", "Bank"])
+    methods = set(["Bank", "Card"])
     if not cards.empty and "method_name" in cards.columns:
-        methods |= set(cards["method_name"].astype(str).tolist())
-    return sorted({m.strip() for m in methods if m and m.strip()})
+        for m in cards["method_name"].astype(str).tolist():
+            m = m.strip()
+            # 9.15: Only Bank & Card; skip Debit/LOC as redundant
+            if m and m.lower() not in ('debit', 'loc', 'line of credit'):
+                methods.add(m)
+    return sorted(methods)
 
 
 # -----------------------------
@@ -6281,6 +6284,18 @@ def add_page():
                 def on(self_, event, fn):
                     _dd_cbs.append(lambda v: fn(v))
                     return self_
+                def set_enabled_options(self_, enabled):
+                    """9.15: Enable only specified options, disable rest. Auto-select first enabled if current is disabled."""
+                    enabled_set = set(enabled)
+                    for opt, item in _dd_items.items():
+                        if opt in enabled_set:
+                            item.classes(remove='disabled')
+                            item.style(replace='opacity: 1; pointer-events: auto;')
+                        else:
+                            item.classes(add='disabled')
+                            item.style(replace='opacity: 0.3; pointer-events: none;')
+                    if _dd_state['value'] not in enabled_set and enabled:
+                        _dd_pick(enabled[0] if isinstance(enabled, list) else list(enabled_set)[0])
             return _SelDropdown()
 
         #  CHIP MODE (8 options  Method, Account, etc.) 
@@ -6369,6 +6384,22 @@ def add_page():
                 """Compatibility shim  maps any change event to on_change."""
                 _cbs.append(lambda v: fn(v))
                 return self_
+            def set_enabled_options(self_, enabled):
+                """9.15: Enable only specified options, disable rest. Auto-select first enabled if current is disabled."""
+                enabled_set = set(enabled)
+                for opt, chip in _chips.items():
+                    if opt in enabled_set:
+                        chip.classes(remove='disabled')
+                        if opt == _state['value']:
+                            chip.style(f'background: linear-gradient(135deg, {accent_color}, {accent_color}dd) !important; color: white !important; box-shadow: 0 4px 12px {accent_color}40; border: none !important; font-weight: 700;')
+                        else:
+                            chip.style('background: rgba(255,255,255,0.08) !important; color: var(--mf-text) !important; border: 1px solid rgba(255,255,255,0.1) !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); font-weight: 600;')
+                    else:
+                        chip.classes(add='disabled')
+                        chip.style('background: rgba(0,0,0,0.1) !important; color: var(--mf-muted) !important; opacity: 0.3; pointer-events: none; border: 1px solid rgba(255,255,255,0.03) !important; font-weight: 600;')
+                if _state['value'] not in enabled_set and enabled:
+                    first = enabled[0] if isinstance(enabled, list) else list(enabled_set)[0]
+                    _pick(first)
         return _Sel()
 
     def open_add_dialog(entry_type: str, *, preset_category: str | None = None, preset_method: str | None = None, preset_account: str | None = None, auto_scan: bool = False):
@@ -6492,7 +6523,7 @@ def add_page():
                 hide_category = True
                 fixed_category = 'CC Repay'
                 # 8.4: Restrict CC Repay to only credit card / LOC accounts
-                CC_REPAY_ACCOUNTS = ["RBC Line of Credit", "RBC VISA", "RBC Mastercard", "CT Mastercard - Black", "CT Mastercard - Grey"]
+                CC_REPAY_ACCOUNTS = ["RBC VISA", "RBC Mastercard", "CT Mastercard - Black", "CT Mastercard - Grey"]
                 accounts = [a for a in accounts if a in CC_REPAY_ACCOUNTS]
                 if not accounts:
                     accounts = CC_REPAY_ACCOUNTS
@@ -6561,6 +6592,23 @@ def add_page():
                     disabled=disable_account,
                     accent_color=_accent
                 )
+
+                # 9.15: Reactive account filtering based on payment method
+                BANK_ACCOUNTS = ["Bank"]
+                CARD_ACCOUNTS = [a for a in (accounts or []) if a != "Bank"]
+                if d_method is not None and not disable_account:
+                    def _on_method_change(method_val):
+                        if str(method_val).strip().lower() == 'bank':
+                            d_account.set_enabled_options(BANK_ACCOUNTS)
+                        else:
+                            d_account.set_enabled_options(CARD_ACCOUNTS)
+                    d_method.on_change(_on_method_change)
+                    # Apply initial filter based on default method
+                    _init_method = (method_default if method_default in (methods or []) else (methods or ["Bank"])[0])
+                    if str(_init_method).strip().lower() == 'bank':
+                        d_account.set_enabled_options(BANK_ACCOUNTS)
+                    else:
+                        d_account.set_enabled_options(CARD_ACCOUNTS)
 
                 if hide_method and fixed_method:
                     ui.label(f"Method: {fixed_method}").classes("text-[11px] font-bold").style("color: var(--mf-muted); opacity: 0.5; margin-top: -4px;")
