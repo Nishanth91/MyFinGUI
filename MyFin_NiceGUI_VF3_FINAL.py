@@ -57,7 +57,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.15'
+APP_VERSION = '9.15.1'
 
 
 def log(message: str) -> None:
@@ -6387,19 +6387,20 @@ def add_page():
             def set_enabled_options(self_, enabled):
                 """9.15: Enable only specified options, disable rest. Auto-select first enabled if current is disabled."""
                 enabled_set = set(enabled)
+                # Auto-select first enabled option if current value is not in enabled set
+                if _state['value'] not in enabled_set and enabled:
+                    first = enabled[0] if isinstance(enabled, list) else list(enabled_set)[0]
+                    _pick(first)
                 for opt, chip in _chips.items():
                     if opt in enabled_set:
                         chip.classes(remove='disabled')
                         if opt == _state['value']:
-                            chip.style(f'background: linear-gradient(135deg, {accent_color}, {accent_color}dd) !important; color: white !important; box-shadow: 0 4px 12px {accent_color}40; border: none !important; font-weight: 700;')
+                            chip.style(f'background: linear-gradient(135deg, {accent_color}, {accent_color}dd) !important; color: white !important; box-shadow: 0 4px 12px {accent_color}40; border: none !important; font-weight: 700; opacity: 1; pointer-events: auto;')
                         else:
-                            chip.style('background: rgba(255,255,255,0.08) !important; color: var(--mf-text) !important; border: 1px solid rgba(255,255,255,0.1) !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); font-weight: 600;')
+                            chip.style('background: rgba(255,255,255,0.08) !important; color: var(--mf-text) !important; border: 1px solid rgba(255,255,255,0.1) !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); font-weight: 600; opacity: 1; pointer-events: auto; cursor: pointer;')
                     else:
                         chip.classes(add='disabled')
                         chip.style('background: rgba(0,0,0,0.1) !important; color: var(--mf-muted) !important; opacity: 0.3; pointer-events: none; border: 1px solid rgba(255,255,255,0.03) !important; font-weight: 600;')
-                if _state['value'] not in enabled_set and enabled:
-                    first = enabled[0] if isinstance(enabled, list) else list(enabled_set)[0]
-                    _pick(first)
         return _Sel()
 
     def open_add_dialog(entry_type: str, *, preset_category: str | None = None, preset_method: str | None = None, preset_account: str | None = None, auto_scan: bool = False):
