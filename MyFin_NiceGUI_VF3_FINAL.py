@@ -5696,7 +5696,9 @@ def dashboard_page():
         loc_repay = amt[typ.isin(['loc repay', 'loc repayment', 'loc_repay', 'loc_repayment'])].sum()
         transfer_out = amt[typ.isin(['transfer', 'transfer out', 'transfer_out'])].sum()
 
-        net = income + loc_draw - expense - invest - intl - loc_repay - transfer_out
+        # 9.16: LOC draws are debt, not income — exclude both LOC draw & repay from net
+        # Net = real income minus real spending (debit/expense + investments + intl + transfers)
+        net = income - expense - invest - intl - transfer_out
 
 
         # --- Pay-period view (smarter than calendar month for end-of-month salaries) ---
@@ -5762,7 +5764,8 @@ def dashboard_page():
             loc_repay_pp = pamt[ptyp.isin(['loc repay', 'loc repayment', 'loc_repay', 'loc_repayment'])].sum()
             transfer_out_pp = pamt[ptyp.isin(['transfer', 'transfer out', 'transfer_out'])].sum()
 
-            net_pp = income_pp + loc_draw_pp - expense_pp - invest_pp - intl_pp - loc_repay_pp - transfer_out_pp
+            # 9.16: LOC draws/repays are debt, not income — exclude from net
+            net_pp = income_pp - expense_pp - invest_pp - intl_pp - transfer_out_pp
         except Exception:
             pp_start = today() - dt.timedelta(days=14)
             pp_end = today() + dt.timedelta(days=14)
