@@ -57,7 +57,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.16'
+APP_VERSION = '9.17'
 
 
 def log(message: str) -> None:
@@ -2633,7 +2633,15 @@ def generate_recurring_for_date(d: dt.date) -> int:
         return 0
 
     tx = cached_df("transactions")
-    existing = set(tx["id"].astype(str).tolist()) if not tx.empty else set()
+    existing_ids = set(tx["id"].astype(str).tolist()) if not tx.empty else set()
+    # v9.17: Also track which recurring_ids already have transactions this month
+    existing_rec_this_month = set()
+    if not tx.empty and 'recurring_id' in tx.columns and 'date' in tx.columns:
+        for _, _etx in tx.iterrows():
+            _erid = str(_etx.get('recurring_id', '')).strip()
+            _edate = str(_etx.get('date', '')).strip()[:7]  # "2026-03"
+            if _erid:
+                existing_rec_this_month.add(f"{_erid}|{_edate}")
 
     created = 0
     this_month = month_key(d)
@@ -2652,6 +2660,13 @@ def generate_recurring_for_date(d: dt.date) -> int:
         if last_gen == this_month:
             continue
 
+        # v9.17: Also check if ANY transaction with this recurring_id exists for this month
+        if f"{rid}|{this_month}" in existing_rec_this_month:
+            # Mark as generated so we don't check again
+            update_row_by_id("recurring", "recurring_id", rid, {"last_generated_month": this_month})
+            invalidate("recurring")
+            continue
+
         dom = int(to_float(r.get("day_of_month", 0)))
         if dom <= 0:
             continue
@@ -2664,12 +2679,12 @@ def generate_recurring_for_date(d: dt.date) -> int:
         if d < start_date:
             continue
 
-        if d < target:
-            continue  # only when date arrives
+        # v9.17: Only generate ON the exact day (not after) to prevent late duplicates
+        if d != target:
+            continue
 
         tx_id = f"R-{rid}-{this_month}"
-        if tx_id in existing:
-            # mark generated
+        if tx_id in existing_ids:
             update_row_by_id("recurring", "recurring_id", rid, {"last_generated_month": this_month})
             invalidate("recurring")
             continue
@@ -3277,6 +3292,26 @@ body, .q-layout, .q-page {
 /* Premium smooth transitions on interactive elements */
 * { transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
 
+/* v9.17: iOS stability — prevent reload on app-switch, reduce jitter */
+html, body {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+/* Prevent iOS input zoom & jitter */
+input, textarea, select { font-size: 16px !important; }
+
+/* v9.17: Universal tile tap feedback */
+.mf-tap {
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, opacity 0.1s ease !important;
+  -webkit-tap-highlight-color: transparent;
+}
+.mf-tap:active {
+  transform: scale(0.96) !important;
+  opacity: 0.85 !important;
+}
 
 .kpi {
   border-radius: 16px;
@@ -4603,7 +4638,7 @@ ui.add_head_html(r'''
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="FinTrackr">
 <meta name="theme-color" content="#0F1923">
-<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png">
@@ -5566,7 +5601,7 @@ def dashboard_page():
                     ui.notify(f"Auto-added {created} recurring entries for {today().isoformat()}", type="positive")
             except Exception as e:
                 _logger.error("Failed to generate recurring transactions: %s", e)
-        ui.timer(0.1, _deferred_recurring, once=True)
+        ui.timer(1.5, _deferred_recurring, once=True)  # v9.17: defer more to not block initial render
 
         tx = cached_df("transactions")
         #  B2 fix: robust empty-data handling (no KeyError on cleaned sheets) 
@@ -5870,7 +5905,7 @@ def dashboard_page():
             def _goto_add(mode):
                 app.storage.user['add_auto_open'] = mode
                 nav_to('/add')
-            with ui.element('div').style(f'{_tile_base} background: linear-gradient(135deg, #3B82F6, #8B5CF6); box-shadow: 0 12px 24px rgba(99,102,241,0.3); border: 1px solid rgba(255,255,255,0.2); cursor: pointer;').on('click', lambda: _goto_add('expense')):
+            with ui.element('div').classes('mf-tap').style(f'{_tile_base} background: linear-gradient(135deg, #3B82F6, #8B5CF6); box-shadow: 0 12px 24px rgba(99,102,241,0.3); border: 1px solid rgba(255,255,255,0.2);').on('click', lambda: _goto_add('expense')):
                 with ui.element('div').style('width: 36px; height: 36px; border-radius: 14px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px);'):
                     ui.icon('add').style('font-size: 22px; color: #fff; font-weight: 900;')
                 with ui.column().classes('gap-0'):
@@ -5878,7 +5913,7 @@ def dashboard_page():
                     ui.label('Expense').classes('text-sm text-white opacity-80 font-medium')
 
             # Tile 2: Next Payday (Glass Tile)
-            with ui.element('div').style(f'{_tile_base} background: var(--mf-card-top); border: 1px solid var(--mf-border); cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.05);'):
+            with ui.element('div').classes('mf-tap').style(f'{_tile_base} background: var(--mf-card-top); border: 1px solid var(--mf-border); box-shadow: 0 4px 12px rgba(0,0,0,0.05);'):
                 with ui.row().classes('justify-between items-start w-full'):
                     with ui.element('div').style('width: 32px; height: 32px; border-radius: 12px; background: rgba(16,185,129,0.15); display: flex; align-items: center; justify-content: center;'):
                         ui.icon('event').style('font-size: 18px; color: #10B981;')
@@ -5893,7 +5928,7 @@ def dashboard_page():
                         ui.label('Unknown').classes('text-lg font-extrabold').style('color: var(--mf-text);')
 
             # Tile 3: Daily Avg (Glass Tile)
-            with ui.element('div').style(f'{_tile_base} background: var(--mf-card-top); border: 1px solid var(--mf-border); box-shadow: 0 4px 12px rgba(0,0,0,0.05);'):
+            with ui.element('div').classes('mf-tap').style(f'{_tile_base} background: var(--mf-card-top); border: 1px solid var(--mf-border); box-shadow: 0 4px 12px rgba(0,0,0,0.05);'):
                 with ui.row().classes('justify-between items-start w-full'):
                     with ui.element('div').style('width: 32px; height: 32px; border-radius: 12px; background: rgba(244,63,94,0.15); display: flex; align-items: center; justify-content: center;'):
                         ui.icon('local_fire_department').style('font-size: 18px; color: #F43F5E;')
@@ -5938,15 +5973,17 @@ def dashboard_page():
                         except Exception:
                             _si_big_date = ''
 
-                    # Daily spend for last 7 days (sparkline data)
+                    # v9.17: Daily spend for current month (not just last 7 days)
                     _daily_amounts = []
                     _daily_labels = []
                     try:
                         import datetime as _dt_mod
                         _today = _dt_mod.date.today()
+                        _month_start = _today.replace(day=1)
                         _real_with_date = _real_spend[_real_spend['date_parsed'].notna()].copy()
-                        for _di in range(6, -1, -1):
-                            _day = _today - _dt_mod.timedelta(days=_di)
+                        _num_days = (_today - _month_start).days + 1
+                        for _di in range(_num_days):
+                            _day = _month_start + _dt_mod.timedelta(days=_di)
                             _day_total = 0.0
                             try:
                                 _day_mask = _real_with_date['date_parsed'].dt.date == _day
@@ -5954,7 +5991,7 @@ def dashboard_page():
                             except Exception:
                                 pass
                             _daily_amounts.append(_day_total)
-                            _daily_labels.append(_day.strftime('%a'))
+                            _daily_labels.append(_day.strftime('%d'))
                     except Exception:
                         _daily_amounts = []
                         _daily_labels = []
@@ -5989,12 +6026,12 @@ def dashboard_page():
                             ui.icon('insights').style(f'font-size: 18px; color: {_sb_color};')
                         ui.label('Spending Breakdown').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
 
-                    # 7-day spend sparkline (SVG)
+                    # v9.17: Monthly spend sparkline (SVG) — full current month
                     _amounts = _si_data.get('daily_amounts', [])
                     _labels = _si_data.get('daily_labels', [])
                     if _amounts and len(_amounts) >= 2:
                         _max_a = max(_amounts) if max(_amounts) > 0 else 1
-                        _spark_w, _spark_h = 280, 60
+                        _spark_w, _spark_h = 320, 60
                         _pad_x, _pad_y = 8, 6
                         _usable_w = _spark_w - 2 * _pad_x
                         _usable_h = _spark_h - 2 * _pad_y
@@ -6017,12 +6054,16 @@ def dashboard_page():
                         _spark_svg += '</svg>'
 
                         with ui.element('div').style('display: flex; flex-direction: column; gap: 4px;'):
-                            ui.label('Last 7 Days').classes('text-[10px] font-semibold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;')
+                            ui.label('This Month').classes('text-[10px] font-semibold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;')
                             ui.html(_spark_svg)
-                            # Day labels below
+                            # Day labels below (show every 5th to avoid crowding)
                             with ui.element('div').style(f'display: flex; justify-content: space-between; padding: 0 {_pad_x}px;'):
-                                for _dl in _labels:
-                                    ui.label(_dl).classes('text-[9px]').style('color: var(--mf-muted);')
+                                _label_step = max(1, len(_labels) // 6)
+                                for _dli, _dl in enumerate(_labels):
+                                    if _dli % _label_step == 0 or _dli == len(_labels) - 1:
+                                        ui.label(_dl).classes('text-[9px]').style('color: var(--mf-muted);')
+                                    else:
+                                        ui.label('').classes('text-[9px]')
 
                     # Biggest expense highlight
                     if _si_data.get('biggest', 0) > 0:
@@ -6038,66 +6079,7 @@ def dashboard_page():
                                     ui.label(_big_sub).classes('text-xs').style('color: var(--mf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;')
                             ui.label(currency(_si_data['biggest'])).classes('text-xl font-extrabold').style(f'color: {_sb_color}; font-feature-settings: "tnum"; letter-spacing: -0.02em;')
 
-        #  Smart Alert Banners (slim, at top  v9.0)
-        # Alert logic kept but rendered as slim banners instead of a full card
-        _alert_banners_data: list[tuple[str, str, str, str]] = []
-        try:
-            if not spend.empty and 'category' in spend.columns:
-                _uncat = spend[spend['category'].astype(str).str.strip().isin(['', 'Uncategorized', 'nan'])]
-                if len(_uncat) > 0:
-                    _alert_banners_data.append(('label_off', f'{len(_uncat)} uncategorized transaction{"s" if len(_uncat) != 1 else ""} this month', 'warning', '/tx'))
-            if not spend.empty:
-                _avg_txn = float(spend['amount_num'].mean())
-                _large = spend[spend['amount_num'] > (_avg_txn * 3)]
-                if len(_large) > 0:
-                    _top = _large.sort_values('amount_num', ascending=False).iloc[0]
-                    _alert_banners_data.append(('priority_high', f'Large transaction: {currency(float(_top["amount_num"]))} on {_top.get("date","")}', 'info', '/tx'))
-            try:
-                _today_d = today()
-                _day_of_month = _today_d.day
-                _days_in_month = calendar.monthrange(_today_d.year, _today_d.month)[1]
-                _projected = float(expense) / max(_day_of_month, 1) * _days_in_month if expense > 0 else 0
-                _last_mk = month_key(_today_d.replace(day=1) - dt.timedelta(days=1)) if _today_d.month > 1 else month_key(dt.date(_today_d.year - 1, 12, 1))
-                _last_spend = tx[tx['type_l'].isin(['debit', 'expense']) & (tx['month'] == _last_mk)]
-                _last_total = float(_last_spend['amount_num'].sum()) if not _last_spend.empty else 0
-                if _last_total > 0 and _projected > _last_total * 1.2:
-                    _pct_over = int(round((_projected / _last_total - 1) * 100))
-                    _alert_banners_data.append(('speed', f'Spending pace {_pct_over}% above last month (projected {currency(_projected)})', 'warning', '/reports'))
-            except Exception:
-                pass
-            if income == 0:
-                _alert_banners_data.append(('info', 'No income recorded this month yet', 'info', '/add'))
-            if not spend.empty and 'notes' in spend.columns:
-                _dup_keys = spend.apply(lambda r: f"{r.get('date','')}|{r['amount_num']}|{str(r.get('notes','')).strip()}", axis=1)
-                _dup_count = int(_dup_keys.duplicated(keep=False).sum())
-                if _dup_count >= 4:
-                    _alert_banners_data.append(('difference', f'{_dup_count // 2}+ possible duplicate transactions', 'warning', '/tx'))
-            try:
-                cards_df = cached_df('cards')
-                if not cards_df.empty:
-                    for _, _cd in cards_df.iterrows():
-                        _limit = parse_money(_cd.get('max_limit'), default=0)
-                        _method = str(_cd.get('method_name', '')).strip()
-                        if _limit > 0 and _method and not spend.empty:
-                            _card_spend = float(spend[spend.get('method', pd.Series(dtype=str)).astype(str).str.strip() == _method]['amount_num'].sum())
-                            if _card_spend >= _limit * 0.85:
-                                _pct_used = int(round(_card_spend / _limit * 100))
-                                _alert_banners_data.append(('credit_card', f'{_cd.get("card_name", _method)}: {_pct_used}% of limit used', 'warning' if _pct_used < 100 else 'error', '/cards'))
-            except Exception:
-                pass
-            if _alert_banners_data:
-                for _ab_icon, _ab_msg, _ab_sev, _ab_path in _alert_banners_data[:3]:
-                    _sev_colors = {'error': '#ef4444', 'warning': '#f59e0b', 'info': '#3b82f6'}
-                    _bc = _sev_colors.get(_ab_sev, '#3b82f6')
-                    with ui.element('div').style(
-                        f'display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-radius: 10px;'
-                        f'background: {_bc}0D; border: 1px solid {_bc}22; margin-bottom: 8px; cursor: pointer;'
-                    ).on('click', lambda p=_ab_path: nav_to(p)):
-                        ui.icon(_ab_icon).style(f'font-size: 16px; color: {_bc};')
-                        ui.label(_ab_msg).classes('text-xs font-medium').style(f'color: {_bc};')
-                        ui.icon('chevron_right').style(f'font-size: 14px; color: {_bc}; margin-left: auto; opacity: 0.5;')
-        except Exception:
-            pass
+        # v9.17: Alert banners removed per user request
 
         # Budgets data
         _budget_rows = []
@@ -6127,16 +6109,7 @@ def dashboard_page():
                     rows.sort(key=lambda x: (x[1]/x[2]) if x[2] else 0.0, reverse=True)
                     _budget_rows = list(rows)  # 9.8.3: capture for deferred rendering
 
-                    # In-app budget alerts (background notifications)
-                    try:
-                        alerts80 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 0.80 and (s/b) < 1.0]
-                        alerts100 = [(c, s, b) for c, s, b in rows if b and (s/b) >= 1.0]
-                        if alerts100:
-                            ui.notify(f'Over budget: {alerts100[0][0]} ({currency(alerts100[0][1])} / {currency(alerts100[0][2])})', type='negative')
-                        elif alerts80:
-                            ui.notify(f'Budget warning (80%+): {alerts80[0][0]} ({currency(alerts80[0][1])} / {currency(alerts80[0][2])})', type='warning')
-                    except Exception:
-                        pass
+                    # v9.17: Budget warning toasts removed per user request
 
         # 9.11: Budget widget — light card with hero-style concentric rings
         def _render_budget_widget():
@@ -6186,7 +6159,8 @@ def dashboard_page():
                     _ring_data = []
                     for _ri, (cat, spent_amt, bud_amt) in enumerate(_budget_rows):
                         pct = min(1.0, spent_amt / bud_amt) if bud_amt else 0.0
-                        _rc = '#ef4444' if pct >= 1.0 else ('#f59e0b' if pct >= 0.8 else _ring_colors[_ri % len(_ring_colors)])
+                        # v9.17: Always use category-assigned color; only red if over 100%
+                        _rc = '#ef4444' if pct >= 1.0 else _ring_colors[_ri % len(_ring_colors)]
                         _r = _outer_r - _ri * (_stroke_w + _gap)
                         if _r < 15:
                             break
@@ -6229,7 +6203,12 @@ def dashboard_page():
         def _render_recent_tx():
             try:
                 if not tx.empty and "date_parsed" in tx.columns:
-                    _recent_tx = tx.sort_values("date_parsed", ascending=False).head(5)
+                    # v9.17: Filter out uncategorized, sort latest-first
+                    _filtered_tx = tx.copy()
+                    if 'category' in _filtered_tx.columns:
+                        _cat_vals = _filtered_tx['category'].astype(str).str.strip().str.lower()
+                        _filtered_tx = _filtered_tx[~_cat_vals.isin(['', 'uncategorized', 'nan'])]
+                    _recent_tx = _filtered_tx.sort_values("date_parsed", ascending=False).head(5)
                     if not _recent_tx.empty:
                         with ui.column().classes("w-full mt-6 px-2"):
                             with ui.row().classes("items-center justify-between w-full mb-3"):
@@ -7950,6 +7929,10 @@ def add_page():
                 )
                 inv_notes = ui.textarea("Notes", value="").props("outlined dense rows=2").classes("w-full")
 
+                # v9.17: Mark as recurring for investments
+                inv_rec = ui.checkbox("Mark as recurring template").style('font-weight: 600; font-size: 13px; color: var(--mf-text);')
+                inv_rec.props('color="primary"')
+
             # Actions
             with ui.row().classes("w-full justify-end gap-3").style("padding: 14px 24px 12px 24px;"):
                 ui.button("Cancel", on_click=inv_dlg.close).props("flat").style("border-radius: 10px;")
@@ -7962,6 +7945,14 @@ def add_page():
                     _notes_str = str(inv_notes.value or "").strip()
                     if inv_source.value:
                         _notes_str = ((_notes_str + " " if _notes_str else "") + f"[from {inv_source.value}]")
+                    rec_id = ""
+                    if inv_rec.value:
+                        rec_id = create_or_update_recurring_template(
+                            owner="Family", type_="Investment", amount=amt_val,
+                            method="Bank", account=str(inv_account.value),
+                            category="Investment", notes=_notes_str,
+                            day_of_month=dd.day, start_date=dd, active=True,
+                        )
                     tx_id = sha16(f"Family|{dd.isoformat()}|Investment|{amt_val}|Bank|{inv_account.value}|Investment|{_notes_str}|{dt.datetime.now().isoformat()}")
                     append_tx(
                         tx_id=tx_id, date_=dd, owner="Family",
@@ -7969,9 +7960,11 @@ def add_page():
                         method="Bank", account=str(inv_account.value),
                         category="Investment",
                         notes=_notes_str,
-                        recurring_id=""
+                        recurring_id=rec_id
                     )
                     invalidate('transactions')
+                    if inv_rec.value:
+                        invalidate('recurring')
                     ui.notify(f"Investment of {currency(amt_val)} to {inv_account.value} saved", type="positive")
                     inv_dlg.close()
                 ui.button("Save", on_click=_save_invest, icon="check").props("unelevated").style(
@@ -8104,10 +8097,10 @@ def add_page():
             "display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;"
         ):
             for label, icon, etype, kw, bg, accent in tiles:
-                with ui.element('div').style(
+                with ui.element('div').classes('mf-tap').style(
                     f'background: var(--mf-card-top); border: 1px solid var(--mf-card-border); border-radius: 18px;'
                     f'padding: 24px 16px; display: flex; flex-direction: column; align-items: center; gap: 12px;'
-                    f'cursor: pointer; transition: transform 0.12s ease, box-shadow 0.12s ease; position: relative; overflow: hidden;'
+                    f'position: relative; overflow: hidden;'
                 ).on("click", lambda _evt=None, et=etype, k=kw: _tile_click(et, k)):
                     # Subtle glow behind icon
                     ui.element('div').style(f'position:absolute;top:-10px;width:60px;height:60px;border-radius:50%;background:{accent};filter:blur(35px);opacity:0.15;pointer-events:none;')
@@ -8187,14 +8180,7 @@ def admin_page() -> None:
                             ui.icon(icon).style(f"font-size: 22px; color: {accent_color};")
                         ui.label(label).classes("text-sm font-bold text-center").style("line-height: 1.2;")
 
-        with ui.card().classes("my-card p-5 mt-4 items-center").style("background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.1); border-radius: 16px;"):
-            with ui.row().classes("items-center gap-3 w-full justify-between"):
-                with ui.row().classes("items-center gap-3"):
-                    ui.icon("lock").style("color: var(--mf-muted); font-size: 20px; opacity: 0.7;")
-                    with ui.column().classes("gap-0"):
-                        ui.label("Month Locks").classes("text-sm font-bold")
-                        ui.label("Toggle locks directly from the Ledger page.").classes("text-[11px] uppercase tracking-wider").style("color: var(--mf-muted);")
-                ui.button("Go to Ledger", on_click=lambda: nav_to("/tx")).props("outline rounded size=sm").style("color: var(--mf-text); border-color: rgba(255,255,255,0.1);")
+        # v9.17: Monthly lockout card removed per user request
 
     shell(content)
 
