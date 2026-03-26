@@ -57,7 +57,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.18.1'
+APP_VERSION = '9.18.2'
 
 
 def log(message: str) -> None:
@@ -4582,7 +4582,7 @@ html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
 .mf-home-2col { display: flex; flex-direction: column; gap: 16px; width: 100%; }
 @media (min-width: 901px) {
   .mf-home-2col { flex-direction: row; gap: 20px; }
-  .mf-home-2col > *:first-child { flex: 0 0 38%; min-width: 0; max-width: 38%; }
+  .mf-home-2col > *:first-child { flex: 0 0 34%; min-width: 0; max-width: 34%; }
   .mf-home-2col > *:last-child { flex: 1 1 0%; min-width: 0; }
 }
 /* 9.8.4: Force equal-height cards inside 2col */
@@ -6109,14 +6109,14 @@ def dashboard_page():
                         _max_a = max(_amounts) if max(_amounts) > 0 else 1
                         _n = len(_amounts)
                         _spark_w = max(400, _n * 16)
-                        _spark_h = 110
-                        _pad_x, _pad_top, _pad_bot = 6, 8, 20
+                        _spark_h = 120
+                        _pad_x, _pad_top, _pad_bot = 6, 8, 24
                         _usable_w = _spark_w - 2 * _pad_x
                         _usable_h = _spark_h - _pad_top - _pad_bot
                         _bar_w = max(3, (_usable_w / _n) * 0.6)
                         _bar_gap = _usable_w / _n
 
-                        _svg = f'<svg viewBox="0 0 {_spark_w} {_spark_h}" style="width: 100%; height: 110px;">'
+                        _svg = f'<svg viewBox="0 0 {_spark_w} {_spark_h}" style="width: 100%; height: 120px;">'
                         _svg += f'<defs><linearGradient id="barG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="{_sb_color}" stop-opacity="0.85"/><stop offset="100%" stop-color="{_sb_color}" stop-opacity="0.35"/></linearGradient></defs>'
 
                         # Bars
@@ -6132,7 +6132,7 @@ def dashboard_page():
                             _pts.append(f'{_cx:.1f},{_by:.1f}' if _bar_h > 0 else f'{_cx:.1f},{_pad_top + _usable_h:.1f}')
                             # X-axis day labels
                             if _bi % _label_step == 0 or _bi == _n - 1:
-                                _svg += f'<text x="{_cx:.1f}" y="{_spark_h - 3}" text-anchor="middle" fill="rgba(150,150,150,0.8)" font-size="10" font-weight="500" font-family="Inter,system-ui">{_labels[_bi]}</text>'
+                                _svg += f'<text x="{_cx:.1f}" y="{_spark_h - 2}" text-anchor="middle" fill="rgba(150,150,150,0.85)" font-size="12" font-weight="600" font-family="Inter,system-ui">{_labels[_bi]}</text>'
 
                         # Smooth line overlay
                         _polyline = ' '.join(_pts)
@@ -8249,7 +8249,7 @@ def admin_page() -> None:
                 ("Recurring", "autorenew", "/recurring", "#a855f7", "linear-gradient(135deg, rgba(168,85,247,0.1), transparent)"),
                 ("Ledger", "receipt_long", "/tx", "#ef4444", "linear-gradient(135deg, rgba(239,68,68,0.1), transparent)"),
                 ("Budget Matrix", "account_balance_wallet", "/budgets", "#eab308", "linear-gradient(135deg, rgba(251,191,36,0.1), transparent)"),
-                ("Data Upload", "cloud_upload", "/data_upload", "#06b6d4", "linear-gradient(135deg, rgba(6,182,212,0.1), transparent)"),
+                ("Savings Goals", "savings", "/savings_goals", "#06b6d4", "linear-gradient(135deg, rgba(6,182,212,0.1), transparent)"),
                 ("Reports Hub", "assessment", "/reports", "#f43f5e", "linear-gradient(135deg, rgba(244,63,94,0.1), transparent)"),
                 ("Color Matrix", "palette", "/color_matrix", "#ec4899", "linear-gradient(135deg, rgba(236,72,153,0.1), transparent)"),
             ]
@@ -10163,254 +10163,234 @@ def budgets_page() -> None:
 @ui.page('/data_tools')
 def data_tools_redirect() -> None:
     """Legacy redirect."""
-    nav_to('/data_upload')
+    nav_to('/savings_goals')
 
 @ui.page('/data_upload')
-def data_upload_page() -> None:
+def data_upload_redirect() -> None:
+    """Legacy redirect."""
+    nav_to('/savings_goals')
+
+@ui.page('/savings_goals')
+def savings_goals_page() -> None:
     if not require_login():
         nav_to('/login')
         return
 
     def content() -> None:
-        # 9.10: Smart Data Upload header
+        ACCENT = '#06b6d4'
+        ACCENT2 = '#0ea5e9'
+
+        # --- Savings Goals Data (stored per-user) ---
+        goals_data: list = app.storage.user.get('savings_goals', [])
+        goals_container = ui.column().classes('w-full gap-4')
+
+        # --- Header card ---
         with ui.card().classes('my-card p-0 mb-4').style('overflow: hidden;'):
-            ui.element('div').style('height: 3px; background: linear-gradient(90deg, #06b6d4, #0ea5e9); border-radius: 0;')
+            ui.element('div').style(f'height: 3px; background: linear-gradient(90deg, {ACCENT}, {ACCENT2}); border-radius: 0;')
             with ui.row().classes('items-center gap-3 p-5'):
-                with ui.element("div").classes("mf-icon-box").style("background: rgba(6,182,212,0.12);"):
-                    ui.icon("cloud_upload").style("font-size: 22px; color: #06b6d4;")
+                with ui.element("div").classes("mf-icon-box").style(f"background: rgba(6,182,212,0.12);"):
+                    ui.icon('savings').style(f"font-size: 22px; color: {ACCENT};")
                 with ui.column().classes('gap-0'):
-                    ui.label('Data Upload').classes('text-xl font-extrabold').style('letter-spacing: -0.02em;')
-                    ui.label('Smart spreadsheet import with card detection & recurring analysis').classes('text-xs').style('color: var(--mf-muted);')
+                    ui.label('Savings Goals').classes('text-xl font-extrabold').style('letter-spacing: -0.02em;')
+                    ui.label('Set targets, track progress, hit milestones').classes('text-xs').style('color:var(--mf-muted);')
 
-        # 9.11: Single-section Data Upload with inline mode + restore
-        _upload_state = {'mode': 'append', 'file_data': None, 'file_name': ''}
-        _result_container = ui.column().classes('w-full gap-3')
+        # --- Helper: render all goals ---
+        def _render_goals():
+            goals_container.clear()
+            _goals = app.storage.user.get('savings_goals', [])
 
-        with ui.card().classes('my-card p-5'):
-            # Step 1: Expected format (collapsible hint)
-            with ui.expansion('Expected Spreadsheet Columns', icon='info').classes('w-full').style('font-weight:600;'):
-                _cols_info = [
-                    ('Date', 'Transaction date (any format)'),
-                    ('International Transaction', 'Amount for international transfers'),
-                    ('Credit', 'Income / salary credited'),
-                    ('Investment', 'Investment transactions'),
-                    ('Credit Card repay', 'CC repayment amounts'),
-                    ('Debit', 'Expenses / debit amounts'),
-                    ('Reason/Note', 'Description — used for card detection & category inference'),
-                ]
-                for _cn, _cd in _cols_info:
-                    with ui.row().classes('items-center gap-3 w-full').style('padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);'):
-                        ui.label(_cn).classes('text-xs font-bold').style('min-width:150px;color:#06b6d4;')
-                        ui.label(_cd).classes('text-xs').style('color:var(--mf-muted);')
+            if not _goals:
+                with goals_container:
+                    with ui.card().classes('my-card p-6').style('text-align: center;'):
+                        ui.icon('flag').style(f'font-size: 48px; color: {ACCENT}; opacity: 0.3;')
+                        ui.label('No savings goals yet').classes('text-lg font-bold mt-2')
+                        ui.label('Tap "Add Goal" to create your first savings target.').classes('text-xs').style('color: var(--mf-muted);')
+                return
 
-            ui.element('div').style('height:16px;')
+            # Compute monthly savings capacity from transaction data
+            _monthly_savings = 0.0
+            try:
+                _tx = cached_df('transactions')
+                if not _tx.empty:
+                    _tx['_type_l'] = _tx.get('type', '').astype(str).str.strip().str.lower()
+                    _tx['_amt'] = _tx.get('amount', 0).apply(to_float)
+                    _tx['_dp'] = _tx.get('date', '').apply(parse_date)
+                    _tx = _tx[_tx['_dp'].notna()]
+                    _td = today()
+                    # Average monthly net savings over last 3 months
+                    _months_back = 3
+                    _total_income = 0.0
+                    _total_expense = 0.0
+                    for _mi in range(_months_back):
+                        _m = _td.month - _mi - 1
+                        _y = _td.year
+                        while _m <= 0:
+                            _m += 12
+                            _y -= 1
+                        _mk = f"{_y:04d}-{_m:02d}"
+                        _month_tx = _tx[_tx['_dp'].apply(lambda d: f"{d.year:04d}-{d.month:02d}") == _mk]
+                        _total_income += float(_month_tx[_month_tx['_type_l'].isin(['credit', 'income'])]['_amt'].sum())
+                        _total_expense += float(_month_tx[_month_tx['_type_l'].isin(['debit', 'expense'])]['_amt'].sum())
+                    _monthly_savings = max(0, (_total_income - _total_expense) / max(_months_back, 1))
+            except Exception:
+                pass
 
-            # Step 2: File picker
-            ui.label('Choose your spreadsheet (.csv or .xlsx)').classes('text-sm font-semibold mb-2')
+            # Overall summary
+            _total_target = sum(float(g.get('target', 0)) for g in _goals)
+            _total_saved = sum(float(g.get('saved', 0)) for g in _goals)
+            _overall_pct = min(1.0, _total_saved / _total_target) if _total_target > 0 else 0
 
-            _status_label = ui.label('').classes('text-xs mt-2').style('color:var(--mf-muted);')
+            with goals_container:
+                # Summary card
+                with ui.card().classes('my-card p-5').style('background: linear-gradient(135deg, rgba(6,182,212,0.08), rgba(14,165,233,0.04)); border: 1px solid rgba(6,182,212,0.2);'):
+                    with ui.row().classes('items-center justify-between w-full'):
+                        with ui.column().classes('gap-1'):
+                            ui.label('Total Progress').classes('text-[10px] font-semibold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.08em;')
+                            ui.label(f'{currency(_total_saved)} / {currency(_total_target)}').classes('text-lg font-extrabold').style(f'color: {ACCENT}; font-feature-settings: "tnum";')
+                        # Mini ring
+                        _ring_r = 28
+                        _ring_circ = 2 * 3.14159 * _ring_r
+                        _ring_dash = _overall_pct * _ring_circ
+                        _pct_color = '#22c55e' if _overall_pct >= 1.0 else ACCENT
+                        ui.html(f'''<svg width="70" height="70" viewBox="0 0 70 70" style="transform: rotate(-90deg);">
+                            <circle cx="35" cy="35" r="{_ring_r}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
+                            <circle cx="35" cy="35" r="{_ring_r}" fill="none" stroke="{_pct_color}" stroke-width="6"
+                                stroke-dasharray="{_ring_dash:.1f} {_ring_circ:.1f}" stroke-linecap="round"
+                                style="transition: stroke-dasharray 1s ease;"/>
+                            <text x="35" y="38" text-anchor="middle" fill="white" font-size="13" font-weight="800"
+                                style="transform: rotate(90deg); transform-origin: 35px 35px;" font-family="Inter,system-ui">{int(_overall_pct*100)}%</text>
+                        </svg>''')
+                    if _monthly_savings > 0:
+                        _remaining = max(0, _total_target - _total_saved)
+                        _months_to_go = _remaining / _monthly_savings if _monthly_savings > 0 else 0
+                        _eta_text = f"{int(_months_to_go)} months" if _months_to_go >= 1 else "< 1 month"
+                        ui.label(f'Based on your avg monthly savings of {currency(_monthly_savings)}, all goals complete in ~{_eta_text}').classes('text-[11px] mt-2').style('color: var(--mf-muted);')
 
-            async def _on_file_selected(e):
-                """Handle NiceGUI 3.x upload: e.file is a FileUpload with async read()."""
-                try:
-                    raw = await e.file.read()
-                    _upload_state['file_data'] = raw if isinstance(raw, (bytes, bytearray)) else bytes(raw)
-                    _upload_state['file_name'] = getattr(e.file, 'name', 'uploaded_file') or 'uploaded_file'
-                    _status_label.set_text(f'✓ File ready: {_upload_state["file_name"]} ({len(raw):,} bytes)')
-                except Exception as ex:
-                    _logger.error('Upload read error: %s', ex)
-                    ui.notify(f'Error reading file: {ex}', type='negative')
+                # Individual goal cards
+                _goal_icons = {'Emergency Fund': 'health_and_safety', 'Vacation': 'flight_takeoff', 'New Car': 'directions_car',
+                               'Home Down Payment': 'home', 'Education': 'school', 'Wedding': 'favorite',
+                               'Retirement': 'elderly', 'Investment': 'show_chart', 'Gadget': 'devices'}
+                _goal_colors = ['#06b6d4', '#8b5cf6', '#f59e0b', '#22c55e', '#ef4444', '#ec4899', '#3b82f6', '#f97316', '#14b8a6']
 
-            ui.upload(
-                label='Select file', auto_upload=True,
-                on_upload=_on_file_selected,
-            ).props('accept=.csv,.xlsx,.xls').classes('w-full')
+                for _gi, g in enumerate(_goals):
+                    _g_name = str(g.get('name', 'Goal'))
+                    _g_target = float(g.get('target', 0))
+                    _g_saved = float(g.get('saved', 0))
+                    _g_pct = min(1.0, _g_saved / _g_target) if _g_target > 0 else 0
+                    _g_icon = _goal_icons.get(_g_name, g.get('icon', 'flag'))
+                    _g_color = _goal_colors[_gi % len(_goal_colors)]
+                    _g_complete = _g_pct >= 1.0
 
-            ui.element('div').style('height:12px;')
+                    with ui.card().classes('my-card p-0').style('overflow: hidden;'):
+                        ui.element('div').style(f'height: 3px; background: {_g_color}; opacity: {"1" if _g_complete else "0.5"};')
+                        with ui.element('div').style('padding: 16px 20px;'):
+                            with ui.row().classes('items-center justify-between w-full'):
+                                with ui.row().classes('items-center gap-3'):
+                                    with ui.element('div').style(f'width: 40px; height: 40px; border-radius: 12px; background: {_g_color}1A; display: flex; align-items: center; justify-content: center;'):
+                                        ui.icon('check_circle' if _g_complete else _g_icon).style(f'font-size: 20px; color: {"#22c55e" if _g_complete else _g_color};')
+                                    with ui.column().classes('gap-0'):
+                                        ui.label(_g_name).classes('text-sm font-bold')
+                                        ui.label(f'{currency(_g_saved)} of {currency(_g_target)}').classes('text-[11px]').style('color: var(--mf-muted); font-feature-settings: "tnum";')
+                                with ui.row().classes('items-center gap-2'):
+                                    ui.label(f'{int(_g_pct * 100)}%').classes('text-lg font-extrabold').style(f'color: {"#22c55e" if _g_complete else _g_color}; font-feature-settings: "tnum";')
+                                    # Quick add button
+                                    def _add_to_goal(_idx=_gi):
+                                        async def _do_add():
+                                            _g = app.storage.user.get('savings_goals', [])[_idx]
+                                            _amt_input = ui.number(value=0, label='Add amount').props('outlined dense')
+                                            async def _confirm():
+                                                _val = float(to_float(_amt_input.value))
+                                                if _val > 0:
+                                                    _all = app.storage.user.get('savings_goals', [])
+                                                    _all[_idx]['saved'] = float(_all[_idx].get('saved', 0)) + _val
+                                                    app.storage.user['savings_goals'] = _all
+                                                    _add_dlg.close()
+                                                    _render_goals()
+                                                    ui.notify(f'Added {currency(_val)} to {_g["name"]}', type='positive')
+                                            _add_dlg = ui.dialog()
+                                            with _add_dlg, ui.card().classes('my-card p-5').style('min-width: 300px;'):
+                                                ui.label(f'Add to {_g["name"]}').classes('text-base font-bold mb-2')
+                                                _amt_input = ui.number(value=0, label='Amount ($)').props('outlined dense').classes('w-full')
+                                                with ui.row().classes('w-full justify-end gap-2 mt-3'):
+                                                    ui.button('Cancel', on_click=_add_dlg.close).props('flat').style('border-radius: 10px;')
+                                                    ui.button('Add', on_click=_confirm, icon='add').props('unelevated').style(f'background: {_g_color} !important; color: white !important; border-radius: 10px;')
+                                            _add_dlg.open()
+                                        ui.timer(0.05, _do_add, once=True)
+                                    ui.button('', icon='add', on_click=_add_to_goal).props('flat round dense size=sm').style(f'color: {_g_color};')
+                            # Progress bar
+                            with ui.element('div').style(f'width: 100%; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); margin-top: 12px; overflow: hidden;'):
+                                ui.element('div').style(f'width: {_g_pct * 100:.1f}%; height: 100%; border-radius: 3px; background: {"#22c55e" if _g_complete else _g_color}; transition: width 0.8s ease;')
+                            # ETA
+                            if _monthly_savings > 0 and not _g_complete:
+                                _g_remaining = max(0, _g_target - _g_saved)
+                                _g_months = _g_remaining / _monthly_savings
+                                _eta = f"~{int(_g_months)} mo" if _g_months >= 1 else "< 1 mo"
+                                ui.label(f'ETA: {_eta} at current pace').classes('text-[10px] mt-1').style('color: var(--mf-muted);')
 
-            # Step 3: Append or Replace toggle + Restore button
-            with ui.row().classes('items-center gap-4 flex-wrap'):
-                _mode_toggle = ui.toggle(
-                    {'append': 'Append', 'replace': 'Replace All'},
-                    value='append'
-                ).props('no-caps rounded dense').style('font-weight:600;')
-                def _on_mode_change(e):
-                    _upload_state['mode'] = e.value
-                _mode_toggle.on('update:model-value', _on_mode_change)
-
-                async def _do_restore():
-                    data = _upload_state.get('file_data')
-                    if not data:
-                        ui.notify('Upload a file first.', type='warning')
-                        return
-                    fname = _upload_state.get('file_name', '')
-                    try:
-                        if fname.endswith(('.xlsx', '.xls')):
-                            try:
-                                import openpyxl  # noqa: F401
-                            except ImportError:
-                                import subprocess, sys
-                                _status_label.set_text('Installing xlsx support...')
-                                await run.io_bound(lambda: subprocess.check_call(
-                                    [sys.executable, '-m', 'pip', 'install', 'openpyxl', '-q']
-                                ))
-                            df = pd.read_excel(io.BytesIO(data), engine='openpyxl')
-                        else:
-                            df = parse_uploaded_csv(data)
-                        if df is None or df.empty:
-                            ui.notify('File is empty.', type='warning')
+        # Add goal dialog
+        def _open_add_goal():
+            dlg = ui.dialog()
+            PRESETS = ['Emergency Fund', 'Vacation', 'New Car', 'Home Down Payment', 'Education', 'Wedding', 'Retirement', 'Investment', 'Gadget', 'Custom']
+            with dlg, ui.card().classes('my-card p-5').style('min-width: 340px; max-width: 95vw;'):
+                ui.label('New Savings Goal').classes('text-lg font-extrabold mb-3')
+                g_name = ui.select(PRESETS, value='Emergency Fund', label='Goal Type').props('outlined dense').classes('w-full')
+                g_custom = ui.input('Custom name', value='').props('outlined dense').classes('w-full')
+                g_custom.set_visibility(False)
+                def _on_type_change(e):
+                    g_custom.set_visibility(str(g_name.value) == 'Custom')
+                g_name.on('update:model-value', _on_type_change)
+                g_target = ui.number(value=1000, label='Target Amount ($)').props('outlined dense').classes('w-full')
+                g_saved = ui.number(value=0, label='Already Saved ($)').props('outlined dense').classes('w-full')
+                with ui.row().classes('w-full justify-end gap-2 mt-4'):
+                    ui.button('Cancel', on_click=dlg.close).props('flat').style('border-radius: 10px;')
+                    def _save_goal():
+                        _name = str(g_custom.value).strip() if str(g_name.value) == 'Custom' else str(g_name.value)
+                        _tgt = float(to_float(g_target.value))
+                        _svd = float(to_float(g_saved.value))
+                        if not _name or _tgt <= 0:
+                            ui.notify('Enter a name and target > 0', type='warning')
                             return
+                        _all = app.storage.user.get('savings_goals', [])
+                        _all.append({'name': _name, 'target': _tgt, 'saved': _svd, 'created': today().isoformat()})
+                        app.storage.user['savings_goals'] = _all
+                        dlg.close()
+                        _render_goals()
+                        ui.notify(f'Goal "{_name}" created!', type='positive')
+                    ui.button('Create', on_click=_save_goal, icon='flag').props('unelevated').style(f'background: {ACCENT} !important; color: white !important; border-radius: 10px; padding: 8px 24px;')
+            dlg.open()
 
-                        _file_cols = [str(c).strip() for c in df.columns]
-                        _file_cols_lower = {c.lower() for c in _file_cols}
-                        _is_file_wide = not ('type' in _file_cols_lower and 'amount' in _file_cols_lower)
+        with ui.row().classes('w-full justify-end mb-3'):
+            ui.button('Add Goal', icon='add', on_click=_open_add_goal).props('unelevated').style(f'background: linear-gradient(135deg, {ACCENT}, {ACCENT2}) !important; color: white !important; border-radius: 12px; font-weight: 700; padding: 8px 24px;')
 
-                        mode = _upload_state.get('mode', 'append')
-                        _status_label.set_text(f'Processing... ({mode} mode)')
+        _render_goals()
 
-                        # ---- Step 1: Serialize all values for Google Sheets ----
-                        # Timestamps -> 'YYYY-MM-DD', NaN/NaT -> '', floats .0 -> int
-                        def _serialize(val):
-                            if val is None:
-                                return ''
-                            if isinstance(val, pd.Timestamp):
-                                return val.strftime('%Y-%m-%d') if pd.notna(val) else ''
-                            if isinstance(val, dt.datetime):
-                                return val.strftime('%Y-%m-%d')
-                            if isinstance(val, dt.date):
-                                return val.isoformat()
-                            if isinstance(val, float):
-                                if pd.isna(val):
-                                    return ''
-                                if val == int(val):
-                                    return str(int(val))
-                                return str(val)
-                            s = str(val).strip()
-                            return '' if s.lower() == 'nan' or s.lower() == 'nat' else s
+        # Delete goal option
+        def _open_manage():
+            _all = app.storage.user.get('savings_goals', [])
+            if not _all:
+                ui.notify('No goals to manage', type='info')
+                return
+            mdlg = ui.dialog()
+            with mdlg, ui.card().classes('my-card p-5').style('min-width: 340px; max-width: 95vw;'):
+                ui.label('Manage Goals').classes('text-lg font-extrabold mb-3')
+                ui.label('Tap the trash icon to delete a goal.').classes('text-xs mb-2').style('color: var(--mf-muted);')
+                for _mi, _mg in enumerate(_all):
+                    with ui.row().classes('items-center justify-between w-full').style('padding: 8px 0; border-bottom: 1px solid var(--mf-border);'):
+                        ui.label(f'{_mg["name"]} — {currency(float(_mg.get("saved",0)))} / {currency(float(_mg.get("target",0)))}').classes('text-sm font-medium')
+                        def _del(_idx=_mi):
+                            _a = app.storage.user.get('savings_goals', [])
+                            _removed = _a.pop(_idx)
+                            app.storage.user['savings_goals'] = _a
+                            mdlg.close()
+                            _render_goals()
+                            ui.notify(f'Deleted "{_removed["name"]}"', type='info')
+                        ui.button('', icon='delete', on_click=_del).props('flat round dense size=sm').style('color: #ef4444;')
+                with ui.row().classes('w-full justify-end mt-3'):
+                    ui.button('Close', on_click=mdlg.close).props('flat').style('border-radius: 10px;')
+            mdlg.open()
 
-                        # Apply serialization to every cell
-                        for col in df.columns:
-                            df[col] = df[col].apply(_serialize)
-
-                        # Drop fully-empty rows
-                        _total_before = len(df)
-                        df = df[df.apply(lambda r: any(v != '' for v in r.values), axis=1)]
-
-                        imported = 0
-                        _skipped = _total_before - len(df)  # empty rows dropped
-
-                        # ---- Step 2: Ensure sheet headers match file columns ----
-                        _sheet_hdrs = sheet_headers('transactions')
-                        _sheet_lower_set = {h.lower().strip() for h in _sheet_hdrs}
-                        _overlap = _file_cols_lower.intersection(_sheet_lower_set)
-                        _headers_fixed = False
-                        if len(_overlap) < 2:
-                            # Sheet headers don't match file (corrupted by prior Replace).
-                            # Fix them to match the file's column names.
-                            _w = ws('transactions')
-                            await run.io_bound(lambda: _w.update('A1', [_file_cols]))
-                            _header_cache['transactions'] = _file_cols
-                            _headers_fixed = True
-
-                        # ---- Step 3: Write data ----
-                        if mode == 'replace':
-                            # One-shot batch: clear sheet, write headers + all rows
-                            await run.io_bound(lambda: write_df_to_sheet('transactions', df, _file_cols))
-                            _header_cache['transactions'] = _file_cols
-                            invalidate('transactions')
-                            imported = len(df)
-                        else:
-                            # Append: write each row via gspread append_row (positional)
-                            # Use the worksheet directly with a list of values (not dict)
-                            # to avoid header-matching issues with the dict-based append_row.
-                            _w = ws('transactions')
-                            for _, row in df.iterrows():
-                                vals = [row[c] for c in _file_cols]
-                                if all(v == '' for v in vals):
-                                    _skipped += 1
-                                    continue
-                                await run.io_bound(
-                                    lambda v=list(vals): _w.append_row(v, value_input_option='USER_ENTERED')
-                                )
-                                imported += 1
-                            invalidate('transactions')
-
-                        invalidate('recurring')
-
-                        _fmt = 'Wide' if _is_file_wide else 'Long'
-
-                        # Save restore timestamp for display
-                        _restore_ts = now_iso()
-                        app.storage.user['last_restore'] = {
-                            'time': _restore_ts,
-                            'file': fname,
-                            'rows': imported,
-                            'mode': mode,
-                        }
-
-                        _status_label.set_text('')
-                        _result_container.clear()
-                        with _result_container:
-                            with ui.element('div').style(
-                                'border-radius:16px;padding:20px;'
-                                'background:var(--mf-card-bg, linear-gradient(165deg, var(--mf-card-top), var(--mf-card-bottom)));'
-                                'border:1px solid rgba(34,197,94,0.25);box-shadow:0 4px 16px rgba(34,197,94,0.1);'
-                            ):
-                                with ui.row().classes('items-center gap-3 mb-3'):
-                                    ui.icon('check_circle').style('font-size:28px;color:#22c55e;')
-                                    ui.label('Import Complete').classes('text-lg font-extrabold').style('color:#22c55e;')
-                                _stats = [
-                                    ('Rows written to sheet', str(imported)),
-                                    ('Rows skipped (empty)', str(_skipped)),
-                                    ('File format', _fmt),
-                                    ('Upload mode', 'Replace' if mode == 'replace' else 'Append'),
-                                    ('Source rows in file', str(_total_before)),
-                                    ('File', fname),
-                                ]
-                                if _headers_fixed:
-                                    _stats.insert(3, ('Sheet headers', 'Auto-fixed to match file'))
-                                for _sl, _sv in _stats:
-                                    with ui.row().classes('items-center justify-between w-full').style('padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);'):
-                                        ui.label(_sl).classes('text-xs font-medium').style('color:var(--mf-muted);')
-                                        ui.label(_sv).classes('text-sm font-bold').style('font-feature-settings:"tnum";')
-                        ui.notify(f'Imported {imported} rows ({_fmt}).', type='positive')
-
-                    except Exception as ex:
-                        ui.notify(f'Import failed: {ex}', type='negative')
-                        _status_label.set_text(f'Error: {ex}')
-                        import traceback
-                        _logger.error('Smart upload error: %s', traceback.format_exc())
-
-                ui.button('Restore', icon='restore', on_click=_do_restore).props('unelevated rounded').style(
-                    'background:linear-gradient(135deg,#06b6d4,#0ea5e9);color:white;font-weight:700;text-transform:none;padding:8px 28px;')
-
-            ui.label('Select Append to add new data or Replace All to clear existing data before import. Then click Restore.').classes('text-[11px] mt-2').style('color:var(--mf-muted);')
-
-            # ── Restore History Note ──
-            _last = app.storage.user.get('last_restore')
-            if _last and isinstance(_last, dict):
-                _lr_time = _last.get('time', '')
-                _lr_file = _last.get('file', 'unknown')
-                _lr_rows = _last.get('rows', '?')
-                _lr_mode = _last.get('mode', '')
-                # Format timestamp for display
-                try:
-                    _dt_obj = dt.datetime.fromisoformat(_lr_time)
-                    _display_time = _dt_obj.strftime('%b %d, %Y at %I:%M %p UTC')
-                except Exception:
-                    _display_time = _lr_time or 'unknown'
-                ui.element('div').style('height:16px;')
-                with ui.element('div').style(
-                    'border-radius:12px;padding:14px 18px;'
-                    'background:rgba(6,182,212,0.06);'
-                    'border:1px solid rgba(6,182,212,0.15);'
-                ):
-                    with ui.row().classes('items-center gap-2 mb-1'):
-                        ui.icon('history').style('font-size:18px;color:#06b6d4;')
-                        ui.label('Last Restore').classes('text-sm font-bold').style('color:#06b6d4;')
-                    with ui.column().classes('gap-1 ml-1'):
-                        ui.label(f'{_display_time}').classes('text-xs font-semibold')
-                        ui.label(f'File: {_lr_file}  ·  {_lr_rows} rows  ·  {_lr_mode.title() if _lr_mode else ""}').classes('text-[11px]').style('color:var(--mf-muted);')
+        with ui.row().classes('w-full justify-center'):
+            ui.button('Manage Goals', icon='settings', on_click=_open_manage).props('flat dense').style(f'color: var(--mf-muted); font-size: 12px; border-radius: 10px;')
 
     shell(content)
 
