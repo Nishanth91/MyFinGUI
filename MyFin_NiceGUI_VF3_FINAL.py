@@ -57,7 +57,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.18'
+APP_VERSION = '9.18.1'
 
 
 def log(message: str) -> None:
@@ -3946,7 +3946,10 @@ a.mf-more-item.is-active:visited {
   line-height: 1.45 !important;
   padding: 10px 8px !important;
 }
-.mf-tx-table th { padding: 8px !important; }
+.mf-tx-table th { padding: 8px !important; cursor: pointer !important; user-select: none; }
+.mf-tx-table th .q-table__sort-icon { opacity: 0.5; }
+.mf-tx-table th:hover { background: rgba(255,255,255,0.06) !important; }
+.mf-tx-table th:active { background: rgba(255,255,255,0.1) !important; }
 .mf-tx-table tbody tr {
   cursor: pointer !important;
   transition: background 0.08s ease;
@@ -4579,7 +4582,8 @@ html.mf-light .mf-split-pill { background: rgba(0,0,0,0.03); }
 .mf-home-2col { display: flex; flex-direction: column; gap: 16px; width: 100%; }
 @media (min-width: 901px) {
   .mf-home-2col { flex-direction: row; gap: 20px; }
-  .mf-home-2col > * { flex: 1 1 0%; min-width: 0; max-width: 50%; }
+  .mf-home-2col > *:first-child { flex: 0 0 38%; min-width: 0; max-width: 38%; }
+  .mf-home-2col > *:last-child { flex: 1 1 0%; min-width: 0; }
 }
 /* 9.8.4: Force equal-height cards inside 2col */
 .mf-home-2col .my-card { height: 100%; }
@@ -6017,7 +6021,16 @@ def dashboard_page():
                     _cat_mask = _ins_spend['category'].str.strip().str.lower().isin(_excl_cats)
                     _notes_lower = _ins_spend.get('notes', pd.Series(dtype=str)).astype(str).str.strip().str.lower()
                     _notes_mask = _notes_lower.apply(lambda n: any(kw in n for kw in _excl_note_keywords))
-                    _real_spend = _ins_spend[~_cat_mask & ~_type_mask & ~_notes_mask]
+                    _real_spend_all = _ins_spend[~_cat_mask & ~_type_mask & ~_notes_mask]
+                    # v9.18: Filter to current month only — chart + biggest expense must match
+                    import datetime as _dt_mod
+                    _today_sb = _dt_mod.date.today()
+                    _month_start_sb = _today_sb.replace(day=1)
+                    def _is_this_month(d):
+                        if d is None: return False
+                        dd = d if isinstance(d, _dt_mod.date) else (d.date() if hasattr(d, 'date') else None)
+                        return dd is not None and dd >= _month_start_sb and dd <= _today_sb
+                    _real_spend = _real_spend_all[_real_spend_all['date_parsed'].apply(_is_this_month)].copy()
                     _si_biggest = 0.0
                     _si_big_note = ''
                     _si_big_cat = ''
@@ -6095,15 +6108,15 @@ def dashboard_page():
                     if _amounts and len(_amounts) >= 2:
                         _max_a = max(_amounts) if max(_amounts) > 0 else 1
                         _n = len(_amounts)
-                        _spark_w = max(320, _n * 14)
-                        _spark_h = 80
-                        _pad_x, _pad_top, _pad_bot = 4, 6, 14
+                        _spark_w = max(400, _n * 16)
+                        _spark_h = 110
+                        _pad_x, _pad_top, _pad_bot = 6, 8, 20
                         _usable_w = _spark_w - 2 * _pad_x
                         _usable_h = _spark_h - _pad_top - _pad_bot
                         _bar_w = max(3, (_usable_w / _n) * 0.6)
                         _bar_gap = _usable_w / _n
 
-                        _svg = f'<svg viewBox="0 0 {_spark_w} {_spark_h}" style="width: 100%; height: 80px;">'
+                        _svg = f'<svg viewBox="0 0 {_spark_w} {_spark_h}" style="width: 100%; height: 110px;">'
                         _svg += f'<defs><linearGradient id="barG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="{_sb_color}" stop-opacity="0.85"/><stop offset="100%" stop-color="{_sb_color}" stop-opacity="0.35"/></linearGradient></defs>'
 
                         # Bars
@@ -6119,7 +6132,7 @@ def dashboard_page():
                             _pts.append(f'{_cx:.1f},{_by:.1f}' if _bar_h > 0 else f'{_cx:.1f},{_pad_top + _usable_h:.1f}')
                             # X-axis day labels
                             if _bi % _label_step == 0 or _bi == _n - 1:
-                                _svg += f'<text x="{_cx:.1f}" y="{_spark_h - 1}" text-anchor="middle" fill="rgba(150,150,150,0.7)" font-size="7" font-family="Inter,system-ui">{_labels[_bi]}</text>'
+                                _svg += f'<text x="{_cx:.1f}" y="{_spark_h - 3}" text-anchor="middle" fill="rgba(150,150,150,0.8)" font-size="10" font-weight="500" font-family="Inter,system-ui">{_labels[_bi]}</text>'
 
                         # Smooth line overlay
                         _polyline = ' '.join(_pts)
@@ -8768,12 +8781,18 @@ def transactions_page():
 
             with ui.element('div').classes('w-full overflow-x-auto'):
                 table = ui.table(columns=[
-                    {"name": "date", "label": "Date", "field": "date"},
-                    {"name": "type", "label": "Type", "field": "type"},
-                    {"name": "amount", "label": "Amount", "field": "amount", "align": "right"},
-                    {"name": "category", "label": "Category", "field": "category"},
+                    {"name": "date", "label": "Date", "field": "date", "sortable": True},
+                    {"name": "type", "label": "Type", "field": "type", "sortable": True},
+                    {"name": "amount", "label": "Amount", "field": "amount_raw", "align": "right", "sortable": True},
+                    {"name": "category", "label": "Category", "field": "category", "sortable": True},
                 ], rows=[], row_key="id", selection='single').classes("w-full mf-tx-table")
                 table.props('flat bordered')
+                # v9.18.1: Display formatted currency in Amount column while sorting on raw number
+                table.add_slot('body-cell-amount', '''
+                    <q-td :props="props" style="text-align: right;">
+                        {{ props.row.amount }}
+                    </q-td>
+                ''')
 
             def _open_details(row: Dict[str, Any]) -> None:
                 with ui.dialog() as d, ui.card().classes('my-card p-4 w-[92vw] max-w-3xl'):
@@ -8935,6 +8954,8 @@ def transactions_page():
                 _total_rows = len(df)
                 _start = _page_state['current'] * _page_size
                 df_page = df.iloc[_start:_start + _page_size].copy()
+                # v9.18.1: amount_raw for numeric sorting, amount for display
+                df_page["amount_raw"] = df_page["amount"].apply(lambda x: float(to_float(x)))
                 df_page["amount"] = df_page["amount"].apply(lambda x: currency(to_float(x)))
                 table.rows = df_page.to_dict(orient="records")
                 table.update()
