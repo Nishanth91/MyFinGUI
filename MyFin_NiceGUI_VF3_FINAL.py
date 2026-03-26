@@ -6032,7 +6032,7 @@ def dashboard_page():
                         except Exception:
                             _si_big_date = ''
 
-                    # v9.17: Daily spend for current month (not just last 7 days)
+                    # v9.18: Daily spend for current month — bar chart data
                     _daily_amounts = []
                     _daily_labels = []
                     try:
@@ -6040,12 +6040,16 @@ def dashboard_page():
                         _today = _dt_mod.date.today()
                         _month_start = _today.replace(day=1)
                         _real_with_date = _real_spend[_real_spend['date_parsed'].notna()].copy()
+                        # parse_date returns dt.date objects, so use .apply() not .dt.date
+                        _real_with_date['_date_only'] = _real_with_date['date_parsed'].apply(
+                            lambda d: d if isinstance(d, _dt_mod.date) else (d.date() if hasattr(d, 'date') else None)
+                        )
                         _num_days = (_today - _month_start).days + 1
                         for _di in range(_num_days):
                             _day = _month_start + _dt_mod.timedelta(days=_di)
                             _day_total = 0.0
                             try:
-                                _day_mask = _real_with_date['date_parsed'].dt.date == _day
+                                _day_mask = _real_with_date['_date_only'] == _day
                                 _day_total = float(_real_with_date.loc[_day_mask, 'amount_num'].sum())
                             except Exception:
                                 pass
