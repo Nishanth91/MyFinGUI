@@ -57,7 +57,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.17'
+APP_VERSION = '9.18'
 
 
 def log(message: str) -> None:
@@ -4671,11 +4671,14 @@ select:-webkit-autofill{
   caret-color: var(--mf-text) !important;
   background-color: var(--mf-bg-2) !important;
 }
-/* 8.5: Hide NiceGUI reconnect flash when switching between apps */
+/* 8.5+9.18: Hide ALL NiceGUI reconnect/loading indicators */
 .q-loading-bar { display: none !important; }
 .nicegui-reconnecting { display: none !important; }
 div[class*="nicegui"][class*="reconnect"] { display: none !important; }
 .q-dialog--seamless { display: none !important; }
+/* v9.18: Hide the connection lost overlay completely */
+.nicegui-disconnected { display: none !important; }
+div[class*="q-notify"] { transition: opacity 0.15s ease !important; }
 
 /* iOS launch splash overlay  covers blank page while NiceGUI hydrates */
 #mf-splash{
@@ -4723,7 +4726,7 @@ div[class*="nicegui"][class*="reconnect"] { display: none !important; }
     if(document.querySelector('.mf-shell,.mf-login-hero,.nicegui-content')){ob.disconnect(); setTimeout(hide,80);}
   });
   ob.observe(document.body,{childList:true,subtree:true});
-  setTimeout(hide,4000);
+  setTimeout(hide,2500);  // v9.18: faster splash timeout
   // Register service worker for caching fonts + static assets
   if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(function(){}); }
 })();
@@ -5078,6 +5081,46 @@ window.mfSetTheme = function(name){
         icon.style.padding = '';
       }
     }
+  }, {passive: true});
+
+  // v9.18: Prevent full page reload on iOS app-switch
+  // When the app comes back from background, the WebSocket may have disconnected.
+  // NiceGUI's default behavior is to reload — we suppress that and let it reconnect silently.
+  (function(){
+    var _wasHidden = false;
+    document.addEventListener('visibilitychange', function(){
+      if(document.hidden){
+        _wasHidden = true;
+      } else if(_wasHidden){
+        _wasHidden = false;
+        // Suppress NiceGUI's auto-reload on reconnect
+        if(window.__nicegui_auto_reload !== undefined){ window.__nicegui_auto_reload = false; }
+        // Gentle reconnect: if socket is closed, try to reconnect without full reload
+        try{
+          var ws = document.querySelector('nicegui-app');
+          if(ws && ws.__vue__ && ws.__vue__.$socket && ws.__vue__.$socket.readyState > 1){
+            ws.__vue__.$socket.connect();
+          }
+        }catch(e){}
+      }
+    });
+    // Also handle iOS pageshow (back-forward cache)
+    window.addEventListener('pageshow', function(e){
+      if(e.persisted){
+        // Page was restored from bfcache — prevent white flash
+        document.body.style.opacity = '1';
+      }
+    });
+  })();
+
+  // v9.18: Universal click feedback for mf-tap elements (touchstart for instant response)
+  document.addEventListener('touchstart', function(e){
+    var t = e.target.closest('.mf-tap');
+    if(t){ t.style.transform='scale(0.96)'; t.style.opacity='0.85'; }
+  }, {passive: true});
+  document.addEventListener('touchend', function(e){
+    var t = e.target.closest('.mf-tap');
+    if(t){ setTimeout(function(){ t.style.transform=''; t.style.opacity=''; }, 80); }
   }, {passive: true});
 })();
 </script>""",
@@ -5825,8 +5868,24 @@ def dashboard_page():
         elif _hour < 17: _greeting = 'Good afternoon'
         else: _greeting = 'Good evening'
 
-        # Daily average spending this month
-        _daily_avg = round(expense / max(today().day, 1), 2) if expense > 0 else 0.0
+        # v9.18: Daily pacing — exclude fixed recurring (rent, car, EMI, LOC, intl)
+        _pacing_excl_cats = {'rent', 'car', 'car emi', 'car loan', 'emi', 'auto loan',
+                             'loc utilization', 'repayment', 'cc repay',
+                             'international', 'international transfer', 'international transaction'}
+        _pacing_excl_notes = ['car emi', 'car loan', 'rent -', 'rent:', 'international transfer']
+        _pacing_excl_types = {'international transfer', 'international', 'loc draw', 'loc_draw', 'loc withdrawal', 'loc_withdrawal'}
+        _pacing_expense = expense
+        try:
+            if not spend.empty:
+                _p_type_mask = spend.get('type', pd.Series(dtype=str)).astype(str).str.strip().str.lower().isin(_pacing_excl_types)
+                _p_cat_mask = spend['category'].str.strip().str.lower().isin(_pacing_excl_cats)
+                _p_notes_lower = spend.get('notes', pd.Series(dtype=str)).astype(str).str.strip().str.lower()
+                _p_notes_mask = _p_notes_lower.apply(lambda n: any(kw in n for kw in _pacing_excl_notes))
+                _discretionary = spend[~_p_cat_mask & ~_p_type_mask & ~_p_notes_mask]
+                _pacing_expense = float(_discretionary['amount_num'].sum()) if not _discretionary.empty else 0.0
+        except Exception:
+            pass
+        _daily_avg = round(_pacing_expense / max(today().day, 1), 2) if _pacing_expense > 0 else 0.0
 
         # Cashflow Rings Hero
         _ring_income = min(1.0, income / (income + expense + 1)) if income > 0 else 0
@@ -6026,44 +6085,53 @@ def dashboard_page():
                             ui.icon('insights').style(f'font-size: 18px; color: {_sb_color};')
                         ui.label('Spending Breakdown').classes('text-base font-extrabold').style('letter-spacing: -0.02em;')
 
-                    # v9.17: Monthly spend sparkline (SVG) — full current month
+                    # v9.18: Bar chart + line overlay — daily spend this month
                     _amounts = _si_data.get('daily_amounts', [])
                     _labels = _si_data.get('daily_labels', [])
                     if _amounts and len(_amounts) >= 2:
                         _max_a = max(_amounts) if max(_amounts) > 0 else 1
-                        _spark_w, _spark_h = 320, 60
-                        _pad_x, _pad_y = 8, 6
+                        _n = len(_amounts)
+                        _spark_w = max(320, _n * 14)
+                        _spark_h = 80
+                        _pad_x, _pad_top, _pad_bot = 4, 6, 14
                         _usable_w = _spark_w - 2 * _pad_x
-                        _usable_h = _spark_h - 2 * _pad_y
+                        _usable_h = _spark_h - _pad_top - _pad_bot
+                        _bar_w = max(3, (_usable_w / _n) * 0.6)
+                        _bar_gap = _usable_w / _n
+
+                        _svg = f'<svg viewBox="0 0 {_spark_w} {_spark_h}" style="width: 100%; height: 80px;">'
+                        _svg += f'<defs><linearGradient id="barG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="{_sb_color}" stop-opacity="0.85"/><stop offset="100%" stop-color="{_sb_color}" stop-opacity="0.35"/></linearGradient></defs>'
+
+                        # Bars
                         _pts = []
-                        for _si_i, _a in enumerate(_amounts):
-                            _sx = _pad_x + (_si_i / (len(_amounts) - 1)) * _usable_w
-                            _sy = _pad_y + (1 - (_a / _max_a)) * _usable_h
-                            _pts.append(f'{_sx:.1f},{_sy:.1f}')
+                        _label_step = max(1, _n // 7)
+                        for _bi, _a in enumerate(_amounts):
+                            _cx = _pad_x + _bi * _bar_gap + _bar_gap / 2
+                            _bar_h = (_a / _max_a) * _usable_h if _a > 0 else 0
+                            _by = _pad_top + _usable_h - _bar_h
+                            if _bar_h > 0:
+                                _svg += f'<rect x="{_cx - _bar_w/2:.1f}" y="{_by:.1f}" width="{_bar_w:.1f}" height="{_bar_h:.1f}" rx="2" fill="url(#barG)"/>'
+                            # Line overlay point
+                            _pts.append(f'{_cx:.1f},{_by:.1f}' if _bar_h > 0 else f'{_cx:.1f},{_pad_top + _usable_h:.1f}')
+                            # X-axis day labels
+                            if _bi % _label_step == 0 or _bi == _n - 1:
+                                _svg += f'<text x="{_cx:.1f}" y="{_spark_h - 1}" text-anchor="middle" fill="rgba(150,150,150,0.7)" font-size="7" font-family="Inter,system-ui">{_labels[_bi]}</text>'
+
+                        # Smooth line overlay
                         _polyline = ' '.join(_pts)
-                        # Fill area under the line
-                        _fill_pts = _polyline + f' {_pad_x + _usable_w:.1f},{_pad_y + _usable_h:.1f} {_pad_x:.1f},{_pad_y + _usable_h:.1f}'
-                        _spark_svg = f'''<svg viewBox="0 0 {_spark_w} {_spark_h}" style="width: 100%; height: 60px;">
-                          <defs><linearGradient id="spkFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="{_sb_color}" stop-opacity="0.18"/><stop offset="100%" stop-color="{_sb_color}" stop-opacity="0.02"/></linearGradient></defs>
-                          <polygon points="{_fill_pts}" fill="url(#spkFill)"/>
-                          <polyline points="{_polyline}" fill="none" stroke="{_sb_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'''
-                        # Dot on last point
-                        _last_x = _pad_x + _usable_w
-                        _last_y = _pad_y + (1 - (_amounts[-1] / _max_a)) * _usable_h
-                        _spark_svg += f'<circle cx="{_last_x:.1f}" cy="{_last_y:.1f}" r="3.5" fill="{_sb_color}"/>'
-                        _spark_svg += '</svg>'
+                        _svg += f'<polyline points="{_polyline}" fill="none" stroke="{_sb_color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>'
+                        # Dot on last spending day
+                        for _li in range(_n - 1, -1, -1):
+                            if _amounts[_li] > 0:
+                                _lcx = _pad_x + _li * _bar_gap + _bar_gap / 2
+                                _lcy = _pad_top + _usable_h - (_amounts[_li] / _max_a) * _usable_h
+                                _svg += f'<circle cx="{_lcx:.1f}" cy="{_lcy:.1f}" r="3" fill="{_sb_color}"/>'
+                                break
+                        _svg += '</svg>'
 
                         with ui.element('div').style('display: flex; flex-direction: column; gap: 4px;'):
                             ui.label('This Month').classes('text-[10px] font-semibold').style('color: var(--mf-muted); text-transform: uppercase; letter-spacing: 0.06em;')
-                            ui.html(_spark_svg)
-                            # Day labels below (show every 5th to avoid crowding)
-                            with ui.element('div').style(f'display: flex; justify-content: space-between; padding: 0 {_pad_x}px;'):
-                                _label_step = max(1, len(_labels) // 6)
-                                for _dli, _dl in enumerate(_labels):
-                                    if _dli % _label_step == 0 or _dli == len(_labels) - 1:
-                                        ui.label(_dl).classes('text-[9px]').style('color: var(--mf-muted);')
-                                    else:
-                                        ui.label('').classes('text-[9px]')
+                            ui.html(_svg)
 
                     # Biggest expense highlight
                     if _si_data.get('biggest', 0) > 0:
@@ -9293,7 +9361,7 @@ def cards_page() -> None:
 
             with ui.element('div').classes(col).style('padding: 8px;'):
                 # The Physical Card Visual — 9.8.1: realistic card proportions + rounded
-                with ui.element('div').style(
+                with ui.element('div').classes('mf-tap').style(
                     f'background: {grad};'
                     'border-radius: 24px;'
                     'padding: 24px;'
@@ -11123,7 +11191,7 @@ try:
         storage_secret=STORAGE_SECRET or "PLEASE_SET_NICEGUI_STORAGE_SECRET",
         title=APP_TITLE,
         favicon=_FAVICON_SVG,
-        reconnect_timeout=15,
+        reconnect_timeout=30,  # v9.18: longer timeout for iOS app-switch reconnection
     )
 except Exception as _startup_err:
     import traceback
