@@ -1,51 +1,21 @@
 # -*- coding: utf-8 -*-
 # ======================================
-# FinTrackr App  Phase 4.6A (REAL FIX BUILD)
-# Changes vs P4.5: Dashboard hero, Rules selection, OCR toast timeout, richer palette
+# FinTrackr App  V10
+# Changes vs V9.18.2:
+#   - OCR card_last4 matching fix (correct card selection from receipt scan)
+#   - Dashboard live clock (subtle, premium date/time display)
+#   - Receipt categorization fix (improved line-item classification)
+#   - Added Indian Brothers merchant (Grocery & Supermarket)
+#   - Card flip animation with LOC interest rate calculation (6.94%)
+#   - Code cleanup
 # ======================================
 
-# ==============================
-# FinTrackr App  Phase 4.5 (P4.4 + P4.5 combined)
-# Base: Myfin_NICEGUI_VF2_P4_2 (last stable)
-# Changes: Budgets setup UX, Transactions table mobile UX, Rules edit, Cards utilization bars,
-#          Dashboard pay-period view, Premium login styling
-# ==============================
-
 """
-FinTrackr  NiceGUI Stable
-File: Myfin_NICEGUI_VF2_P4_2.py
+FinTrackr V10 — NiceGUI Personal Finance Tracker
+Deploy on Render: python P10.py
 
-Purpose
-- A stable NiceGUI implementation that you can deploy on Render and use instead of Streamlit.
-- Focus on correctness + usability + a consistent dark "banking style" UI.
-
-Key behavior changes (requested)
-1) Recurring:
-   - Marking an entry as recurring creates/updates a TEMPLATE in the "recurring" sheet.
-   - The app auto-creates the actual transaction ONLY when the due date arrives (and only once per month).
-   - No backfilling past months. No creating future months in advance.
-
-2) Pay cycles
-   - Kept as "family" (no owner split). Any pay-cycle specific dashboards are deferred to later phases.
-
-Required Render environment variables
-- SERVICE_ACCOUNT_JSON: Paste your service_account.json contents (full JSON).
-- NICEGUI_STORAGE_SECRET: Any long random string (32+ chars recommended).
-
-Optional environment variables
-- SPREADSHEET_NAME (default: nishanthfintrack_2026)
-- APP_USER (default: admin)
-- APP_PASS (default: admin)
-- TIMEZONE (default: America/Winnipeg)
-
-Expected Google Sheet tabs (auto-created if missing)
-- transactions
-- cards
-- recurring
-- rules
-
-Render start command
-- python Myfin_NICEGUI_VF2_P3_12_3.py
+Required env: SERVICE_ACCOUNT_JSON, NICEGUI_STORAGE_SECRET
+Optional env: SPREADSHEET_NAME, APP_USER, APP_PASS, TIMEZONE, PORT
 """
 
 from __future__ import annotations
@@ -57,7 +27,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '9.18.2'
+APP_VERSION = '10.0'
 
 
 def log(message: str) -> None:
@@ -1689,6 +1659,7 @@ def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, s
     IGNORE_ITEM_KEYWORDS = {
         "walmart", "costco", "superstore", "no frills", "nofrills", "save on", "saveon", "freshco",
         "safeway", "gills", "gill", "dinos", "dino", "bombayspices", "bombay spices",
+        "indian brothers", "indian brother",
         "grocery", "groceries",
     }
 
@@ -1875,6 +1846,21 @@ def classify_receipt_items(items: List[Dict[str, Any]], rules: List[Tuple[str, s
         if abs(cat_amounts[k]) < 0.005:
             cat_amounts[k] = 0.0
         cat_amounts[k] = round(cat_amounts[k], 2)
+
+    # V10 fix: redistribute Uncategorized amounts proportionally to identified categories.
+    # This prevents everything from defaulting to Groceries when OCR text is garbled.
+    _uncat_amt = cat_amounts.get('Uncategorized', 0.0)
+    _known_cats = {k: v for k, v in cat_amounts.items() if k != 'Uncategorized' and v > 0.01}
+    if _uncat_amt > 0.01 and _known_cats:
+        _known_total = sum(_known_cats.values())
+        for k in _known_cats:
+            cat_amounts[k] = round(cat_amounts[k] + _uncat_amt * (_known_cats[k] / _known_total), 2)
+        cat_amounts['Uncategorized'] = 0.0
+        # Update per-item assignments too
+        for _pi in per_item:
+            if _pi.get('cat') == 'Uncategorized':
+                _dominant = max(_known_cats, key=_known_cats.get)
+                _pi['cat'] = _dominant
 
     # If nothing meaningful was classified (e.g., OCR didn't yield line items), leave everything unassigned
     if total <= 0.0:
@@ -5517,6 +5503,7 @@ def accounts_list() -> List[str]:
         "CT Mastercard - Grey",
         "RBC VISA",
         "RBC Mastercard",
+        "RBC Line of Credit",
     ]
     return VALID_ACCOUNTS
 
@@ -5639,8 +5626,40 @@ def dashboard_page():
         return
 
     def content():
+        # V10: Skeleton loading overlay — shows instantly, hides when content renders
+        _skel_id = f'mf-skel-{uuid.uuid4().hex[:6]}'
+        ui.html(f'''
+            <style>
+                @keyframes mf-pulse {{ 0%, 100% {{ opacity: 0.4; }} 50% {{ opacity: 0.15; }} }}
+                .mf-skel {{ animation: mf-pulse 1.8s ease-in-out infinite; border-radius: 16px; background: rgba(255,255,255,0.08); }}
+            </style>
+            <div id="{_skel_id}" style="width:100%;display:flex;flex-direction:column;align-items:center;gap:20px;padding:16px 0;">
+                <div style="
+                    width:100%;border-radius:40px;padding:32px;min-height:300px;
+                    background:linear-gradient(145deg,rgba(15,23,42,0.9),rgba(30,41,59,0.95));
+                    border:1px solid rgba(255,255,255,0.08);
+                    display:flex;flex-direction:column;align-items:center;gap:20px;
+                ">
+                    <div class="mf-skel" style="width:190px;height:190px;border-radius:50%;"></div>
+                    <div style="display:flex;gap:12px;">
+                        <div class="mf-skel" style="width:100px;height:32px;border-radius:24px;"></div>
+                        <div class="mf-skel" style="width:100px;height:32px;border-radius:24px;"></div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:14px;width:100%;overflow:hidden;">
+                    <div class="mf-skel" style="min-width:140px;height:120px;flex-shrink:0;border-radius:24px;"></div>
+                    <div class="mf-skel" style="min-width:140px;height:120px;flex-shrink:0;border-radius:24px;"></div>
+                    <div class="mf-skel" style="min-width:140px;height:120px;flex-shrink:0;border-radius:24px;"></div>
+                </div>
+                <div class="mf-skel" style="width:100%;height:200px;border-radius:28px;"></div>
+            </div>
+        ''')
+        # Hide skeleton as soon as real content starts rendering
+        def _hide_skel():
+            ui.run_javascript(f"var s=document.getElementById('{_skel_id}');if(s)s.style.display='none';")
+        ui.timer(0.1, _hide_skel, once=True)
+
         # Safe: run recurring generation for today once per page load
-        # FIX: Defer heavy synchronous work so the page renders instantly.
         def _deferred_recurring():
             try:
                 created = generate_recurring_for_date(today())
@@ -5648,7 +5667,7 @@ def dashboard_page():
                     ui.notify(f"Auto-added {created} recurring entries for {today().isoformat()}", type="positive")
             except Exception as e:
                 _logger.error("Failed to generate recurring transactions: %s", e)
-        ui.timer(1.5, _deferred_recurring, once=True)  # v9.17: defer more to not block initial render
+        ui.timer(1.5, _deferred_recurring, once=True)
 
         tx = cached_df("transactions")
         #  B2 fix: robust empty-data handling (no KeyError on cleaned sheets) 
@@ -5909,6 +5928,46 @@ def dashboard_page():
             ui.html(f'''
                 <div style="position: absolute; top: -50px; left: -50px; width: 200px; height: 200px; background: radial-gradient(circle, rgba(14,165,233,0.15) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
                 <div style="position: absolute; bottom: -50px; right: -50px; width: 200px; height: 200px; background: radial-gradient(circle, rgba(16,185,129,0.1) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
+            ''')
+
+            # V10: Subtle live clock — premium, top-right positioned
+            _clock_id = f'mf-clock-{uuid.uuid4().hex[:8]}'
+            ui.html(f'''
+                <div id="{_clock_id}" style="
+                    position: absolute; top: 20px; right: 24px; z-index: 10;
+                    display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
+                    pointer-events: none;
+                ">
+                    <span id="{_clock_id}-time" style="
+                        font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.55);
+                        letter-spacing: 0.08em; font-feature-settings: 'tnum';
+                        font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+                    "></span>
+                    <span id="{_clock_id}-date" style="
+                        font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.35);
+                        letter-spacing: 0.12em; text-transform: uppercase;
+                    "></span>
+                </div>
+                <script>
+                (function() {{
+                    function updateClock() {{
+                        var now = new Date();
+                        var h = now.getHours(), m = now.getMinutes();
+                        var ampm = h >= 12 ? 'PM' : 'AM';
+                        var h12 = h % 12 || 12;
+                        var timeStr = h12 + ':' + String(m).padStart(2, '0') + ' ' + ampm;
+                        var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                        var dateStr = days[now.getDay()] + ', ' + months[now.getMonth()] + ' ' + now.getDate();
+                        var tEl = document.getElementById('{_clock_id}-time');
+                        var dEl = document.getElementById('{_clock_id}-date');
+                        if (tEl) tEl.textContent = timeStr;
+                        if (dEl) dEl.textContent = dateStr;
+                    }}
+                    updateClock();
+                    setInterval(updateClock, 15000);
+                }})();
+                </script>
             ''')
             
             # The Massive Rings SVG
@@ -7169,7 +7228,7 @@ def add_page():
                                     elif any(k in lowtxt for k in ['petro canada', 'petro-canada', 'shell', 'costco gas', 'co-op', 'esso', 'gas station']):
                                         category_amounts = _blank_split(detected_total, 'Auto & Transport')
                                         category_debug = "(fallback) receipt-level signal: Auto & Transport (gas merchant)"
-                                    elif any(k in lowtxt for k in ["gill's supermarket", "bombay spices", "dino's", "superstore", "no frills", "freshco", "loblaws"]):
+                                    elif any(k in lowtxt for k in ["gill's supermarket", "bombay spices", "dino's", "superstore", "no frills", "freshco", "loblaws", "indian brother"]):
                                         category_amounts = _blank_split(detected_total, 'Groceries')
                                         category_debug = "(fallback) receipt-level signal: Groceries (grocery merchant)"
                                     elif any(k in lowtxt for k in ['dollarama', 'dollar tree', 'canadian tire', 'ikea', 'winners', 'marshall', 'value village']):
@@ -7274,16 +7333,24 @@ def add_page():
                                     d_notes.value = f"{hint} | {d_notes.value}"
 
                             # Try auto-pick account from detected last-4 (optional).
-                            # If no mapping exists / no match, we keep the remembered default selection.
+                            # V10 fix: set method FIRST so reactive account filter shows card accounts,
+                            # THEN set account from card_last4 match.
                             if last4:
                                 try:
+                                    # Set method to Card first (triggers reactive filter to show card accounts)
+                                    if d_method is not None and 'Card' in methods:
+                                        d_method.value = 'Card'
                                     cards_df = cached_df('cards', force=True)
                                     acct = pick_account_from_last4(cards_df, last4)
                                     if acct and (acct in accounts):
                                         d_account.value = acct
-                                        # Most receipts are card-based; set method if available.
-                                        if 'Card' in methods:
-                                            d_method.value = 'Card'
+                                    elif acct:
+                                        # Account matched in sheet but not in VALID_ACCOUNTS — try fuzzy
+                                        _acct_low = acct.lower()
+                                        for _va in accounts:
+                                            if _va.lower() in _acct_low or _acct_low in _va.lower():
+                                                d_account.value = _va
+                                                break
                                 except Exception:
                                     pass
 
@@ -9384,66 +9451,189 @@ def cards_page() -> None:
             util_grad = 'linear-gradient(90deg, #10b981, #059669)' if pct_val < 0.50 else ('linear-gradient(90deg, #f59e0b, #d97706)' if pct_val < 0.80 else 'linear-gradient(90deg, #ef4444, #b91c1c)')
             pct_display = f"{int(round(pct_val * 100))}%"
 
+            # V10: LOC interest rate config
+            _interest_rates = {
+                'rbc line of credit': 6.94,
+                'rbc loc': 6.94,
+            }
+            _card_interest_rate = 0.0
+            for _ir_key, _ir_val in _interest_rates.items():
+                if _ir_key in c['name'].lower():
+                    _card_interest_rate = _ir_val
+                    break
+
+            # V10: Calculate accrued interest for LOC
+            _loc_interest_accrued = 0.0
+            _loc_days_accruing = 0
+            _loc_daily_rate = 0.0
+            if _card_interest_rate > 0 and c.get('balance', 0) > 0:
+                _loc_daily_rate = _card_interest_rate / 100 / 365
+                # Find earliest unrepaied LOC draw to count days
+                try:
+                    _loc_tx = txu.copy() if not tx.empty else pd.DataFrame()
+                    if not _loc_tx.empty and 'date_parsed' not in _loc_tx.columns:
+                        _loc_tx['date_parsed'] = _loc_tx.get('date','').apply(parse_date)
+                    _loc_acct_match = _loc_tx.get('account','').astype(str).str.strip().apply(lambda a: _norm_card(a) == _card_norm)
+                    _loc_draws = _loc_tx[_loc_tx['type_norm'].isin(['loc draw', 'loc_draw', 'loc withdrawal', 'loc_withdrawal', 'debit', 'expense']) & _loc_acct_match]
+                    _loc_repays = _loc_tx[_loc_tx['type_norm'].isin(['loc repay', 'loc_repay', 'loc repayment', 'loc_repayment']) & _loc_acct_match]
+                    if not _loc_draws.empty:
+                        _loc_draws_sorted = _loc_draws.sort_values('date_parsed')
+                        _loc_repays_sorted = _loc_repays.sort_values('date_parsed') if not _loc_repays.empty else pd.DataFrame()
+                        # Find last date balance was zero
+                        _all_loc = pd.concat([_loc_draws_sorted, _loc_repays_sorted]).sort_values('date_parsed') if not _loc_repays_sorted.empty else _loc_draws_sorted
+                        _all_loc = _all_loc[_all_loc['date_parsed'].notna()]
+                        _running = 0.0
+                        _last_zero_date = None
+                        for _, _row in _all_loc.iterrows():
+                            _tt = str(_row.get('type_norm','')).strip().lower()
+                            _a = float(_row.get('amount_num', 0))
+                            if _tt in ('loc repay', 'loc_repay', 'loc repayment', 'loc_repayment'):
+                                _running -= _a
+                            else:
+                                _running += _a
+                            if _running <= 0.01:
+                                _last_zero_date = _row['date_parsed']
+                                _running = 0.0
+                        if _last_zero_date:
+                            _loc_days_accruing = (today() - _last_zero_date).days
+                        else:
+                            # Never been zero — count from first draw
+                            _first_draw = _loc_draws_sorted.iloc[0]['date_parsed']
+                            _loc_days_accruing = (today() - _first_draw).days
+                        _loc_interest_accrued = round(c['balance'] * _loc_daily_rate * max(_loc_days_accruing, 0), 2)
+                except Exception:
+                    _loc_days_accruing = 0
+                    _loc_interest_accrued = 0.0
+
+            _flip_id = f'mf-flip-{uuid.uuid4().hex[:8]}'
             with ui.element('div').classes(col).style('padding: 8px;'):
-                # The Physical Card Visual — 9.8.1: realistic card proportions + rounded
-                with ui.element('div').classes('mf-tap').style(
-                    f'background: {grad};'
-                    'border-radius: 24px;'
-                    'padding: 24px;'
-                    'position: relative;'
-                    'overflow: hidden;'
-                    'box-shadow: 0 20px 40px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.2);'
-                    'min-height: 200px; max-width: 420px; aspect-ratio: 1.586 / 1;'
-                    'display: flex;'
-                    'flex-direction: column;'
-                    'justify-content: space-between;'
-                    f'color: {text_color};'
-                ):
-                    # Glassmorphic overlay shapes for shine
-                    ui.html('''
-                        <div style="position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(to bottom right, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 40%, rgba(255,255,255,0) 100%); transform: rotate(30deg); pointer-events: none;"></div>
-                        <div style="position: absolute; top: 0; right: 0; width: 120px; height: 120px; background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
-                    ''')
+                # V10: 3D flip container
+                ui.html(f'''<style>
+                    #{_flip_id} {{ perspective: 1000px; cursor: pointer; }}
+                    #{_flip_id} .mf-flip-inner {{
+                        position: relative; width: 100%; transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+                        transform-style: preserve-3d;
+                    }}
+                    #{_flip_id}.mf-flipped .mf-flip-inner {{ transform: rotateY(180deg); }}
+                    #{_flip_id} .mf-flip-front, #{_flip_id} .mf-flip-back {{
+                        backface-visibility: hidden; -webkit-backface-visibility: hidden;
+                    }}
+                    #{_flip_id} .mf-flip-back {{
+                        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+                        transform: rotateY(180deg);
+                    }}
+                </style>''')
+                with ui.element('div').props(f'id="{_flip_id}"').on('click', lambda e, fid=_flip_id: ui.run_javascript(f"document.getElementById('{fid}').classList.toggle('mf-flipped')")):
+                    with ui.element('div').classes('mf-flip-inner'):
+                        # === FRONT FACE ===
+                        with ui.element('div').classes('mf-flip-front').style(
+                            f'background: {grad};'
+                            'border-radius: 24px;'
+                            'padding: 24px;'
+                            'position: relative;'
+                            'overflow: hidden;'
+                            'box-shadow: 0 20px 40px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.2);'
+                            'min-height: 200px; max-width: 420px; aspect-ratio: 1.586 / 1;'
+                            'display: flex;'
+                            'flex-direction: column;'
+                            'justify-content: space-between;'
+                            f'color: {text_color};'
+                        ):
+                            ui.html('''
+                                <div style="position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(to bottom right, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 40%, rgba(255,255,255,0) 100%); transform: rotate(30deg); pointer-events: none;"></div>
+                                <div style="position: absolute; top: 0; right: 0; width: 120px; height: 120px; background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
+                            ''')
 
-                    # Top section: Issuer and EMV Chip
-                    with ui.row().classes('w-full justify-between items-start position-relative z-10'):
-                        with ui.column().classes('gap-1'):
-                            with ui.row().classes('items-center gap-2'):
-                                ui.label(c['emoji']).classes('text-lg')
-                                disp_name = "CT Mastercard" if _is_ct(c) else c['name']
-                                ui.label(disp_name).classes('text-sm font-black tracking-wider uppercase').style('letter-spacing: 0.1em; opacity: 0.9;')
-                            if c.get('method'):
-                                ui.label(c['method']).classes('text-xs font-semibold').style('opacity: 0.6; letter-spacing: 0.05em;')
-                        
-                        # EMV Chip SVG
-                        ui.html(f'''
-                            <svg width="40" height="32" viewBox="0 0 40 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity: 0.8; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));">
-                                <rect width="40" height="32" rx="6" fill="#fbbf24"/>
-                                <path d="M0 10H12V22H0V10Z" fill="#f59e0b"/>
-                                <path d="M28 10H40V22H28V10Z" fill="#f59e0b"/>
-                                <path d="M14 0H26V10H14V0Z" fill="#f59e0b"/>
-                                <path d="M14 22H26V32H14V22Z" fill="#f59e0b"/>
-                                <path d="M12 10H28V22H12V10Z" stroke="#d97706" stroke-width="1"/>
-                            </svg>
-                        ''')
+                            with ui.row().classes('w-full justify-between items-start position-relative z-10'):
+                                with ui.column().classes('gap-1'):
+                                    with ui.row().classes('items-center gap-2'):
+                                        ui.label(c['emoji']).classes('text-lg')
+                                        disp_name = "CT Mastercard" if _is_ct(c) else c['name']
+                                        ui.label(disp_name).classes('text-sm font-black tracking-wider uppercase').style('letter-spacing: 0.1em; opacity: 0.9;')
+                                    if c.get('method'):
+                                        ui.label(c['method']).classes('text-xs font-semibold').style('opacity: 0.6; letter-spacing: 0.05em;')
 
-                    # Bottom section: Balances and Utilization
-                    with ui.column().classes('w-full gap-4 position-relative z-10 mt-6'):
-                        with ui.row().classes('w-full justify-between items-end'):
-                            with ui.column().classes('gap-0'):
-                                ui.label('Balance').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
-                                ui.label(currency(c.get('balance', 0.0))).classes('text-2xl font-black').style('letter-spacing: -0.02em; font-feature-settings: "tnum"; text-shadow: 0 2px 8px rgba(0,0,0,0.3);')
-                            with ui.column().classes('gap-0 items-end'):
-                                ui.label('Available').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
-                                ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '---').classes('text-base font-bold').style(f'color: {text_color}; opacity: 0.95; font-feature-settings: "tnum";')
+                                ui.html(f'''
+                                    <svg width="40" height="32" viewBox="0 0 40 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity: 0.8; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));">
+                                        <rect width="40" height="32" rx="6" fill="#fbbf24"/>
+                                        <path d="M0 10H12V22H0V10Z" fill="#f59e0b"/>
+                                        <path d="M28 10H40V22H28V10Z" fill="#f59e0b"/>
+                                        <path d="M14 0H26V10H14V0Z" fill="#f59e0b"/>
+                                        <path d="M14 22H26V32H14V22Z" fill="#f59e0b"/>
+                                        <path d="M12 10H28V22H12V10Z" stroke="#d97706" stroke-width="1"/>
+                                    </svg>
+                                ''')
 
-                        # Custom Utilization Bar (integrated into the card)
-                        with ui.column().classes('w-full gap-1'):
-                            with ui.row().classes('w-full justify-between items-center'):
-                                ui.label(f"Limit: {currency(c['limit']) if c.get('limit') else '---'}").classes('text-xs font-medium').style('opacity: 0.8; font-feature-settings: "tnum";')
-                                ui.label(pct_display).classes('text-xs font-extrabold').style(f'color: {accent}; text-shadow: 0 1px 2px rgba(0,0,0,0.5);')
-                            with ui.element('div').style('width: 100%; height: 6px; border-radius: 3px; background: rgba(0,0,0,0.3); box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); overflow: hidden;'):
-                                ui.element('div').style(f"width: {pct_val*100:.1f}%; height: 100%; border-radius: 3px; background: {util_grad}; box-shadow: 0 0 8px rgba(255,255,255,0.2);")
+                            with ui.column().classes('w-full gap-4 position-relative z-10 mt-6'):
+                                with ui.row().classes('w-full justify-between items-end'):
+                                    with ui.column().classes('gap-0'):
+                                        ui.label('Balance').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
+                                        ui.label(currency(c.get('balance', 0.0))).classes('text-2xl font-black').style('letter-spacing: -0.02em; font-feature-settings: "tnum"; text-shadow: 0 2px 8px rgba(0,0,0,0.3);')
+                                    with ui.column().classes('gap-0 items-end'):
+                                        ui.label('Available').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
+                                        ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '---').classes('text-base font-bold').style(f'color: {text_color}; opacity: 0.95; font-feature-settings: "tnum";')
+
+                                with ui.column().classes('w-full gap-1'):
+                                    with ui.row().classes('w-full justify-between items-center'):
+                                        ui.label(f"Limit: {currency(c['limit']) if c.get('limit') else '---'}").classes('text-xs font-medium').style('opacity: 0.8; font-feature-settings: "tnum";')
+                                        ui.label(pct_display).classes('text-xs font-extrabold').style(f'color: {accent}; text-shadow: 0 1px 2px rgba(0,0,0,0.5);')
+                                    with ui.element('div').style('width: 100%; height: 6px; border-radius: 3px; background: rgba(0,0,0,0.3); box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); overflow: hidden;'):
+                                        ui.element('div').style(f"width: {pct_val*100:.1f}%; height: 100%; border-radius: 3px; background: {util_grad}; box-shadow: 0 0 8px rgba(255,255,255,0.2);")
+
+                        # === BACK FACE ===
+                        _back_grad = f'linear-gradient(135deg, {grad.split(",")[1].strip() if "," in grad else "#1e293b"}, #0f172a)'
+                        with ui.element('div').classes('mf-flip-back').style(
+                            f'background: {grad};'
+                            'border-radius: 24px;'
+                            'padding: 24px;'
+                            'overflow: hidden;'
+                            'box-shadow: 0 20px 40px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.2);'
+                            'min-height: 200px; max-width: 420px; aspect-ratio: 1.586 / 1;'
+                            'display: flex; flex-direction: column; justify-content: space-between;'
+                            f'color: {text_color};'
+                        ):
+                            # Magnetic stripe
+                            ui.element('div').style('position: absolute; top: 24px; left: 0; width: 100%; height: 36px; background: linear-gradient(180deg, #1a1a2e, #0d0d1a); opacity: 0.9;')
+                            # Card details
+                            with ui.column().classes('w-full gap-3 position-relative z-10').style('margin-top: 70px;'):
+                                disp_name_back = "CT Mastercard" if _is_ct(c) else c['name']
+                                ui.label(disp_name_back).classes('text-xs font-black tracking-wider uppercase').style('letter-spacing: 0.1em; opacity: 0.8;')
+
+                                if _card_interest_rate > 0:
+                                    # LOC interest info
+                                    with ui.element('div').style(
+                                        'background: rgba(0,0,0,0.3); border-radius: 16px; padding: 14px 18px;'
+                                        'border: 1px solid rgba(255,255,255,0.1);'
+                                    ):
+                                        with ui.row().classes('w-full justify-between items-center'):
+                                            ui.label('Interest Rate').classes('text-xs font-semibold uppercase').style('opacity: 0.7; letter-spacing: 0.08em;')
+                                            ui.label(f'{_card_interest_rate}%').classes('text-xl font-black').style(f'color: {accent}; font-feature-settings: "tnum";')
+                                        if _loc_days_accruing > 0 and c.get('balance', 0) > 0:
+                                            ui.element('div').style('height: 1px; background: rgba(255,255,255,0.1); margin: 8px 0;')
+                                            with ui.row().classes('w-full justify-between items-center'):
+                                                ui.label(f'Accrued ({_loc_days_accruing}d)').classes('text-xs font-semibold').style('opacity: 0.7;')
+                                                ui.label(f'${_loc_interest_accrued:,.2f}').classes('text-base font-extrabold').style(f'color: #fbbf24; font-feature-settings: "tnum";')
+                                            with ui.row().classes('w-full justify-between items-center'):
+                                                ui.label('Daily rate').classes('text-xs font-medium').style('opacity: 0.5;')
+                                                ui.label(f'${c["balance"] * _loc_daily_rate:,.2f}/day').classes('text-xs font-bold').style('opacity: 0.7; font-feature-settings: "tnum";')
+                                else:
+                                    # Non-LOC cards: show billing info
+                                    with ui.element('div').style(
+                                        'background: rgba(0,0,0,0.3); border-radius: 16px; padding: 14px 18px;'
+                                        'border: 1px solid rgba(255,255,255,0.1);'
+                                    ):
+                                        with ui.row().classes('w-full justify-between items-center'):
+                                            ui.label('Billing Day').classes('text-xs font-semibold uppercase').style('opacity: 0.7; letter-spacing: 0.08em;')
+                                            ui.label(str(c.get('billing_day', '--'))).classes('text-lg font-black').style(f'color: {accent};')
+                                        with ui.row().classes('w-full justify-between items-center mt-2'):
+                                            ui.label('Total Charges').classes('text-xs font-semibold').style('opacity: 0.7;')
+                                            ui.label(currency(c.get('_debug_used', 0))).classes('text-base font-bold').style('font-feature-settings: "tnum";')
+                                        with ui.row().classes('w-full justify-between items-center'):
+                                            ui.label('Total Repaid').classes('text-xs font-semibold').style('opacity: 0.7;')
+                                            ui.label(currency(c.get('_debug_paid', 0))).classes('text-base font-bold').style('color: #10b981; font-feature-settings: "tnum";')
+
+                            # Tap hint
+                            ui.label('Tap to flip back').classes('text-[10px] font-semibold').style('opacity: 0.35; text-align: center; letter-spacing: 0.08em; position: absolute; bottom: 12px; left: 0; right: 0;')
 
         def _two_row(items):
             # 9.8.1: Responsive grid — constrained card width on desktop for realistic card proportions
@@ -9832,15 +10022,7 @@ def rules_page():
 
 
 
-# =============================
-# Phase 4.2 additions
-# - Budgets editor UI
-# - Data Tools: CSV import + Backup/Restore
-# - Merchant cleanup helper
-# =============================
-
 import io
-import zipfile
 
 OPTIONAL_SHEETS = {
     'budgets': ['category', 'budget_monthly'],
@@ -9921,48 +10103,6 @@ def write_df_to_sheet(sheet_title: str, df: pd.DataFrame, headers: list[str]) ->
 
     gs_retry(lambda: w.clear())
     gs_retry(lambda: w.update(values, value_input_option='USER_ENTERED'))
-
-
-def make_backup_zip() -> bytes:
-    """Create a zip containing CSVs for core + optional sheets."""
-    ss = get_spreadsheet()
-    sheet_titles = [w.title for w in ss.worksheets()]
-
-    def get_df_for_title(title: str) -> pd.DataFrame:
-        try:
-            # core tabs through cached_df to preserve transformations
-            t = title.strip().lower()
-            if t in ('transactions', 'cards', 'rules', 'recurring'):
-                return cached_df(t, force=True)
-            return read_df_optional(title)
-        except Exception:
-            return pd.DataFrame()
-
-    buff = io.BytesIO()
-    with zipfile.ZipFile(buff, 'w', compression=zipfile.ZIP_DEFLATED) as z:
-        for title in sheet_titles:
-            df = get_df_for_title(title)
-            if df is None:
-                continue
-            csv_bytes = df.to_csv(index=False).encode('utf-8')
-            safe = re.sub(r'[^a-zA-Z0-9_\-]+', '_', title.strip())
-            z.writestr(f'{safe}.csv', csv_bytes)
-        meta = {
-            'created_at': now_iso(),
-            'spreadsheet': ss.title,
-            'spreadsheet_id': SPREADSHEET_ID,
-        }
-        z.writestr('backup_meta.json', json.dumps(meta, indent=2).encode('utf-8'))
-    return buff.getvalue()
-
-
-def parse_uploaded_csv(content: bytes) -> pd.DataFrame:
-    try:
-        s = content.decode('utf-8', errors='ignore')
-        return pd.read_csv(io.StringIO(s))
-    except Exception:
-        # fallback for Excel-ish CSVs
-        return pd.read_csv(io.BytesIO(content))
 
 
 def normalize_merchant_from_notes(notes: str) -> str:
@@ -10159,16 +10299,6 @@ def budgets_page() -> None:
 
     shell(content)
 
-
-@ui.page('/data_tools')
-def data_tools_redirect() -> None:
-    """Legacy redirect."""
-    nav_to('/savings_goals')
-
-@ui.page('/data_upload')
-def data_upload_redirect() -> None:
-    """Legacy redirect."""
-    nav_to('/savings_goals')
 
 @ui.page('/savings_goals')
 def savings_goals_page() -> None:
@@ -10402,9 +10532,7 @@ _MERCHANTS = [
      "https://www.google.com/s2/favicons?domain=walmart.ca&sz=128"),
     ("Costco", ["costco"], "shopping_cart", "Grocery & Supermarket", "#E31837",
      "https://www.google.com/s2/favicons?domain=costco.ca&sz=128"),
-    ("Gill's Supermarket", ["gill"], "local_grocery_store", "Grocery & Supermarket", "#4CAF50", None),
-    ("Dino's", ["dino"], "local_grocery_store", "Grocery & Supermarket", "#8BC34A", None),
-    ("Bombay Spices", ["bombay spice", "bombay"], "storefront", "Grocery & Supermarket", "#FF9800", None),
+    ("Indian Grocery", ["gill", "dino", "bombay spice", "bombay", "indian brother", "indian brothers"], "local_grocery_store", "Grocery & Supermarket", "#E65100", None),
     ("McDonalds", ["mcdonald", "mcdonalds", "mcd"], "fastfood", "Restaurants & Dining", "#FFC72C",
      "https://www.google.com/s2/favicons?domain=mcdonalds.com&sz=128"),
     ("Tim Hortons", ["tim horton", "tims", "timhorton"], "local_cafe", "Restaurants & Dining", "#C8102E",
@@ -11176,7 +11304,7 @@ self.addEventListener('fetch', e => {{
 
 async def _prewarm_cache():
     """Pre-load transactions from Google Sheets on startup so first page load is instant."""
-    await asyncio.sleep(2)  # let the server finish booting
+    await asyncio.sleep(0.5)  # V10: reduced from 2s to warm cache faster
     try:
         _logger.info('[prewarm] loading transactions into cache ')
         cached_df('transactions')
@@ -11203,372 +11331,4 @@ except Exception as _startup_err:
     print(f'[FATAL] FinTrackr failed to start: {_startup_err}', flush=True)
     traceback.print_exc()
     raise
-
-# Release: FinTrackr Phase 8.7
-# 
-# Phase 8.7  COMPLETE dropdown redesign:
-#
-# Quasar q-select REMOVED from all Add-page dialogs. Replaced with
-# custom chip-based selector (`_chip_select`) built from plain HTML
-# div elements + CSS. Zero Quasar dependency for selection UI.
-#
-# 1.  _chip_select()  new Python helper in add_page():
-#     - Renders options as clickable styled chips (div + label)
-#     - Selected chip gets accent border + tinted background
-#     - Exposes .value property (compatible with all save logic)
-#     - Supports: label, hint, disabled, scrollable (for many options)
-#     - CSS: .mf-chip / .mf-chip.active / .mf-chip.disabled
-#     - Compat shims: .props('disable'), .on(event, fn) for existing code
-#     - Value setter handles out-of-options text (e.g. split label)
-#     - NO q-select, NO q-menu, NO Vue reactivity issues
-#
-# 2.  Replaced ALL 8 dialog selects across 5 dialogs:
-#     - open_add_dialog: Method, Account, Category
-#     - open_cc_repay_dialog: Card
-#     - open_loc_dialog: Transaction Type
-#     - open_invest_dialog: Account, Source (disabled)
-#     - open_intl_dialog: Source
-#
-# 3.  Removed all previous dropdown hacks:
-#     - Removed: nuclear CSS wildcard selectors
-#     - Removed: 500ms JS polling interval + event listeners
-#     - Removed: behavior="menu" / behavior="dialog" props
-#     - Removed: input-style / -webkit-text-fill-color hacks
-#     - Kept: ui.dark_mode() in shell() (still useful for other components)
-#
-# 4.  Dropdown jumping eliminated  chips are inline elements,
-#     no floating menu positioning needed at all.
-#
-# Carries forward all 8.6 + 8.5 + 8.4 + 8.3 fixes.
-# 
-#
-# Release: FinTrackr Phase 8.8
-# 
-# Phase 8.8  Visual cleanup, dialog fixes, UX improvements:
-#
-# 1.  Custom pure-HTML dropdown for Category (9+ options):
-#     - Built from scratch: clickable trigger + scrollable options panel
-#     - CSS: .mf-dd-trigger, .mf-dd-panel, .mf-dd-item, .mf-dd-item.active
-#     - NO ui.select / q-select used  permanently avoids invisible text bug
-#     - _SelDropdown wrapper preserves .value/.props/.on/.set_visibility API
-#     - Chips still used for low-count fields (Method, Account, LOC Type, etc.)
-#
-# 2.  Dialog header layout fixed (all 5 dialogs):
-#     - Header outer div: added width: 100%; box-sizing: border-box
-#     - Header row: explicit style('width: 100%') for full-width stretch
-#     - Header padding: 20px 24px 16px  14px 24px 10px (tighter)
-#     - Icon box: 44x44  36x36, icon font: 22px  18px (compact)
-#
-# 3.  Dialog footer spacing fix:
-#     - Removed margin: 8px 0 0 0 from sticky footer in open_add_dialog
-#
-# 4.  Close button visibility: opacity 0.5  0.7 (all 5 dialogs)
-#
-# 5.  Home page quick-add buttons now auto-open dialogs:
-#     - "Add expense"  navigates to /add AND opens Expense dialog
-#     - "Add income"  navigates to /add AND opens Income dialog
-#     - Uses app.storage.user['add_auto_open'] + ui.timer(0.3s)
-#
-# 6.  Desktop logout button added to sidebar (mf-rail):
-#     - Red "Logout" button below version label
-#     - Visible only on desktop (mf-rail-desktop-only class)
-#     - Calls do_logout() (same as mobile logout)
-#
-# Carries forward all 8.7 + 8.6 + 8.5 + 8.4 + 8.3 fixes.
-# 
-
-# 
-# Phase 9.0  Major UI overhaul + functional fixes:
-#
-# UI Enhancements:
-#  1. Animated time-based greeting (Good morning/afternoon/evening) in hero card
-#  2. Consolidated Financial Pulse card  Income, Expenses, Intl Transfer, Net
-#     in a single 2x2 / 4-col responsive grid (replaces 4 separate summary boxes)
-#  3. Smart Alerts rendered as slim banners above hero (max 3), not a card
-#  4. Page transition animation: .mf-canvas gets 0.25s fade-in + translate
-#
-# Functional Fixes:
-#  6. Payday owner label (Indhu/Abhi/Both) shown next to Next Payday in hero
-#  7. Daily average spending added to hero card
-#  8. International transfers separated from expenses:
-#     - New `intl` variable for type in [international, international transfer, intl]
-#     - net = income - expense - invest - intl (same for pay period)
-#     - Does not appear in top expenses/merchants (spend df still filters debit/expense)
-#  9. Recurring template fix: _header_cache.pop('recurring', None) before
-#     both update and append paths in create_or_update_recurring_template()
-# 10. Transaction page simplified:
-#     - Removed month selector (f_month) and month lock toggle (lock_sw)
-#     - Date range defaults to current month start  today
-#     - Single consistent date-range filter
-#
-# Removed from Dashboard:
-#  - Pay Period Breakdown card
-#  - Upcoming Salary section (Nishanth/Indhu countdown cards)
-#  - Top Merchants table
-#  - Monthly Insights (_render_insights)
-#  - Full-card Smart Alerts (_render_alerts replaced by slim banners)
-#
-# Carries forward all 8.8 + 8.7 + 8.6 + 8.5 + 8.4 + 8.3 fixes.
-#
-# ── v9.8.2  ──────────────────────────────────────────────────
-# 1. Desktop orientation fix — hero tiles responsive sizing
-#    (min(220px, 30vw) × 120px, flex scroll, snap alignment)
-# 2. Budget health rings enlarged for desktop:
-#    viewBox 180→220, stroke 10→14, SVG max-width 170→210px,
-#    legend text-sm with wider column (max 360px)
-# 3. Spending Breakdown accent color now user-configurable
-#    (reads app.storage.user['spending_breakdown_color']),
-#    default changed from violet #a855f7 to blue #3B82F6
-# 4. Admin: new "Color Matrix" tile replaces "Budget Ring Colors"
-#    - Section 1: Budget Ring color palette (presets + custom)
-#    - Section 2: Spending Breakdown accent (8 presets + custom)
-#    Each section has live preview
-# 5. Spending Breakdown card gets .mf-home-section for full-width on desktop
-#
-# ── v9.8.3  ──────────────────────────────────────────────────
-# 1. Desktop: Budgets + Spending Breakdown side by side (mf-home-2col)
-#    flex-row on >900px, stacked column on mobile
-# 2. Mobile: Budget widget redesigned as hero-tile-style
-#    horizontally scrollable tiles with progress bars
-#    (mf-budget-mobile / mf-budget-desktop CSS toggle)
-# 3. Color Matrix moved to its own page /color_matrix
-#    Admin tile grid now includes Color Matrix tile
-#    Removed inline card from admin page
-# 4. Budget rendering refactored into _render_budget_widget()
-#    Data captured in _budget_rows for deferred rendering
-#
-# ── v9.8.4  ──────────────────────────────────────────────────
-# 1. Desktop: Fixed Budgets + Spending Breakdown equal 50/50 sizing
-#    flex: 1 1 0% + max-width: 50% + height: 100% for equal cards
-# 2. Mobile: Removed tile-based budget view, rings on all viewports
-#    Ring params scaled to fit both (viewBox 180, stroke 12, gap 3)
-# 3. Color Matrix notify popups: timeout 1500ms, shorter messages
-#    No longer blocks interaction after applying a color
-# 4. Spending Breakdown card: removed mf-home-section class
-#    (parent mf-home-2col handles layout)
-#
-# ── v9.9  ────────────────────────────────────────────────────
-# 1. Mobile budget widget: ring + legend side-by-side (nowrap),
-#    ring uses min(180px, 35vw) so legend fills remaining space
-# 2. Category dropdown (Add Expense): larger touch targets,
-#    font 15px, padding 13px 18px, full-width items
-# 3. Add Income: categories restricted to Salary & Others only
-# 4. Dead code cleanup: removed stale placeholder comments,
-#    verbose labels, and orphaned version-note lines
-#
-# ── v9.10  ───────────────────────────────────────────────────
-# Major feature release:
-#
-# 1. Budget widget redesigned to hero-ring style:
-#    - Dark glassmorphism background matching cashflow hero
-#    - Gradient SVG ring strokes with glow effects
-#    - Center text showing overall budget % + total spent
-#    - Glassmorphism pill badges for each category
-#
-# 2. Navigation restructured:
-#    - Bottom nav: Tx replaced with Merchants page
-#    - Tx (Ledger) moved to hamburger/More menu
-#    - Desktop rail updated to match
-#
-# 3. New Merchants page (/merchants):
-#    - 8 merchants: Walmart, Costco, Gill's, Dino's,
-#      McDonalds, Tim Hortons, Bombay Spices, Dollarama
-#    - Brand logos via Clearbit API with icon fallback
-#    - Categorized: Grocery, Restaurants, Specialty, Discount
-#    - All-time total spend per merchant
-#    - Monthly comparison (current vs previous month %)
-#    - International Transfers section with all-time total
-#    - Monthly breakdown table for international
-#
-# 4. Smart Data Upload (/data_upload) replacing Data Tools:
-#    - Wide-format spreadsheet: Date, Intl, Credit, Investment,
-#      CC Repay, Debit, Reason/Note
-#    - Card detection from notes:
-#      * Default/Master card → CT Mastercard Grey
-#      * Black Cc/Blac card → CT Mastercard Black
-#      * RBC VISA → RBC VISA
-#      * RBC Mastercard → RBC Mastercard
-#      * LOC → RBC Line of Credit
-#      * Credit/Investment → Bank method
-#    - Category inference via rules engine
-#    - Recurring transaction detection (2+ months auto-template)
-#    - Replace vs Append mode toggle
-#    - Excel (.xlsx) and CSV support
-#    - Results summary card after import
-#    - Backup download kept for convenience
-#    - Legacy /data_tools redirects to /data_upload
-#
-# 5. Reports Hub enhanced with 4 new charts:
-#    - Top Spending Categories (donut chart)
-#    - Income vs Expenses Trend (grouped bar)
-#    - Spending by Day of Week (avg per day)
-#    - Payment Method Distribution (pie chart)
-#
-# 6. Admin tile: "Data Importer" → "Data Upload" with new icon
-#
-# ── v9.11  ───────────────────────────────────────────────────
-# 1. Budget widget: removed dark glassmorphism background,
-#    now uses standard light card (var(--mf-card-top)) with
-#    concentric rings and category badges — theme-aware
-#
-# 2. Merchants page completely rebuilt:
-#    - Grid layout (auto-fill 160px) instead of vertical list
-#    - Each tile shows THIS MONTH spend (primary), % vs last month
-#    - Dino's and Bombay Spices moved to Grocery & Supermarket
-#    - Amazon added to Discount & Online (with Dollarama)
-#    - Fixed icons: Wikimedia SVG URLs for major brands,
-#      Material Icons fallback for local stores
-#    - Category headers with appropriate icons
-#
-# 3. New Fuel & Gas section: tracks all fuel spend,
-#    all-time total + this month + % higher/lower than last month
-#
-# 4. International Transfers: removed monthly breakdown table,
-#    now shows % increase/decrease vs last month inline
-#
-# 5. All-Time Totals section at bottom of Merchants page,
-#    sorted by total spend descending
-#
-# 6. Data Upload rebuilt as single card:
-#    - File picker + inline Append/Replace toggle + Restore button
-#    - Column format in collapsible expansion
-#    - Removed separate Backup & Restore and Upload Mode sections
-#    - Same smart logic: card detection, category inference,
-#      recurring detection, replace/append modes
-#
-# ── v9.11.1  ─────────────────────────────────────────────────
-# 1. Merchant icons fixed: replaced broken Wikimedia SVG URLs
-#    with Google Favicon API (google.com/s2/favicons?domain=&sz=128)
-#    — reliable cross-browser loading for all branded merchants
-#
-# 2. Desktop layout: wider merchant grid (minmax 240px vs 160px),
-#    nav sidebar buttons now row layout (icon + label side-by-side)
-#    with consistent left alignment
-#
-# 3. Data Upload restore fixed: switched from .on('upload') to
-#    NiceGUI on_upload parameter — file bytes now properly captured
-#    via SpooledTemporaryFile.seek(0) + .read()
-#
-# 4. Smart note scanning: fixed card detection for 'invest' type
-#    (was checking 'investment' key that never matched), ensures
-#    investment transactions correctly route to Bank method
-#
-# 5. Budget widget: dark gray glassmorphism background matching
-#    hero tile style (not white), rings and content fully centered
-#    on mobile with flex centering, white text on dark bg,
-#    subtle radial glow accents, drop-shadow on rings
-#
-# 6. Version bump to 9.11.1
-#
-# ── v9.11.2  ─────────────────────────────────────────────────
-# 1. xlsx import: openpyxl auto-installed on-demand if missing
-#    (fixes "Import.openpyxl failed" on Render)
-#
-# 2. Merchant grid REBUILT: replaced ui.element('div') + manual
-#    grid CSS with NiceGUI's native ui.grid(columns=...).
-#    Removed .my-card/.column wrapper that was forcing
-#    width:100%!important on grid children, collapsing to 1 col.
-#    Category cards now use plain div with card-like styling
-#    to avoid Quasar class interference.
-#
-# 3. Version bump to 9.11.2
-#
-# ── v9.11.3  ─────────────────────────────────────────────────
-# 1. Restore data flow FIXED: root cause was Google Sheet uses
-#    WIDE format headers (Date, International Transaction,
-#    Credit, Debit, Reason/Note) but append_tx wrote LONG format
-#    keys (id, date, type, amount) that didn't match sheet
-#    headers — append_row silently dropped all unmatched values.
-#    Now auto-detects sheet format:
-#    - WIDE sheets: writes rows directly using uploaded column
-#      names matching sheet headers (pass-through mode)
-#    - LONG sheets: parses via append_tx with card detection
-#    Filters NaN amounts, validates date column presence.
-#
-# 2. Restore history note on Data Upload page: after a restore,
-#    saves timestamp + filename + row count to user storage.
-#    Data Upload page now displays "Last Restore" card showing
-#    when restore was done, which file, and how many rows.
-#
-# 3. Version bump to 9.11.3
-#
-# ── v9.11.4  ─────────────────────────────────────────────────
-# 1. Restore: format detection moved from SHEET headers to
-#    UPLOADED FILE columns.  Previous versions checked the
-#    sheet's header row, but a prior buggy Replace had
-#    overwritten the WIDE headers with TABS defaults (LONG:
-#    id, date, type, amount, …).  The file is now the source
-#    of truth: if it has 'type' + 'amount' columns → LONG,
-#    otherwise → WIDE.
-#
-# 2. Replace mode now uses write_df_to_sheet() for a single
-#    efficient batch write (headers + all data in one API call)
-#    instead of clearing first, then row-by-row append.
-#    This also restores the correct WIDE headers on the sheet.
-#
-# 3. Append mode: detects corrupted sheet headers (< 2 column
-#    overlap with file) and auto-fixes them by overwriting
-#    row 1 with the file's column names before appending.
-#
-# 4. Both WIDE and LONG files now write data directly (no
-#    WIDE→LONG conversion step that was losing rows).
-#    NaN values cleaned to '' before write, empty rows dropped.
-#
-# 5. Version bump to 9.11.4
-#
-# -- v9.11.5  -------------------------------------------------------
-# 1. Restore: added _serialize() to convert ALL cell values BEFORE
-#    processing:  pd.Timestamp -> 'YYYY-MM-DD', dt.datetime -> date
-#    string, NaN/NaT -> '', float 1234.0 -> '1234', 'nan'/'nat' -> ''.
-#    Previous versions passed raw Timestamp objects to append_row /
-#    parse_date which caused silent failures and skipped rows.
-#
-# 2. Removed broken date-validation skip that rejected 71/72 rows.
-#    After fillna(''), rows with NaT dates had empty date column
-#    excluded from row_dict, so the 'date' key was never found and
-#    _has_date stayed False.  Now: all non-empty rows are written.
-#
-# 3. Append mode: switched from dict-based append_row() (requires
-#    header matching) to positional ws.append_row(values_list) using
-#    gspread directly.  Values are in file-column order which matches
-#    the sheet headers (auto-fixed if corrupted).  This avoids any
-#    dict-key vs header-name mismatch.
-#
-# 4. wide_transactions_to_long() handles categorization on read:
-#    maps Credit->type='credit', Debit->'debit', International
-#    Transaction->'international', etc.  So writing clean WIDE data
-#    to the sheet is sufficient -- the app auto-categorizes on load.
-#
-# 5. Import summary now shows 'Source rows in file' as the count
-#    BEFORE empty-row filtering, and reports header auto-fix status.
-#
-# 6. Version bump to 9.11.5
-#
-# -- v9.12  ----------------------------------------------------------
-# 1. Add Expense dialog: removed "Save & Next" button and all
-#    associated _save_state / save-and-another logic.  Dialog now
-#    has just Cancel and Save.  Save always closes the dialog.
-#
-# 2. append_tx: WIDE-sheet aware.  When the sheet has WIDE headers
-#    (Date, Credit, Debit, Reason/Note, ...) but append_tx receives
-#    LONG keys (type, amount, method, notes, ...), the values were
-#    silently dropped because the keys didn't match any WIDE header.
-#    Now append_tx detects WIDE vs LONG headers and converts:
-#      - type='Debit' + amount=50 -> writes 50 into the 'Debit' column
-#      - type='Credit' -> writes into 'Credit' column
-#      - type='International Transfer' -> 'International Transaction'
-#      - type='Investment' -> 'Investment' column
-#      - notes -> 'Reason/Note' column
-#      - account -> 'Account' column (if present)
-#    This fixes manual Add Expense/Income not showing in hero/cards.
-#
-# 3. Cards page: fixed balance calculation.  Previously used billing-
-#    cycle-filtered transactions (e.g. Mar 16-21 for billing day 15),
-#    which excluded valid charges outside the current window, showing
-#    $0 balance even when charges existed.  Now uses ALL transactions
-#    for each card (all-time charges minus all-time repayments) to
-#    compute the outstanding balance, remaining credit, and utilization.
-#
-# 4. Version bump to 9.12
-#
 
