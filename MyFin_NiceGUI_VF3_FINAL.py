@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 # ======================================
-# FinTrackr App  V10.1
-# Changes vs V10:
+# FinTrackr App  V10.2
+# Changes vs V10.1:
+#   - LOC card flip animation fix (CSS moved to <head> to avoid NiceGUI sanitizer stripping)
+#   - Subscriptions category auto-match fix (force-reload rules on dialog open)
+#   - Merchants page: last month spend now shown to the right of this month (side-by-side)
+#   - Recurring page mobile: date shows day/month only, ID column hidden on small screens
+# Previous (V10.1 vs V10):
 #   - Timezone-aware today() — expense date no longer jumps to next day at night
 #   - Dashboard clock made bigger and more visible
-#   - Merchants page: last month spend shown (grayed) next to this month for every merchant
 #   - OCR merchant detection rewritten with position-weighted scoring (fixes Dollarama→Esso misread)
 #   - Improved card last-4 extraction patterns for receipts
 # Previous (V10 vs V9.18.2):
@@ -17,7 +21,7 @@
 # ======================================
 
 """
-FinTrackr V10.1 — NiceGUI Personal Finance Tracker
+FinTrackr V10.2 — NiceGUI Personal Finance Tracker
 Deploy on Render: python P10.py
 
 Required env: SERVICE_ACCOUNT_JSON, NICEGUI_STORAGE_SECRET
@@ -33,7 +37,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '10.1'
+APP_VERSION = '10.2'
 
 
 def log(message: str) -> None:
@@ -6716,7 +6720,7 @@ def add_page():
         return _Sel()
 
     def open_add_dialog(entry_type: str, *, preset_category: str | None = None, preset_method: str | None = None, preset_account: str | None = None, auto_scan: bool = False):
-        rules = load_rules()
+        rules = load_rules(force=True)
         owners = owners_list()
         accounts = accounts_list()
         categories = categories_list()
@@ -9527,8 +9531,7 @@ def cards_page() -> None:
                 _next_reset_str = _next_reset.strftime('%b %d')
 
                 with ui.element('div').classes(col).style('padding: 8px;'):
-                    ui.html(f'''
-                    <style>
+                    ui.add_head_html(f'''<style>
                         #{_flip_id} {{ perspective: 1200px; cursor: pointer; max-width: 420px; }}
                         #{_flip_id} .mf-flip-inner {{
                             position: relative; width: 100%; aspect-ratio: 1.586 / 1; min-height: 200px;
@@ -9546,7 +9549,8 @@ def cards_page() -> None:
                             overflow: hidden; display: flex; flex-direction: column; justify-content: space-between;
                         }}
                         #{_flip_id} .mf-flip-back {{ transform: rotateY(180deg); }}
-                    </style>
+                    </style>''')
+                    ui.html(f'''
                     <div id="{_flip_id}" onclick="this.classList.toggle('mf-flipped')">
                         <div class="mf-flip-inner">
                             <!-- FRONT -->
@@ -9756,14 +9760,22 @@ def recurring_page():
                             })
                         break
                 upcoming = sorted(upcoming, key=lambda x: x['due'])
+                # Format due dates: add short version (day/month) for mobile
+                for u in upcoming:
+                    try:
+                        _ud = dt.date.fromisoformat(u['due'])
+                        u['due_short'] = _ud.strftime('%d %b')
+                    except Exception:
+                        u['due_short'] = u['due']
                 with ui.card().classes('my-card p-4 mt-3'):
                     ui.label('Upcoming recurring (next 45 days)').classes('text-md font-bold')
                     if not upcoming:
                         ui.label('No upcoming posts found.').style('color: var(--mf-muted)')
                     else:
-                        ui.table(
+                        _upcoming_tbl = ui.table(
                             columns=[
-                                {'name': 'due', 'label': 'Due', 'field': 'due'},
+                                {'name': 'due', 'label': 'Due', 'field': 'due', 'classes': 'mf-rec-due-full'},
+                                {'name': 'due_short', 'label': 'Due', 'field': 'due_short', 'classes': 'mf-rec-due-short'},
                                 {'name': 'type', 'label': 'Type', 'field': 'type'},
                                 {'name': 'amount', 'label': 'Amount', 'field': 'amount'},
                                 {'name': 'category', 'label': 'Category', 'field': 'category'},
@@ -9772,10 +9784,20 @@ def recurring_page():
                             rows=upcoming[:20],
                             row_key='due',
                         ).classes('w-full')
+                        # Mobile CSS: hide full date, show short date; hide on desktop vice versa
+                        ui.add_head_html('''<style>
+                            .mf-rec-due-short { display: none !important; }
+                            .mf-rec-id-col { }
+                            @media (max-width: 640px) {
+                                .mf-rec-due-full { display: none !important; }
+                                .mf-rec-due-short { display: table-cell !important; }
+                                .mf-rec-id-col { display: none !important; }
+                            }
+                        </style>''')
             except Exception:
                 pass
             table = ui.table(columns=[
-                {"name": "recurring_id", "label": "ID", "field": "recurring_id"},
+                {"name": "recurring_id", "label": "ID", "field": "recurring_id", "classes": "mf-rec-id-col", "headerClasses": "mf-rec-id-col"},
                 {"name": "owner", "label": "Owner", "field": "owner"},
                 {"name": "type", "label": "Type", "field": "type"},
                 {"name": "amount", "label": "Amount", "field": "amount"},
@@ -10679,14 +10701,14 @@ def merchants_page() -> None:
                                             ui.icon(m_icon).style(f'font-size:20px;color:{m_color};')
                                     ui.label(m_name).classes('text-sm font-bold').style('white-space:nowrap;overflow:hidden;text-overflow:ellipsis;')
 
-                                # This month spend
-                                ui.label('This Month').classes('text-[10px] font-semibold').style('color:var(--mf-muted);text-transform:uppercase;letter-spacing:0.06em;')
-                                ui.label(currency(_cur_spend)).classes('text-lg font-black').style(f'color:{m_color};font-feature-settings:"tnum";letter-spacing:-0.02em;margin-top:-4px;')
-
-                                # Last month spend (grayed out)
-                                with ui.row().classes('items-center gap-1').style('margin-top:-2px;'):
-                                    ui.label('Last Month:').classes('text-[10px] font-medium').style('color:var(--mf-muted);opacity:0.55;')
-                                    ui.label(currency(_prev_spend)).classes('text-xs font-semibold').style('color:var(--mf-muted);opacity:0.55;font-feature-settings:"tnum";')
+                                # This month + Last month side by side
+                                with ui.row().classes('items-end justify-between w-full'):
+                                    with ui.column().classes('gap-0'):
+                                        ui.label('This Month').classes('text-[10px] font-semibold').style('color:var(--mf-muted);text-transform:uppercase;letter-spacing:0.06em;')
+                                        ui.label(currency(_cur_spend)).classes('text-lg font-black').style(f'color:{m_color};font-feature-settings:"tnum";letter-spacing:-0.02em;margin-top:-4px;')
+                                    with ui.column().classes('gap-0 items-end'):
+                                        ui.label('Last Month').classes('text-[10px] font-medium').style('color:var(--mf-muted);opacity:0.5;text-transform:uppercase;letter-spacing:0.06em;')
+                                        ui.label(currency(_prev_spend)).classes('text-sm font-semibold').style('color:var(--mf-muted);opacity:0.5;font-feature-settings:"tnum";margin-top:-2px;')
 
                                 # Month-over-month badge
                                 if _diff != 0:
