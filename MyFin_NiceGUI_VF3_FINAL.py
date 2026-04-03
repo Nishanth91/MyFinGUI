@@ -9778,7 +9778,6 @@ def recurring_page():
             except Exception:
                 pass
             table = ui.table(columns=[
-                {"name": "recurring_id", "label": "ID", "field": "recurring_id"},
                 {"name": "amount", "label": "Amount", "field": "amount"},
                 {"name": "day_of_month", "label": "Day", "field": "day_of_month"},
                 {"name": "category", "label": "Category", "field": "category"},
