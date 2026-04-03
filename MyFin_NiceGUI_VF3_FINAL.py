@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # ======================================
-# FinTrackr App  V10.2
-# Changes vs V10.1:
-#   - LOC card flip animation fix (CSS moved to <head> to avoid NiceGUI sanitizer stripping)
-#   - Subscriptions category auto-match fix (force-reload rules on dialog open)
-#   - Merchants page: last month spend now shown to the right of this month (side-by-side)
-#   - Recurring page mobile: date shows day/month only, ID column hidden on small screens
-# Previous (V10.1 vs V10):
+# FinTrackr App  V10.3
+# Changes vs V10.2:
+#   - LOC card: removed broken flip animation, interest info shown directly on card front
+#   - Subscription auto-categorize fix (added keyup+change event bindings)
+#   - Recurring page: date formatted as MM/DD, removed Owner & Type columns from main table
+#   - Render keep-alive: reduced interval to 3min, added /ping endpoint, browser-side ping every 4min
+# Previous (V10.2 vs V10.1):
 #   - Timezone-aware today() — expense date no longer jumps to next day at night
 #   - Dashboard clock made bigger and more visible
 #   - OCR merchant detection rewritten with position-weighted scoring (fixes Dollarama→Esso misread)
@@ -21,7 +21,7 @@
 # ======================================
 
 """
-FinTrackr V10.2 — NiceGUI Personal Finance Tracker
+FinTrackr V10.3 — NiceGUI Personal Finance Tracker
 Deploy on Render: python P10.py
 
 Required env: SERVICE_ACCOUNT_JSON, NICEGUI_STORAGE_SECRET
@@ -37,7 +37,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '10.2'
+APP_VERSION = '10.3'
 
 
 def log(message: str) -> None:
@@ -5266,6 +5266,15 @@ def shell(content_fn, *, active_path: str = ""):
             ui.run_javascript("document.documentElement.classList.remove('mf-nav-open')")
         ui.button(label, icon=icon).props("flat").classes(cls).on("click", go)
 
+    # V10.3: Browser-side keep-alive — pings /ping every 4 min while tab is open
+    ui.run_javascript('''
+        if (!window._mfKeepAlive) {
+            window._mfKeepAlive = setInterval(function() {
+                fetch('/ping').catch(function(){});
+            }, 240000);
+        }
+    ''')
+
     with ui.element("div").classes("mf-shell"):
         # Backdrop overlay (tap to close on mobile)
         ui.element("div").classes("mf-backdrop").on("click", lambda: ui.run_javascript("document.documentElement.classList.remove(\'mf-nav-open\')"))
@@ -7793,6 +7802,8 @@ def add_page():
 
             d_category.on('update:model-value', _on_category_change)
             d_notes.on('update:model-value', _schedule_refresh)
+            d_notes.on('change', _schedule_refresh)
+            d_notes.on('keyup', _schedule_refresh)
             _refresh_suggestion_now()
 
             def autofill():
@@ -9519,98 +9530,79 @@ def cards_page() -> None:
                 _loc_days_accruing = (_today - _last_reset).days
                 _loc_interest_accrued = round(c['balance'] * _loc_daily_rate * max(_loc_days_accruing, 0), 2)
 
-            # V10.1: Flip animation ONLY for LOC cards (pure HTML to avoid NiceGUI layout issues)
             if _is_loc_card:
-                _flip_id = f'mf-flip-{uuid.uuid4().hex[:8]}'
-                _bal_str = currency(c.get('balance', 0.0))
-                _avail_str = currency(c.get('remaining', 0.0)) if c.get('limit') else '---'
-                _lim_str = currency(c['limit']) if c.get('limit') else '---'
+                # V10.3: LOC card — no flip, interest info shown on front
                 _interest_str = f'${_loc_interest_accrued:,.2f}' if _loc_interest_accrued > 0 else '$0.00'
                 _daily_str = f'${c["balance"] * _loc_daily_rate:,.2f}/day' if _loc_daily_rate > 0 else '$0.00/day'
                 _next_reset = today().replace(day=_LOC_INTEREST_RESET_DAY) if today().day < _LOC_INTEREST_RESET_DAY else (today().replace(day=28) + dt.timedelta(days=4)).replace(day=_LOC_INTEREST_RESET_DAY)
                 _next_reset_str = _next_reset.strftime('%b %d')
 
                 with ui.element('div').classes(col).style('padding: 8px;'):
-                    ui.add_head_html(f'''<style>
-                        #{_flip_id} {{ perspective: 1200px; cursor: pointer; max-width: 420px; }}
-                        #{_flip_id} .mf-flip-inner {{
-                            position: relative; width: 100%; aspect-ratio: 1.586 / 1; min-height: 200px;
-                            transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
-                            transform-style: preserve-3d;
-                        }}
-                        #{_flip_id}.mf-flipped .mf-flip-inner {{ transform: rotateY(180deg); }}
-                        #{_flip_id} .mf-flip-front, #{_flip_id} .mf-flip-back {{
-                            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-                            backface-visibility: hidden; -webkit-backface-visibility: hidden;
-                            border-radius: 24px; padding: 24px; box-sizing: border-box;
-                            background: {grad};
-                            color: {text_color};
-                            box-shadow: 0 20px 40px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.2);
-                            overflow: hidden; display: flex; flex-direction: column; justify-content: space-between;
-                        }}
-                        #{_flip_id} .mf-flip-back {{ transform: rotateY(180deg); }}
-                    </style>''')
-                    ui.html(f'''
-                    <div id="{_flip_id}" onclick="this.classList.toggle('mf-flipped')">
-                        <div class="mf-flip-inner">
-                            <!-- FRONT -->
-                            <div class="mf-flip-front">
-                                <div style="position:absolute;top:-50%;left:-50%;width:200%;height:200%;background:linear-gradient(to bottom right,rgba(255,255,255,0.15) 0%,rgba(255,255,255,0) 40%);transform:rotate(30deg);pointer-events:none;"></div>
-                                <div style="display:flex;justify-content:space-between;align-items:flex-start;position:relative;z-index:10;">
-                                    <div>
-                                        <div style="display:flex;align-items:center;gap:8px;">
-                                            <span style="font-size:18px;">{c['emoji']}</span>
-                                            <span style="font-size:13px;font-weight:900;letter-spacing:0.1em;text-transform:uppercase;opacity:0.9;">{c['name']}</span>
-                                        </div>
-                                        <div style="font-size:11px;font-weight:600;opacity:0.6;letter-spacing:0.05em;margin-top:2px;">{c.get('method', '')}</div>
-                                    </div>
-                                    <svg width="40" height="32" viewBox="0 0 40 32" fill="none" style="opacity:0.8;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.2));flex-shrink:0;">
-                                        <rect width="40" height="32" rx="6" fill="#fbbf24"/><path d="M0 10H12V22H0V10Z" fill="#f59e0b"/><path d="M28 10H40V22H28V10Z" fill="#f59e0b"/><path d="M14 0H26V10H14V0Z" fill="#f59e0b"/><path d="M14 22H26V32H14V22Z" fill="#f59e0b"/><path d="M12 10H28V22H12V10Z" stroke="#d97706" stroke-width="1"/>
-                                    </svg>
-                                </div>
-                                <div style="position:relative;z-index:10;">
-                                    <div style="display:flex;justify-content:space-between;align-items:flex-end;">
-                                        <div><div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;opacity:0.7;">Balance</div><div style="font-size:24px;font-weight:900;letter-spacing:-0.02em;font-feature-settings:'tnum';text-shadow:0 2px 8px rgba(0,0,0,0.3);">{_bal_str}</div></div>
-                                        <div style="text-align:right;"><div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;opacity:0.7;">Available</div><div style="font-size:15px;font-weight:700;opacity:0.95;font-feature-settings:'tnum';">{_avail_str}</div></div>
-                                    </div>
-                                    <div style="margin-top:12px;">
-                                        <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;font-weight:500;opacity:0.8;font-feature-settings:'tnum';">Limit: {_lim_str}</span><span style="font-size:11px;font-weight:800;color:{accent};text-shadow:0 1px 2px rgba(0,0,0,0.5);">{pct_display}</span></div>
-                                        <div style="width:100%;height:6px;border-radius:3px;background:rgba(0,0,0,0.3);box-shadow:inset 0 1px 2px rgba(0,0,0,0.2);overflow:hidden;margin-top:4px;"><div style="width:{pct_val*100:.1f}%;height:100%;border-radius:3px;background:{util_grad};box-shadow:0 0 8px rgba(255,255,255,0.2);"></div></div>
-                                    </div>
-                                </div>
-                                <div style="position:absolute;bottom:10px;left:0;right:0;text-align:center;font-size:9px;font-weight:600;opacity:0.3;letter-spacing:0.08em;">TAP TO FLIP</div>
-                            </div>
-                            <!-- BACK -->
-                            <div class="mf-flip-back">
-                                <div style="position:absolute;top:24px;left:0;width:100%;height:36px;background:linear-gradient(180deg,#1a1a2e,#0d0d1a);opacity:0.9;"></div>
-                                <div style="position:relative;z-index:10;margin-top:50px;">
-                                    <div style="font-size:11px;font-weight:900;letter-spacing:0.1em;text-transform:uppercase;opacity:0.8;margin-bottom:12px;">{c['name']}</div>
-                                    <div style="background:rgba(0,0,0,0.3);border-radius:16px;padding:14px 18px;border:1px solid rgba(255,255,255,0.1);">
-                                        <div style="display:flex;justify-content:space-between;align-items:center;">
-                                            <span style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.7;letter-spacing:0.08em;">Interest Rate</span>
-                                            <span style="font-size:20px;font-weight:900;color:{accent};font-feature-settings:'tnum';">{_LOC_INTEREST_RATE}%</span>
-                                        </div>
-                                        <div style="height:1px;background:rgba(255,255,255,0.1);margin:10px 0;"></div>
-                                        <div style="display:flex;justify-content:space-between;align-items:center;">
-                                            <span style="font-size:10px;font-weight:600;opacity:0.7;">Accrued ({_loc_days_accruing}d)</span>
-                                            <span style="font-size:15px;font-weight:800;color:#fbbf24;font-feature-settings:'tnum';">{_interest_str}</span>
-                                        </div>
-                                        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
-                                            <span style="font-size:10px;font-weight:500;opacity:0.5;">Daily rate</span>
-                                            <span style="font-size:10px;font-weight:700;opacity:0.7;font-feature-settings:'tnum';">{_daily_str}</span>
-                                        </div>
-                                        <div style="height:1px;background:rgba(255,255,255,0.08);margin:10px 0;"></div>
-                                        <div style="display:flex;justify-content:space-between;align-items:center;">
-                                            <span style="font-size:10px;font-weight:600;opacity:0.7;">Next reset</span>
-                                            <span style="font-size:12px;font-weight:700;color:#38bdf8;font-feature-settings:'tnum';">{_next_reset_str}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div style="position:absolute;bottom:10px;left:0;right:0;text-align:center;font-size:9px;font-weight:600;opacity:0.3;letter-spacing:0.08em;">TAP TO FLIP BACK</div>
-                            </div>
-                        </div>
-                    </div>
-                    ''')
+                    with ui.element('div').classes('mf-tap').style(
+                        f'background: {grad};'
+                        'border-radius: 24px;'
+                        'padding: 24px;'
+                        'position: relative;'
+                        'overflow: hidden;'
+                        'box-shadow: 0 20px 40px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.2);'
+                        'min-height: 200px; max-width: 420px;'
+                        'display: flex;'
+                        'flex-direction: column;'
+                        'justify-content: space-between;'
+                        f'color: {text_color};'
+                    ):
+                        ui.html('''
+                            <div style="position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(to bottom right, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 40%, rgba(255,255,255,0) 100%); transform: rotate(30deg); pointer-events: none;"></div>
+                            <div style="position: absolute; top: 0; right: 0; width: 120px; height: 120px; background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
+                        ''')
+
+                        with ui.row().classes('w-full justify-between items-start position-relative z-10'):
+                            with ui.column().classes('gap-1'):
+                                with ui.row().classes('items-center gap-2'):
+                                    ui.label(c['emoji']).classes('text-lg')
+                                    ui.label(c['name']).classes('text-sm font-black tracking-wider uppercase').style('letter-spacing: 0.1em; opacity: 0.9;')
+                                if c.get('method'):
+                                    ui.label(c['method']).classes('text-xs font-semibold').style('opacity: 0.6; letter-spacing: 0.05em;')
+
+                            ui.html(f'''
+                                <svg width="40" height="32" viewBox="0 0 40 32" fill="none" style="opacity: 0.8; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));">
+                                    <rect width="40" height="32" rx="6" fill="#fbbf24"/>
+                                    <path d="M0 10H12V22H0V10Z" fill="#f59e0b"/>
+                                    <path d="M28 10H40V22H28V10Z" fill="#f59e0b"/>
+                                    <path d="M14 0H26V10H14V0Z" fill="#f59e0b"/>
+                                    <path d="M14 22H26V32H14V22Z" fill="#f59e0b"/>
+                                    <path d="M12 10H28V22H12V10Z" stroke="#d97706" stroke-width="1"/>
+                                </svg>
+                            ''')
+
+                        with ui.column().classes('w-full gap-3 position-relative z-10 mt-4'):
+                            with ui.row().classes('w-full justify-between items-end'):
+                                with ui.column().classes('gap-0'):
+                                    ui.label('Balance').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
+                                    ui.label(currency(c.get('balance', 0.0))).classes('text-2xl font-black').style('letter-spacing: -0.02em; font-feature-settings: "tnum"; text-shadow: 0 2px 8px rgba(0,0,0,0.3);')
+                                with ui.column().classes('gap-0 items-end'):
+                                    ui.label('Available').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
+                                    ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '---').classes('text-base font-bold').style(f'color: {text_color}; opacity: 0.95; font-feature-settings: "tnum";')
+
+                            with ui.column().classes('w-full gap-1'):
+                                with ui.row().classes('w-full justify-between items-center'):
+                                    ui.label(f"Limit: {currency(c['limit']) if c.get('limit') else '---'}").classes('text-xs font-medium').style('opacity: 0.8; font-feature-settings: "tnum";')
+                                    ui.label(pct_display).classes('text-xs font-extrabold').style(f'color: {accent}; text-shadow: 0 1px 2px rgba(0,0,0,0.5);')
+                                with ui.element('div').style('width: 100%; height: 6px; border-radius: 3px; background: rgba(0,0,0,0.3); box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); overflow: hidden;'):
+                                    ui.element('div').style(f"width: {pct_val*100:.1f}%; height: 100%; border-radius: 3px; background: {util_grad}; box-shadow: 0 0 8px rgba(255,255,255,0.2);")
+
+                            # Interest info strip
+                            with ui.element('div').style(
+                                'background: rgba(0,0,0,0.25); border-radius: 12px; padding: 10px 14px;'
+                                'border: 1px solid rgba(255,255,255,0.08); margin-top: 2px;'
+                            ):
+                                with ui.row().classes('w-full justify-between items-center'):
+                                    ui.label(f'{_LOC_INTEREST_RATE}% APR').classes('text-xs font-bold').style(f'color: {accent}; font-feature-settings: "tnum";')
+                                    ui.label(f'Accrued: {_interest_str}').classes('text-xs font-bold').style('color: #fbbf24; font-feature-settings: "tnum";')
+                                with ui.row().classes('w-full justify-between items-center mt-1'):
+                                    ui.label(f'{_daily_str} · {_loc_days_accruing}d').classes('text-[10px] font-medium').style('opacity: 0.5; font-feature-settings: "tnum";')
+                                    ui.label(f'Resets {_next_reset_str}').classes('text-[10px] font-medium').style('color: #38bdf8; opacity: 0.8;')
+
             else:
                 # === NON-LOC CARDS: Standard card (no flip) — original V9 layout ===
                 with ui.element('div').classes(col).style('padding: 8px;'):
@@ -9760,13 +9752,13 @@ def recurring_page():
                             })
                         break
                 upcoming = sorted(upcoming, key=lambda x: x['due'])
-                # Format due dates: add short version (day/month) for mobile
+                # Format due dates as MM/DD
                 for u in upcoming:
                     try:
                         _ud = dt.date.fromisoformat(u['due'])
-                        u['due_short'] = _ud.strftime('%d %b')
+                        u['due'] = _ud.strftime('%m/%d')
                     except Exception:
-                        u['due_short'] = u['due']
+                        pass
                 with ui.card().classes('my-card p-4 mt-3'):
                     ui.label('Upcoming recurring (next 45 days)').classes('text-md font-bold')
                     if not upcoming:
@@ -9774,8 +9766,7 @@ def recurring_page():
                     else:
                         _upcoming_tbl = ui.table(
                             columns=[
-                                {'name': 'due', 'label': 'Due', 'field': 'due', 'classes': 'mf-rec-due-full'},
-                                {'name': 'due_short', 'label': 'Due', 'field': 'due_short', 'classes': 'mf-rec-due-short'},
+                                {'name': 'due', 'label': 'Due', 'field': 'due'},
                                 {'name': 'type', 'label': 'Type', 'field': 'type'},
                                 {'name': 'amount', 'label': 'Amount', 'field': 'amount'},
                                 {'name': 'category', 'label': 'Category', 'field': 'category'},
@@ -9784,22 +9775,10 @@ def recurring_page():
                             rows=upcoming[:20],
                             row_key='due',
                         ).classes('w-full')
-                        # Mobile CSS: hide full date, show short date; hide on desktop vice versa
-                        ui.add_head_html('''<style>
-                            .mf-rec-due-short { display: none !important; }
-                            .mf-rec-id-col { }
-                            @media (max-width: 640px) {
-                                .mf-rec-due-full { display: none !important; }
-                                .mf-rec-due-short { display: table-cell !important; }
-                                .mf-rec-id-col { display: none !important; }
-                            }
-                        </style>''')
             except Exception:
                 pass
             table = ui.table(columns=[
-                {"name": "recurring_id", "label": "ID", "field": "recurring_id", "classes": "mf-rec-id-col", "headerClasses": "mf-rec-id-col"},
-                {"name": "owner", "label": "Owner", "field": "owner"},
-                {"name": "type", "label": "Type", "field": "type"},
+                {"name": "recurring_id", "label": "ID", "field": "recurring_id"},
                 {"name": "amount", "label": "Amount", "field": "amount"},
                 {"name": "day_of_month", "label": "Day", "field": "day_of_month"},
                 {"name": "category", "label": "Category", "field": "category"},
@@ -11251,29 +11230,33 @@ _FAVICON_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
 _RENDER_URL = os.environ.get('RENDER_EXTERNAL_URL', '').strip()
 
 async def _keepalive_loop():
-    """Ping our own health endpoint every 5 minutes to prevent Render spin-down."""
-    import aiohttp
+    """Ping our own health endpoint every 3 minutes to prevent Render spin-down."""
     target = _RENDER_URL or f'http://localhost:{PORT}'
     ping_url = f'{target}/api/health'
-    _logger.info(f'[keepalive] starting self-ping loop  {ping_url}')
+    _logger.info(f'[keepalive] starting self-ping loop  {ping_url}  interval=180s')
     while True:
-        await asyncio.sleep(300)  # 5 minutes  aggressive to avoid cold starts
+        await asyncio.sleep(180)  # 3 minutes
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-                async with session.get(ping_url) as resp:
-                    _logger.info(f'[keepalive] ping {resp.status}')
-        except Exception as e:
-            # aiohttp may not be installed; fall back to urllib
             try:
+                import aiohttp
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+                    async with session.get(ping_url) as resp:
+                        _logger.info(f'[keepalive] ping {resp.status}')
+            except ImportError:
                 from urllib.request import urlopen
                 urlopen(ping_url, timeout=15).read()
                 _logger.info('[keepalive] ping ok (urllib)')
-            except Exception:
-                _logger.warning(f'[keepalive] ping failed: {e}')
+        except Exception as e:
+            _logger.warning(f'[keepalive] ping failed: {e}')
 
 @app.get('/api/health')
 async def _health_check():
     return {'status': 'ok', 'version': APP_VERSION}
+
+@app.get('/ping')
+async def _ping():
+    """Lightweight endpoint for external uptime monitors (UptimeRobot, cron-job.org, etc.)."""
+    return {'pong': True}
 
 # ---------------------------
 # Web App Manifest (improves iOS/Android PWA launch performance)
