@@ -1,7 +1,13 @@
 # -*- coding: utf-8 -*-
 # ======================================
-# FinTrackr App  V10
-# Changes vs V9.18.2:
+# FinTrackr App  V10.1
+# Changes vs V10:
+#   - Timezone-aware today() — expense date no longer jumps to next day at night
+#   - Dashboard clock made bigger and more visible
+#   - Merchants page: last month spend shown (grayed) next to this month for every merchant
+#   - OCR merchant detection rewritten with position-weighted scoring (fixes Dollarama→Esso misread)
+#   - Improved card last-4 extraction patterns for receipts
+# Previous (V10 vs V9.18.2):
 #   - OCR card_last4 matching fix (correct card selection from receipt scan)
 #   - Dashboard live clock (subtle, premium date/time display)
 #   - Receipt categorization fix (improved line-item classification)
@@ -11,7 +17,7 @@
 # ======================================
 
 """
-FinTrackr V10 — NiceGUI Personal Finance Tracker
+FinTrackr V10.1 — NiceGUI Personal Finance Tracker
 Deploy on Render: python P10.py
 
 Required env: SERVICE_ACCOUNT_JSON, NICEGUI_STORAGE_SECRET
@@ -27,7 +33,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '10.0'
+APP_VERSION = '10.1'
 
 
 def log(message: str) -> None:
@@ -61,6 +67,7 @@ import base64
 from io import BytesIO
 import asyncio
 import datetime as dt
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import pandas as pd
@@ -482,8 +489,12 @@ _cache: Dict[str, Tuple[float, pd.DataFrame]] = {}
 # -----------------------------
 # Utilities
 # -----------------------------
+def now_local() -> dt.datetime:
+    """Return current datetime in the configured timezone (America/Winnipeg)."""
+    return dt.datetime.now(ZoneInfo(TZ))
+
 def today() -> dt.date:
-    return dt.date.today()
+    return now_local().date()
 
 def month_key(d: dt.date) -> str:
     return f"{d.year:04d}-{d.month:02d}"
@@ -670,45 +681,71 @@ def parse_money(value: object, default: float = 0.0) -> float:
 
 
 def _guess_merchant_from_text(text: str) -> str:
-    """Best-effort merchant extraction from OCR text."""
-    t = text.upper()
-    # prefer known merchants if present
+    """Best-effort merchant extraction from OCR text using position-weighted scoring."""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return ""
+
+    # Known merchants: (keyword, display_name)
+    # Longer/more specific patterns first to avoid substring false positives
     known = [
-        "WALMART",
-        "COSTCO GAS",
-        "COSTCO",
-        "GILL'S SUPERMARKET",
-        "GILL'S",
-        "BOMBAY SPICES",
-        "DINO'S",
-        "SUPERSTORE",
-        "PETRO CANADA",
-        "PETRO-CANADA",
-        "SHELL",
-        "CO-OP",
-        "ESSO",
-        "DOLLARAMA",
-        "LOBLAWS",
-        "NO FRILLS",
-        "FRESHCO",
-        "CANADIAN TIRE",
-        "TIM HORTONS",
-        "MCDONALD",
-        "STARBUCKS",
-        "GILL",
+        ("COSTCO GAS", "Costco Gas"),
+        ("GILL'S SUPERMARKET", "Gill's Supermarket"),
+        ("GILL'S", "Gill's Supermarket"),
+        ("BOMBAY SPICES", "Bombay Spices"),
+        ("INDIAN BROTHER", "Indian Brothers"),
+        ("DINO'S", "Dino's"),
+        ("PETRO CANADA", "Petro Canada"),
+        ("PETRO-CANADA", "Petro Canada"),
+        ("CANADIAN TIRE", "Canadian Tire"),
+        ("TIM HORTONS", "Tim Hortons"),
+        ("NO FRILLS", "No Frills"),
+        ("WALMART", "Walmart"),
+        ("COSTCO", "Costco"),
+        ("SUPERSTORE", "Superstore"),
+        ("DOLLARAMA", "Dollarama"),
+        ("LOBLAWS", "Loblaws"),
+        ("FRESHCO", "Freshco"),
+        ("MCDONALD", "McDonalds"),
+        ("STARBUCKS", "Starbucks"),
+        ("SHELL", "Shell"),
+        ("CO-OP", "Co-Op"),
+        ("ESSO", "Esso"),
+        ("GILL", "Gill's Supermarket"),
     ]
-    for k in known:
-        if k in t:
-            # keep original casing style
-            return k.title() if k != "WALMART" else "Walmart"
+
+    # Score each match: strongly prefer matches in first 5 lines (header area)
+    best_name = ""
+    best_score = -1.0
+    for kw, display in known:
+        for i, ln in enumerate(lines):
+            if kw in ln.upper():
+                # Position score: first 5 lines get bonus, further down gets penalized
+                if i <= 2:
+                    pos_score = 10.0
+                elif i <= 5:
+                    pos_score = 7.0
+                elif i <= 10:
+                    pos_score = 3.0
+                else:
+                    pos_score = 1.0
+                # Longer keyword = more specific = bonus
+                len_score = len(kw) * 0.3
+                score = pos_score + len_score
+                if score > best_score:
+                    best_score = score
+                    best_name = display
+                break  # only count first occurrence of each keyword
+
+    if best_name:
+        return best_name
 
     # fallback: first non-empty line that isn't obviously an address/phone/terminal
     bad = ("WINNIPEG", "MB", "MANITOBA", "CANADA", "TEL", "PHONE", "STORE", "POS", "TERMINAL")
-    for line in [ln.strip() for ln in text.splitlines() if ln.strip()]:
+    for line in lines:
         up = line.upper()
         if any(b in up for b in bad):
             continue
-        # skip if mostly digits
         digits = sum(ch.isdigit() for ch in line)
         if len(line) > 0 and digits / max(1, len(line)) > 0.5:
             continue
@@ -955,14 +992,18 @@ def _extract_total_amount(text: str) -> Tuple[Optional[float], float, str]:
 
 def _extract_card_last4(text: str) -> str:
     """Try to find last-4 digits of card, if printed."""
-    # common formats: **** 1234, XXXX1234, x1234
+    t = text.upper()
+    # common formats: **** 1234, XXXX1234, x1234, CARD #: ****1234, ending in 1234
     patterns = [
         r"(?:\*{2,}\s*){2,}(\d{4})",
         r"X{2,}\s*(\d{4})",
-        r"(?:VISA|MASTERCARD|MASTER CARD|MC|DEBIT)\D{0,60}(\d{4})",
+        r"(?:VISA|MASTERCARD|MASTER CARD|MC|DEBIT|INTERAC)\D{0,60}(\d{4})",
+        r"(?:CARD|ACCT|ACCOUNT)\s*(?:#|:)?\s*\*+\s*(\d{4})",
+        r"ENDING\s+(?:IN\s+)?(\d{4})",
+        r"\*{4}\s*(\d{4})",
     ]
     for pat in patterns:
-        m = re.search(pat, text.upper())
+        m = re.search(pat, t)
         if m:
             return m.group(1)
     return ""
@@ -5387,7 +5428,7 @@ def shell(content_fn, *, active_path: str = ""):
                                     cur = app.storage.user.get('theme')
                                     if not cur:
                                         try:
-                                            h = now().hour
+                                            h = now_local().hour
                                         except Exception:
                                             h = datetime.datetime.now().hour
                                         cur = 'Midnight Blue' if (h >= 19 or h < 7) else 'Arctic Light'
@@ -5886,7 +5927,7 @@ def dashboard_page():
             days_to_next = None
 
         # Time-based greeting
-        _hour = datetime.datetime.now().hour
+        _hour = now_local().hour
         if _hour < 12: _greeting = 'Good morning'
         elif _hour < 17: _greeting = 'Good afternoon'
         else: _greeting = 'Good evening'
@@ -5939,13 +5980,14 @@ def dashboard_page():
                     pointer-events: none;
                 ">
                     <span id="{_clock_id}-time" style="
-                        font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.55);
+                        font-size: 18px; font-weight: 800; color: rgba(255,255,255,0.72);
                         letter-spacing: 0.08em; font-feature-settings: 'tnum';
                         font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+                        text-shadow: 0 1px 6px rgba(0,0,0,0.3);
                     "></span>
                     <span id="{_clock_id}-date" style="
-                        font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.35);
-                        letter-spacing: 0.12em; text-transform: uppercase;
+                        font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.48);
+                        letter-spacing: 0.1em; text-transform: uppercase;
                     "></span>
                 </div>
             ''')
@@ -6084,7 +6126,7 @@ def dashboard_page():
                     _real_spend_all = _ins_spend[~_cat_mask & ~_type_mask & ~_notes_mask]
                     # v9.18: Filter to current month only — chart + biggest expense must match
                     import datetime as _dt_mod
-                    _today_sb = _dt_mod.date.today()
+                    _today_sb = today()
                     _month_start_sb = _today_sb.replace(day=1)
                     def _is_this_month(d):
                         if d is None: return False
@@ -6110,7 +6152,7 @@ def dashboard_page():
                     _daily_labels = []
                     try:
                         import datetime as _dt_mod
-                        _today = _dt_mod.date.today()
+                        _today = today()
                         _month_start = _today.replace(day=1)
                         _real_with_date = _real_spend[_real_spend['date_parsed'].notna()].copy()
                         # parse_date returns dt.date objects, so use .apply() not .dt.date
@@ -9452,189 +9494,175 @@ def cards_page() -> None:
             util_grad = 'linear-gradient(90deg, #10b981, #059669)' if pct_val < 0.50 else ('linear-gradient(90deg, #f59e0b, #d97706)' if pct_val < 0.80 else 'linear-gradient(90deg, #ef4444, #b91c1c)')
             pct_display = f"{int(round(pct_val * 100))}%"
 
-            # V10: LOC interest rate config
-            _interest_rates = {
-                'rbc line of credit': 6.94,
-                'rbc loc': 6.94,
-            }
-            _card_interest_rate = 0.0
-            for _ir_key, _ir_val in _interest_rates.items():
-                if _ir_key in c['name'].lower():
-                    _card_interest_rate = _ir_val
-                    break
-
-            # V10: Calculate accrued interest for LOC
+            # V10.1: LOC interest — resets on 15th of each month (bank auto-withdraws interest)
+            _LOC_INTEREST_RATE = 6.94
+            _LOC_INTEREST_RESET_DAY = 15
+            _is_loc_card = _is_loc(c)
             _loc_interest_accrued = 0.0
             _loc_days_accruing = 0
             _loc_daily_rate = 0.0
-            if _card_interest_rate > 0 and c.get('balance', 0) > 0:
-                _loc_daily_rate = _card_interest_rate / 100 / 365
-                # Find earliest unrepaied LOC draw to count days
-                try:
-                    _loc_tx = txu.copy() if not tx.empty else pd.DataFrame()
-                    if not _loc_tx.empty and 'date_parsed' not in _loc_tx.columns:
-                        _loc_tx['date_parsed'] = _loc_tx.get('date','').apply(parse_date)
-                    _loc_acct_match = _loc_tx.get('account','').astype(str).str.strip().apply(lambda a: _norm_card(a) == _card_norm)
-                    _loc_draws = _loc_tx[_loc_tx['type_norm'].isin(['loc draw', 'loc_draw', 'loc withdrawal', 'loc_withdrawal', 'debit', 'expense']) & _loc_acct_match]
-                    _loc_repays = _loc_tx[_loc_tx['type_norm'].isin(['loc repay', 'loc_repay', 'loc repayment', 'loc_repayment']) & _loc_acct_match]
-                    if not _loc_draws.empty:
-                        _loc_draws_sorted = _loc_draws.sort_values('date_parsed')
-                        _loc_repays_sorted = _loc_repays.sort_values('date_parsed') if not _loc_repays.empty else pd.DataFrame()
-                        # Find last date balance was zero
-                        _all_loc = pd.concat([_loc_draws_sorted, _loc_repays_sorted]).sort_values('date_parsed') if not _loc_repays_sorted.empty else _loc_draws_sorted
-                        _all_loc = _all_loc[_all_loc['date_parsed'].notna()]
-                        _running = 0.0
-                        _last_zero_date = None
-                        for _, _row in _all_loc.iterrows():
-                            _tt = str(_row.get('type_norm','')).strip().lower()
-                            _a = float(_row.get('amount_num', 0))
-                            if _tt in ('loc repay', 'loc_repay', 'loc repayment', 'loc_repayment'):
-                                _running -= _a
-                            else:
-                                _running += _a
-                            if _running <= 0.01:
-                                _last_zero_date = _row['date_parsed']
-                                _running = 0.0
-                        if _last_zero_date:
-                            _loc_days_accruing = (today() - _last_zero_date).days
-                        else:
-                            # Never been zero — count from first draw
-                            _first_draw = _loc_draws_sorted.iloc[0]['date_parsed']
-                            _loc_days_accruing = (today() - _first_draw).days
-                        _loc_interest_accrued = round(c['balance'] * _loc_daily_rate * max(_loc_days_accruing, 0), 2)
-                except Exception:
-                    _loc_days_accruing = 0
-                    _loc_interest_accrued = 0.0
 
-            _flip_id = f'mf-flip-{uuid.uuid4().hex[:8]}'
-            with ui.element('div').classes(col).style('padding: 8px;'):
-                # V10: 3D flip container
-                ui.html(f'''<style>
-                    #{_flip_id} {{ perspective: 1000px; cursor: pointer; }}
-                    #{_flip_id} .mf-flip-inner {{
-                        position: relative; width: 100%; transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-                        transform-style: preserve-3d;
-                    }}
-                    #{_flip_id}.mf-flipped .mf-flip-inner {{ transform: rotateY(180deg); }}
-                    #{_flip_id} .mf-flip-front, #{_flip_id} .mf-flip-back {{
-                        backface-visibility: hidden; -webkit-backface-visibility: hidden;
-                    }}
-                    #{_flip_id} .mf-flip-back {{
-                        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-                        transform: rotateY(180deg);
-                    }}
-                </style>''')
-                with ui.element('div').props(f'id="{_flip_id}"').on('click', lambda e, fid=_flip_id: ui.run_javascript(f"document.getElementById('{fid}').classList.toggle('mf-flipped')")):
-                    with ui.element('div').classes('mf-flip-inner'):
-                        # === FRONT FACE ===
-                        with ui.element('div').classes('mf-flip-front').style(
-                            f'background: {grad};'
-                            'border-radius: 24px;'
-                            'padding: 24px;'
-                            'position: relative;'
-                            'overflow: hidden;'
-                            'box-shadow: 0 20px 40px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.2);'
-                            'min-height: 200px; max-width: 420px; aspect-ratio: 1.586 / 1;'
-                            'display: flex;'
-                            'flex-direction: column;'
-                            'justify-content: space-between;'
-                            f'color: {text_color};'
-                        ):
-                            ui.html('''
-                                <div style="position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(to bottom right, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 40%, rgba(255,255,255,0) 100%); transform: rotate(30deg); pointer-events: none;"></div>
-                                <div style="position: absolute; top: 0; right: 0; width: 120px; height: 120px; background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
+            if _is_loc_card and c.get('balance', 0) > 0:
+                _loc_daily_rate = _LOC_INTEREST_RATE / 100 / 365
+                # Interest resets on the 15th — count days since last 15th
+                _today = today()
+                if _today.day >= _LOC_INTEREST_RESET_DAY:
+                    _last_reset = _today.replace(day=_LOC_INTEREST_RESET_DAY)
+                else:
+                    # Go to 15th of previous month
+                    _prev = _today.replace(day=1) - dt.timedelta(days=1)
+                    _last_reset = _prev.replace(day=_LOC_INTEREST_RESET_DAY)
+                _loc_days_accruing = (_today - _last_reset).days
+                _loc_interest_accrued = round(c['balance'] * _loc_daily_rate * max(_loc_days_accruing, 0), 2)
+
+            # V10.1: Flip animation ONLY for LOC cards (pure HTML to avoid NiceGUI layout issues)
+            if _is_loc_card:
+                _flip_id = f'mf-flip-{uuid.uuid4().hex[:8]}'
+                _bal_str = currency(c.get('balance', 0.0))
+                _avail_str = currency(c.get('remaining', 0.0)) if c.get('limit') else '---'
+                _lim_str = currency(c['limit']) if c.get('limit') else '---'
+                _interest_str = f'${_loc_interest_accrued:,.2f}' if _loc_interest_accrued > 0 else '$0.00'
+                _daily_str = f'${c["balance"] * _loc_daily_rate:,.2f}/day' if _loc_daily_rate > 0 else '$0.00/day'
+                _next_reset = today().replace(day=_LOC_INTEREST_RESET_DAY) if today().day < _LOC_INTEREST_RESET_DAY else (today().replace(day=28) + dt.timedelta(days=4)).replace(day=_LOC_INTEREST_RESET_DAY)
+                _next_reset_str = _next_reset.strftime('%b %d')
+
+                with ui.element('div').classes(col).style('padding: 8px;'):
+                    ui.html(f'''
+                    <style>
+                        #{_flip_id} {{ perspective: 1200px; cursor: pointer; max-width: 420px; }}
+                        #{_flip_id} .mf-flip-inner {{
+                            position: relative; width: 100%; aspect-ratio: 1.586 / 1; min-height: 200px;
+                            transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+                            transform-style: preserve-3d;
+                        }}
+                        #{_flip_id}.mf-flipped .mf-flip-inner {{ transform: rotateY(180deg); }}
+                        #{_flip_id} .mf-flip-front, #{_flip_id} .mf-flip-back {{
+                            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+                            backface-visibility: hidden; -webkit-backface-visibility: hidden;
+                            border-radius: 24px; padding: 24px; box-sizing: border-box;
+                            background: {grad};
+                            color: {text_color};
+                            box-shadow: 0 20px 40px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.2);
+                            overflow: hidden; display: flex; flex-direction: column; justify-content: space-between;
+                        }}
+                        #{_flip_id} .mf-flip-back {{ transform: rotateY(180deg); }}
+                    </style>
+                    <div id="{_flip_id}" onclick="this.classList.toggle('mf-flipped')">
+                        <div class="mf-flip-inner">
+                            <!-- FRONT -->
+                            <div class="mf-flip-front">
+                                <div style="position:absolute;top:-50%;left:-50%;width:200%;height:200%;background:linear-gradient(to bottom right,rgba(255,255,255,0.15) 0%,rgba(255,255,255,0) 40%);transform:rotate(30deg);pointer-events:none;"></div>
+                                <div style="display:flex;justify-content:space-between;align-items:flex-start;position:relative;z-index:10;">
+                                    <div>
+                                        <div style="display:flex;align-items:center;gap:8px;">
+                                            <span style="font-size:18px;">{c['emoji']}</span>
+                                            <span style="font-size:13px;font-weight:900;letter-spacing:0.1em;text-transform:uppercase;opacity:0.9;">{c['name']}</span>
+                                        </div>
+                                        <div style="font-size:11px;font-weight:600;opacity:0.6;letter-spacing:0.05em;margin-top:2px;">{c.get('method', '')}</div>
+                                    </div>
+                                    <svg width="40" height="32" viewBox="0 0 40 32" fill="none" style="opacity:0.8;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.2));flex-shrink:0;">
+                                        <rect width="40" height="32" rx="6" fill="#fbbf24"/><path d="M0 10H12V22H0V10Z" fill="#f59e0b"/><path d="M28 10H40V22H28V10Z" fill="#f59e0b"/><path d="M14 0H26V10H14V0Z" fill="#f59e0b"/><path d="M14 22H26V32H14V22Z" fill="#f59e0b"/><path d="M12 10H28V22H12V10Z" stroke="#d97706" stroke-width="1"/>
+                                    </svg>
+                                </div>
+                                <div style="position:relative;z-index:10;">
+                                    <div style="display:flex;justify-content:space-between;align-items:flex-end;">
+                                        <div><div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;opacity:0.7;">Balance</div><div style="font-size:24px;font-weight:900;letter-spacing:-0.02em;font-feature-settings:'tnum';text-shadow:0 2px 8px rgba(0,0,0,0.3);">{_bal_str}</div></div>
+                                        <div style="text-align:right;"><div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;opacity:0.7;">Available</div><div style="font-size:15px;font-weight:700;opacity:0.95;font-feature-settings:'tnum';">{_avail_str}</div></div>
+                                    </div>
+                                    <div style="margin-top:12px;">
+                                        <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;font-weight:500;opacity:0.8;font-feature-settings:'tnum';">Limit: {_lim_str}</span><span style="font-size:11px;font-weight:800;color:{accent};text-shadow:0 1px 2px rgba(0,0,0,0.5);">{pct_display}</span></div>
+                                        <div style="width:100%;height:6px;border-radius:3px;background:rgba(0,0,0,0.3);box-shadow:inset 0 1px 2px rgba(0,0,0,0.2);overflow:hidden;margin-top:4px;"><div style="width:{pct_val*100:.1f}%;height:100%;border-radius:3px;background:{util_grad};box-shadow:0 0 8px rgba(255,255,255,0.2);"></div></div>
+                                    </div>
+                                </div>
+                                <div style="position:absolute;bottom:10px;left:0;right:0;text-align:center;font-size:9px;font-weight:600;opacity:0.3;letter-spacing:0.08em;">TAP TO FLIP</div>
+                            </div>
+                            <!-- BACK -->
+                            <div class="mf-flip-back">
+                                <div style="position:absolute;top:24px;left:0;width:100%;height:36px;background:linear-gradient(180deg,#1a1a2e,#0d0d1a);opacity:0.9;"></div>
+                                <div style="position:relative;z-index:10;margin-top:50px;">
+                                    <div style="font-size:11px;font-weight:900;letter-spacing:0.1em;text-transform:uppercase;opacity:0.8;margin-bottom:12px;">{c['name']}</div>
+                                    <div style="background:rgba(0,0,0,0.3);border-radius:16px;padding:14px 18px;border:1px solid rgba(255,255,255,0.1);">
+                                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                                            <span style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.7;letter-spacing:0.08em;">Interest Rate</span>
+                                            <span style="font-size:20px;font-weight:900;color:{accent};font-feature-settings:'tnum';">{_LOC_INTEREST_RATE}%</span>
+                                        </div>
+                                        <div style="height:1px;background:rgba(255,255,255,0.1);margin:10px 0;"></div>
+                                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                                            <span style="font-size:10px;font-weight:600;opacity:0.7;">Accrued ({_loc_days_accruing}d)</span>
+                                            <span style="font-size:15px;font-weight:800;color:#fbbf24;font-feature-settings:'tnum';">{_interest_str}</span>
+                                        </div>
+                                        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+                                            <span style="font-size:10px;font-weight:500;opacity:0.5;">Daily rate</span>
+                                            <span style="font-size:10px;font-weight:700;opacity:0.7;font-feature-settings:'tnum';">{_daily_str}</span>
+                                        </div>
+                                        <div style="height:1px;background:rgba(255,255,255,0.08);margin:10px 0;"></div>
+                                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                                            <span style="font-size:10px;font-weight:600;opacity:0.7;">Next reset</span>
+                                            <span style="font-size:12px;font-weight:700;color:#38bdf8;font-feature-settings:'tnum';">{_next_reset_str}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="position:absolute;bottom:10px;left:0;right:0;text-align:center;font-size:9px;font-weight:600;opacity:0.3;letter-spacing:0.08em;">TAP TO FLIP BACK</div>
+                            </div>
+                        </div>
+                    </div>
+                    ''')
+            else:
+                # === NON-LOC CARDS: Standard card (no flip) — original V9 layout ===
+                with ui.element('div').classes(col).style('padding: 8px;'):
+                    with ui.element('div').classes('mf-tap').style(
+                        f'background: {grad};'
+                        'border-radius: 24px;'
+                        'padding: 24px;'
+                        'position: relative;'
+                        'overflow: hidden;'
+                        'box-shadow: 0 20px 40px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.2);'
+                        'min-height: 200px; max-width: 420px; aspect-ratio: 1.586 / 1;'
+                        'display: flex;'
+                        'flex-direction: column;'
+                        'justify-content: space-between;'
+                        f'color: {text_color};'
+                    ):
+                        ui.html('''
+                            <div style="position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(to bottom right, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 40%, rgba(255,255,255,0) 100%); transform: rotate(30deg); pointer-events: none;"></div>
+                            <div style="position: absolute; top: 0; right: 0; width: 120px; height: 120px; background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
+                        ''')
+
+                        with ui.row().classes('w-full justify-between items-start position-relative z-10'):
+                            with ui.column().classes('gap-1'):
+                                with ui.row().classes('items-center gap-2'):
+                                    ui.label(c['emoji']).classes('text-lg')
+                                    disp_name = "CT Mastercard" if _is_ct(c) else c['name']
+                                    ui.label(disp_name).classes('text-sm font-black tracking-wider uppercase').style('letter-spacing: 0.1em; opacity: 0.9;')
+                                if c.get('method'):
+                                    ui.label(c['method']).classes('text-xs font-semibold').style('opacity: 0.6; letter-spacing: 0.05em;')
+
+                            ui.html(f'''
+                                <svg width="40" height="32" viewBox="0 0 40 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity: 0.8; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));">
+                                    <rect width="40" height="32" rx="6" fill="#fbbf24"/>
+                                    <path d="M0 10H12V22H0V10Z" fill="#f59e0b"/>
+                                    <path d="M28 10H40V22H28V10Z" fill="#f59e0b"/>
+                                    <path d="M14 0H26V10H14V0Z" fill="#f59e0b"/>
+                                    <path d="M14 22H26V32H14V22Z" fill="#f59e0b"/>
+                                    <path d="M12 10H28V22H12V10Z" stroke="#d97706" stroke-width="1"/>
+                                </svg>
                             ''')
 
-                            with ui.row().classes('w-full justify-between items-start position-relative z-10'):
-                                with ui.column().classes('gap-1'):
-                                    with ui.row().classes('items-center gap-2'):
-                                        ui.label(c['emoji']).classes('text-lg')
-                                        disp_name = "CT Mastercard" if _is_ct(c) else c['name']
-                                        ui.label(disp_name).classes('text-sm font-black tracking-wider uppercase').style('letter-spacing: 0.1em; opacity: 0.9;')
-                                    if c.get('method'):
-                                        ui.label(c['method']).classes('text-xs font-semibold').style('opacity: 0.6; letter-spacing: 0.05em;')
+                        with ui.column().classes('w-full gap-4 position-relative z-10 mt-6'):
+                            with ui.row().classes('w-full justify-between items-end'):
+                                with ui.column().classes('gap-0'):
+                                    ui.label('Balance').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
+                                    ui.label(currency(c.get('balance', 0.0))).classes('text-2xl font-black').style('letter-spacing: -0.02em; font-feature-settings: "tnum"; text-shadow: 0 2px 8px rgba(0,0,0,0.3);')
+                                with ui.column().classes('gap-0 items-end'):
+                                    ui.label('Available').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
+                                    ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '---').classes('text-base font-bold').style(f'color: {text_color}; opacity: 0.95; font-feature-settings: "tnum";')
 
-                                ui.html(f'''
-                                    <svg width="40" height="32" viewBox="0 0 40 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity: 0.8; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));">
-                                        <rect width="40" height="32" rx="6" fill="#fbbf24"/>
-                                        <path d="M0 10H12V22H0V10Z" fill="#f59e0b"/>
-                                        <path d="M28 10H40V22H28V10Z" fill="#f59e0b"/>
-                                        <path d="M14 0H26V10H14V0Z" fill="#f59e0b"/>
-                                        <path d="M14 22H26V32H14V22Z" fill="#f59e0b"/>
-                                        <path d="M12 10H28V22H12V10Z" stroke="#d97706" stroke-width="1"/>
-                                    </svg>
-                                ''')
-
-                            with ui.column().classes('w-full gap-4 position-relative z-10 mt-6'):
-                                with ui.row().classes('w-full justify-between items-end'):
-                                    with ui.column().classes('gap-0'):
-                                        ui.label('Balance').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
-                                        ui.label(currency(c.get('balance', 0.0))).classes('text-2xl font-black').style('letter-spacing: -0.02em; font-feature-settings: "tnum"; text-shadow: 0 2px 8px rgba(0,0,0,0.3);')
-                                    with ui.column().classes('gap-0 items-end'):
-                                        ui.label('Available').classes('text-xs font-semibold uppercase tracking-wider').style('opacity: 0.7;')
-                                        ui.label(currency(c.get('remaining', 0.0)) if c.get('limit') else '---').classes('text-base font-bold').style(f'color: {text_color}; opacity: 0.95; font-feature-settings: "tnum";')
-
-                                with ui.column().classes('w-full gap-1'):
-                                    with ui.row().classes('w-full justify-between items-center'):
-                                        ui.label(f"Limit: {currency(c['limit']) if c.get('limit') else '---'}").classes('text-xs font-medium').style('opacity: 0.8; font-feature-settings: "tnum";')
-                                        ui.label(pct_display).classes('text-xs font-extrabold').style(f'color: {accent}; text-shadow: 0 1px 2px rgba(0,0,0,0.5);')
-                                    with ui.element('div').style('width: 100%; height: 6px; border-radius: 3px; background: rgba(0,0,0,0.3); box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); overflow: hidden;'):
-                                        ui.element('div').style(f"width: {pct_val*100:.1f}%; height: 100%; border-radius: 3px; background: {util_grad}; box-shadow: 0 0 8px rgba(255,255,255,0.2);")
-
-                        # === BACK FACE ===
-                        _back_grad = f'linear-gradient(135deg, {grad.split(",")[1].strip() if "," in grad else "#1e293b"}, #0f172a)'
-                        with ui.element('div').classes('mf-flip-back').style(
-                            f'background: {grad};'
-                            'border-radius: 24px;'
-                            'padding: 24px;'
-                            'overflow: hidden;'
-                            'box-shadow: 0 20px 40px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.2);'
-                            'min-height: 200px; max-width: 420px; aspect-ratio: 1.586 / 1;'
-                            'display: flex; flex-direction: column; justify-content: space-between;'
-                            f'color: {text_color};'
-                        ):
-                            # Magnetic stripe
-                            ui.element('div').style('position: absolute; top: 24px; left: 0; width: 100%; height: 36px; background: linear-gradient(180deg, #1a1a2e, #0d0d1a); opacity: 0.9;')
-                            # Card details
-                            with ui.column().classes('w-full gap-3 position-relative z-10').style('margin-top: 70px;'):
-                                disp_name_back = "CT Mastercard" if _is_ct(c) else c['name']
-                                ui.label(disp_name_back).classes('text-xs font-black tracking-wider uppercase').style('letter-spacing: 0.1em; opacity: 0.8;')
-
-                                if _card_interest_rate > 0:
-                                    # LOC interest info
-                                    with ui.element('div').style(
-                                        'background: rgba(0,0,0,0.3); border-radius: 16px; padding: 14px 18px;'
-                                        'border: 1px solid rgba(255,255,255,0.1);'
-                                    ):
-                                        with ui.row().classes('w-full justify-between items-center'):
-                                            ui.label('Interest Rate').classes('text-xs font-semibold uppercase').style('opacity: 0.7; letter-spacing: 0.08em;')
-                                            ui.label(f'{_card_interest_rate}%').classes('text-xl font-black').style(f'color: {accent}; font-feature-settings: "tnum";')
-                                        if _loc_days_accruing > 0 and c.get('balance', 0) > 0:
-                                            ui.element('div').style('height: 1px; background: rgba(255,255,255,0.1); margin: 8px 0;')
-                                            with ui.row().classes('w-full justify-between items-center'):
-                                                ui.label(f'Accrued ({_loc_days_accruing}d)').classes('text-xs font-semibold').style('opacity: 0.7;')
-                                                ui.label(f'${_loc_interest_accrued:,.2f}').classes('text-base font-extrabold').style(f'color: #fbbf24; font-feature-settings: "tnum";')
-                                            with ui.row().classes('w-full justify-between items-center'):
-                                                ui.label('Daily rate').classes('text-xs font-medium').style('opacity: 0.5;')
-                                                ui.label(f'${c["balance"] * _loc_daily_rate:,.2f}/day').classes('text-xs font-bold').style('opacity: 0.7; font-feature-settings: "tnum";')
-                                else:
-                                    # Non-LOC cards: show billing info
-                                    with ui.element('div').style(
-                                        'background: rgba(0,0,0,0.3); border-radius: 16px; padding: 14px 18px;'
-                                        'border: 1px solid rgba(255,255,255,0.1);'
-                                    ):
-                                        with ui.row().classes('w-full justify-between items-center'):
-                                            ui.label('Billing Day').classes('text-xs font-semibold uppercase').style('opacity: 0.7; letter-spacing: 0.08em;')
-                                            ui.label(str(c.get('billing_day', '--'))).classes('text-lg font-black').style(f'color: {accent};')
-                                        with ui.row().classes('w-full justify-between items-center mt-2'):
-                                            ui.label('Total Charges').classes('text-xs font-semibold').style('opacity: 0.7;')
-                                            ui.label(currency(c.get('_debug_used', 0))).classes('text-base font-bold').style('font-feature-settings: "tnum";')
-                                        with ui.row().classes('w-full justify-between items-center'):
-                                            ui.label('Total Repaid').classes('text-xs font-semibold').style('opacity: 0.7;')
-                                            ui.label(currency(c.get('_debug_paid', 0))).classes('text-base font-bold').style('color: #10b981; font-feature-settings: "tnum";')
-
-                            # Tap hint
-                            ui.label('Tap to flip back').classes('text-[10px] font-semibold').style('opacity: 0.35; text-align: center; letter-spacing: 0.08em; position: absolute; bottom: 12px; left: 0; right: 0;')
+                            with ui.column().classes('w-full gap-1'):
+                                with ui.row().classes('w-full justify-between items-center'):
+                                    ui.label(f"Limit: {currency(c['limit']) if c.get('limit') else '---'}").classes('text-xs font-medium').style('opacity: 0.8; font-feature-settings: "tnum";')
+                                    ui.label(pct_display).classes('text-xs font-extrabold').style(f'color: {accent}; text-shadow: 0 1px 2px rgba(0,0,0,0.5);')
+                                with ui.element('div').style('width: 100%; height: 6px; border-radius: 3px; background: rgba(0,0,0,0.3); box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); overflow: hidden;'):
+                                    ui.element('div').style(f"width: {pct_val*100:.1f}%; height: 100%; border-radius: 3px; background: {util_grad}; box-shadow: 0 0 8px rgba(255,255,255,0.2);")
 
         def _two_row(items):
             # 9.8.1: Responsive grid — constrained card width on desktop for realistic card proportions
@@ -10607,7 +10635,7 @@ def merchants_page() -> None:
             _diff = _cur_spend - _prev_spend
             _diff_pct = round((_diff / _prev_spend) * 100) if _prev_spend > 0 else 0
 
-            _entry = (m_name, m_icon, m_color, m_img, _cur_spend, _total, _tx_count, _diff_pct, _diff)
+            _entry = (m_name, m_icon, m_color, m_img, _cur_spend, _total, _tx_count, _diff_pct, _diff, _prev_spend)
             _categories[m_cat].append(_entry)
             _all_merchant_data.append(_entry)
 
@@ -10629,7 +10657,7 @@ def merchants_page() -> None:
 
                     # 9.11.2: Use NiceGUI ui.grid() for proper CSS grid
                     with ui.grid(columns='repeat(auto-fill, minmax(240px, 1fr))').style('gap:14px;width:100%;'):
-                        for m_name, m_icon, m_color, m_img, _cur_spend, _total, _tx_count, _diff_pct, _diff in merchants:
+                        for m_name, m_icon, m_color, m_img, _cur_spend, _total, _tx_count, _diff_pct, _diff, _prev_spend in merchants:
                             with ui.element('div').style(
                                 f'border-radius:18px;background:var(--mf-surface-2);'
                                 f'border:1px solid {m_color}18;padding:16px;'
@@ -10654,6 +10682,11 @@ def merchants_page() -> None:
                                 # This month spend
                                 ui.label('This Month').classes('text-[10px] font-semibold').style('color:var(--mf-muted);text-transform:uppercase;letter-spacing:0.06em;')
                                 ui.label(currency(_cur_spend)).classes('text-lg font-black').style(f'color:{m_color};font-feature-settings:"tnum";letter-spacing:-0.02em;margin-top:-4px;')
+
+                                # Last month spend (grayed out)
+                                with ui.row().classes('items-center gap-1').style('margin-top:-2px;'):
+                                    ui.label('Last Month:').classes('text-[10px] font-medium').style('color:var(--mf-muted);opacity:0.55;')
+                                    ui.label(currency(_prev_spend)).classes('text-xs font-semibold').style('color:var(--mf-muted);opacity:0.55;font-feature-settings:"tnum";')
 
                                 # Month-over-month badge
                                 if _diff != 0:
@@ -10699,6 +10732,7 @@ def merchants_page() -> None:
                         with ui.row().classes('items-center gap-4'):
                             ui.label(f'{_fuel_count} fill-ups').classes('text-xs').style('color:var(--mf-muted);')
                             ui.label(f'This month: {currency(_fuel_cur)}').classes('text-xs font-semibold').style('color:#fb923c;')
+                            ui.label(f'Last month: {currency(_fuel_prev)}').classes('text-xs font-medium').style('color:var(--mf-muted);opacity:0.55;')
                             if _fuel_prev > 0 or _fuel_cur > 0:
                                 _f_arrow = 'trending_up' if _fuel_diff > 0 else 'trending_down'
                                 _f_ac = '#ef4444' if _fuel_diff > 0 else '#22c55e'
@@ -10739,6 +10773,7 @@ def merchants_page() -> None:
                         with ui.row().classes('items-center gap-4'):
                             ui.label(f'{_intl_count} transfers').classes('text-xs').style('color:var(--mf-muted);')
                             ui.label(f'This month: {currency(_intl_cur)}').classes('text-xs font-semibold').style('color:#a78bfa;')
+                            ui.label(f'Last month: {currency(_intl_prev)}').classes('text-xs font-medium').style('color:var(--mf-muted);opacity:0.55;')
                             if _intl_prev > 0 or _intl_cur > 0:
                                 _i_arrow = 'trending_up' if _intl_diff > 0 else 'trending_down'
                                 _i_ac = '#ef4444' if _intl_diff > 0 else '#22c55e'
@@ -10756,7 +10791,7 @@ def merchants_page() -> None:
                     ui.icon('leaderboard').style('font-size:18px;color:#94a3b8;')
                     ui.label('All-Time Totals').classes('text-base font-extrabold').style('letter-spacing:-0.02em;')
                 _sorted = sorted(_all_merchant_data, key=lambda x: x[5], reverse=True)
-                for m_name, m_icon, m_color, m_img, _cs, _total, _tc, _dp, _d in _sorted:
+                for m_name, m_icon, m_color, m_img, _cs, _total, _tc, _dp, _d, _ps in _sorted:
                     with ui.row().classes('items-center justify-between w-full').style('padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);'):
                         with ui.row().classes('items-center gap-3'):
                             ui.icon(m_icon).style(f'font-size:18px;color:{m_color};')
