@@ -5948,7 +5948,9 @@ def dashboard_page():
                         letter-spacing: 0.12em; text-transform: uppercase;
                     "></span>
                 </div>
-                <script>
+            ''')
+            # Clock JS — must use run_javascript (NiceGUI disallows <script> in ui.html)
+            ui.run_javascript(f'''
                 (function() {{
                     function updateClock() {{
                         var now = new Date();
@@ -5967,7 +5969,6 @@ def dashboard_page():
                     updateClock();
                     setInterval(updateClock, 15000);
                 }})();
-                </script>
             ''')
             
             # The Massive Rings SVG
