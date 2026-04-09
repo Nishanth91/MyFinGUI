@@ -9671,33 +9671,28 @@ def cards_page() -> None:
         # --- Total Pending (credit cards only, excludes LOC) ---
         _cc_cards = [c for c in entries if not _is_loc(c)]
         _total_pending = sum(c.get('balance', 0.0) for c in _cc_cards)
-        _total_limit = sum(c.get('limit', 0.0) for c in _cc_cards)
-        _total_remaining = max(0.0, _total_limit - _total_pending)
-        _total_pct = (_total_pending / _total_limit) if _total_limit > 0 else 0.0
-        _total_pct = max(0.0, min(1.0, _total_pct))
-        _total_util_color = '#10b981' if _total_pct < 0.50 else ('#f59e0b' if _total_pct < 0.80 else '#ef4444')
+        _total_accent = '#ef4444' if _total_pending > 0 else '#10b981'
 
-        with ui.card().classes('my-card p-0 mb-4').style('overflow:hidden;'):
-            ui.element('div').style(f'height:3px;background:linear-gradient(90deg,{_total_util_color},#6366f1);')
-            with ui.column().classes('p-5 gap-3'):
-                with ui.row().classes('items-center gap-2 mb-1'):
-                    ui.icon('account_balance_wallet').style(f'font-size:20px;color:{_total_util_color};')
-                    ui.label('Total Credit Card Pending').classes('text-base font-extrabold').style('letter-spacing:-0.02em;')
-                with ui.row().classes('w-full justify-between items-end'):
+        with ui.element('div').style(
+            'width:100%; max-width:900px; margin-bottom:20px;'
+            'border-radius:24px; overflow:hidden;'
+            'background: linear-gradient(135deg, rgba(99,102,241,0.06), rgba(139,92,246,0.04));'
+            'border:1px solid var(--mf-card-border);'
+            'box-shadow:0 4px 16px rgba(0,0,0,0.15);'
+        ):
+            ui.element('div').style('height:3px;background:linear-gradient(90deg,#6366f1,#a855f7);')
+            with ui.element('div').style('padding:20px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px;'):
+                with ui.row().classes('items-center gap-3'):
+                    with ui.element('div').style(
+                        f'width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;'
+                        f'background:linear-gradient(135deg,{_total_accent}20,{_total_accent}08);'
+                        f'border:1px solid {_total_accent}25;flex-shrink:0;'
+                    ):
+                        ui.icon('account_balance_wallet').style(f'font-size:22px;color:{_total_accent};')
                     with ui.column().classes('gap-0'):
-                        ui.label('Total Owing').classes('text-[10px] font-semibold uppercase').style('color:var(--mf-muted);letter-spacing:0.06em;')
-                        ui.label(currency(_total_pending)).classes('text-2xl font-black').style(f'color:{_total_util_color};font-feature-settings:"tnum";letter-spacing:-0.02em;')
-                    with ui.column().classes('gap-0 items-end'):
-                        ui.label('Available').classes('text-[10px] font-semibold uppercase').style('color:var(--mf-muted);letter-spacing:0.06em;')
-                        ui.label(currency(_total_remaining)).classes('text-lg font-bold').style('color:var(--mf-muted);font-feature-settings:"tnum";')
-                with ui.column().classes('w-full gap-1'):
-                    with ui.row().classes('w-full justify-between items-center'):
-                        ui.label(f'Combined Limit: {currency(_total_limit)}').classes('text-xs font-medium').style('color:var(--mf-muted);font-feature-settings:"tnum";')
-                        ui.label(f'{int(round(_total_pct * 100))}%').classes('text-xs font-extrabold').style(f'color:{_total_util_color};')
-                    with ui.element('div').style('width:100%;height:6px;border-radius:3px;background:rgba(255,255,255,0.08);overflow:hidden;'):
-                        ui.element('div').style(f'width:{_total_pct*100:.1f}%;height:100%;border-radius:3px;background:{_total_util_color};')
-                if _cc_cards:
-                    ui.label(f'Across {len(_cc_cards)} credit card{"s" if len(_cc_cards) != 1 else ""}').classes('text-[10px]').style('color:var(--mf-muted);opacity:0.6;')
+                        ui.label('Total Pending').classes('text-xs font-semibold uppercase').style('color:var(--mf-muted);letter-spacing:0.08em;')
+                        ui.label(f'{len(_cc_cards)} credit card{"s" if len(_cc_cards) != 1 else ""}').classes('text-[10px]').style('color:var(--mf-muted);opacity:0.55;')
+                ui.label(currency(_total_pending)).classes('text-2xl font-black').style(f'color:{_total_accent};font-feature-settings:"tnum";letter-spacing:-0.03em;')
 
         # --- Render: Canadian Tire
         if ct:
