@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 # ======================================
-# FinTrackr App  V10.3
-# Changes vs V10.2:
+# FinTrackr App  V10.4
+# Changes vs V10.3:
+#   - Cards page: Total Pending card showing combined credit card balance (excludes LOC)
+# Previous (V10.3 vs V10.2):
 #   - LOC card: removed broken flip animation, interest info shown directly on card front
 #   - Subscription auto-categorize fix (added keyup+change event bindings)
 #   - Recurring page: date formatted as MM/DD, removed Owner & Type columns from main table
@@ -21,7 +23,7 @@
 # ======================================
 
 """
-FinTrackr V10.3 — NiceGUI Personal Finance Tracker
+FinTrackr V10.4 — NiceGUI Personal Finance Tracker
 Deploy on Render: python P10.py
 
 Required env: SERVICE_ACCOUNT_JSON, NICEGUI_STORAGE_SECRET
@@ -37,7 +39,7 @@ import logging
 # Lightweight logger used across the app
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("myfin")
-APP_VERSION = '10.3'
+APP_VERSION = '10.4'
 
 
 def log(message: str) -> None:
@@ -9665,6 +9667,37 @@ def cards_page() -> None:
             with ui.element('div').classes('grid grid-cols-1 md:grid-cols-2 gap-5 w-full').style('max-width: 900px;'):
                 for c in items:
                     _tile(c, col='w-full')
+
+        # --- Total Pending (credit cards only, excludes LOC) ---
+        _cc_cards = [c for c in entries if not _is_loc(c)]
+        _total_pending = sum(c.get('balance', 0.0) for c in _cc_cards)
+        _total_limit = sum(c.get('limit', 0.0) for c in _cc_cards)
+        _total_remaining = max(0.0, _total_limit - _total_pending)
+        _total_pct = (_total_pending / _total_limit) if _total_limit > 0 else 0.0
+        _total_pct = max(0.0, min(1.0, _total_pct))
+        _total_util_color = '#10b981' if _total_pct < 0.50 else ('#f59e0b' if _total_pct < 0.80 else '#ef4444')
+
+        with ui.card().classes('my-card p-0 mb-4').style('overflow:hidden;'):
+            ui.element('div').style(f'height:3px;background:linear-gradient(90deg,{_total_util_color},#6366f1);')
+            with ui.column().classes('p-5 gap-3'):
+                with ui.row().classes('items-center gap-2 mb-1'):
+                    ui.icon('account_balance_wallet').style(f'font-size:20px;color:{_total_util_color};')
+                    ui.label('Total Credit Card Pending').classes('text-base font-extrabold').style('letter-spacing:-0.02em;')
+                with ui.row().classes('w-full justify-between items-end'):
+                    with ui.column().classes('gap-0'):
+                        ui.label('Total Owing').classes('text-[10px] font-semibold uppercase').style('color:var(--mf-muted);letter-spacing:0.06em;')
+                        ui.label(currency(_total_pending)).classes('text-2xl font-black').style(f'color:{_total_util_color};font-feature-settings:"tnum";letter-spacing:-0.02em;')
+                    with ui.column().classes('gap-0 items-end'):
+                        ui.label('Available').classes('text-[10px] font-semibold uppercase').style('color:var(--mf-muted);letter-spacing:0.06em;')
+                        ui.label(currency(_total_remaining)).classes('text-lg font-bold').style('color:var(--mf-muted);font-feature-settings:"tnum";')
+                with ui.column().classes('w-full gap-1'):
+                    with ui.row().classes('w-full justify-between items-center'):
+                        ui.label(f'Combined Limit: {currency(_total_limit)}').classes('text-xs font-medium').style('color:var(--mf-muted);font-feature-settings:"tnum";')
+                        ui.label(f'{int(round(_total_pct * 100))}%').classes('text-xs font-extrabold').style(f'color:{_total_util_color};')
+                    with ui.element('div').style('width:100%;height:6px;border-radius:3px;background:rgba(255,255,255,0.08);overflow:hidden;'):
+                        ui.element('div').style(f'width:{_total_pct*100:.1f}%;height:100%;border-radius:3px;background:{_total_util_color};')
+                if _cc_cards:
+                    ui.label(f'Across {len(_cc_cards)} credit card{"s" if len(_cc_cards) != 1 else ""}').classes('text-[10px]').style('color:var(--mf-muted);opacity:0.6;')
 
         # --- Render: Canadian Tire
         if ct:
